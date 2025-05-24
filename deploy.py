@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import shutil
 
 def run_tests():
     """Run the test suite and return True if all tests pass."""
@@ -25,8 +26,16 @@ def run_tests():
 def build_package():
     """Build the Python package."""
     print("\n=== Building package ===")
-    subprocess.run(["rm", "-rf", "dist/", "build/", "src/*.egg-info"], check=True, shell=True)
-    subprocess.run(["python", "-m", "build"], check=True)
+    # Remove build directories in a cross-platform way
+    for dir_path in ["dist", "build"]:
+        if os.path.exists(dir_path):
+            shutil.rmtree(dir_path)
+    # Remove egg-info files
+    for egg_info in os.listdir("src"):
+        if egg_info.endswith('.egg-info'):
+            shutil.rmtree(os.path.join("src", egg_info))
+    
+    subprocess.run([sys.executable, "-m", "build"], check=True)
 
 def check_package():
     """Check the built package."""

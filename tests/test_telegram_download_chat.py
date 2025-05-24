@@ -42,6 +42,85 @@ class TestCLIArgumentParsing:
             assert args.chat == test_chat
             assert args.limit == 0  # Default value from cli.py
             assert args.output is None
+
+class TestFilterMessagesBySubchat:
+    """Tests for filter_messages_by_subchat function."""
+
+    def test_filter_by_integer_id(self):
+        """Test filtering messages by integer message ID."""
+        messages = [
+            {'id': 1, 'reply_to': {'reply_to_msg_id': 123}},
+            {'id': 2, 'reply_to': {'reply_to_msg_id': 456}},
+            {'id': 3, 'reply_to': {'reply_to_msg_id': 123}},
+            {'id': 4, 'reply_to': None},
+        ]
+        filtered = filter_messages_by_subchat(messages, '123')
+        assert len(filtered) == 2
+        assert filtered[0]['id'] == 1
+        assert filtered[1]['id'] == 3
+
+    def test_filter_by_url(self):
+        """Test filtering messages by Telegram chat URL."""
+        messages = [
+            {'id': 1, 'reply_to': {'reply_to_msg_id': 123}},
+            {'id': 2, 'reply_to': {'reply_to_msg_id': 456}},
+            {'id': 3, 'reply_to': {'reply_to_msg_id': 123}},
+            {'id': 4, 'reply_to': None},
+        ]
+        filtered = filter_messages_by_subchat(messages, 'https://t.me/c/123456789/123')
+        assert len(filtered) == 2
+        assert filtered[0]['id'] == 1
+        assert filtered[1]['id'] == 3
+
+    def test_invalid_url_format(self):
+        """Test handling of invalid Telegram chat URL format."""
+        messages = [
+            {'id': 1, 'reply_to': {'reply_to_msg_id': 123}},
+        ]
+        with pytest.raises(ValueError, match="Invalid message ID in URL"):
+            filter_messages_by_subchat(messages, 'https://t.me/c/123456789/abc')
+
+    def test_invalid_url_format_empty(self):
+        """Test handling of empty URL format."""
+        messages = [
+            {'id': 1, 'reply_to': {'reply_to_msg_id': 123}},
+        ]
+        with pytest.raises(ValueError):
+            filter_messages_by_subchat(messages, 'https://t.me/c/')
+
+    def test_invalid_integer_id(self):
+        """Test handling of invalid integer ID format."""
+        messages = [
+            {'id': 1, 'reply_to': {'reply_to_msg_id': 123}},
+        ]
+        with pytest.raises(ValueError, match="Invalid message ID format"):
+            filter_messages_by_subchat(messages, 'abc')
+
+    def test_no_reply_to(self):
+        """Test filtering when message has no reply_to field."""
+        messages = [
+            {'id': 1, 'reply_to': None},
+            {'id': 2, 'reply_to': None},
+            {'id': 3, 'reply_to': {'reply_to_msg_id': 123}},
+        ]
+        filtered = filter_messages_by_subchat(messages, '123')
+        assert len(filtered) == 1
+        assert filtered[0]['id'] == 3
+
+    def test_empty_messages_list(self):
+        """Test filtering with empty messages list."""
+        filtered = filter_messages_by_subchat([], '123')
+        assert filtered == []
+
+    def test_string_comparison(self):
+        """Test that non-numeric subchat_id raises ValueError."""
+        messages = [
+            {'id': 1, 'reply_to': {'reply_to_msg_id': 'abc'}},
+            {'id': 2, 'reply_to': {'reply_to_msg_id': 'xyz'}},
+            {'id': 3, 'reply_to': {'reply_to_msg_id': 'abc'}},
+        ]
+        with pytest.raises(ValueError, match="Invalid message ID format: abc"):
+            filter_messages_by_subchat(messages, 'abc')
     
     def test_all_arguments(self):
         """Test parsing of all command line arguments."""
@@ -53,6 +132,7 @@ class TestCLIArgumentParsing:
             "--config", "custom_config.yml",
             "--debug",
             "--subchat", "123",
+            "--subchat-name", "custom_subchat",
             "--until", "2025-01-01"
         ]
         with patch('sys.argv', test_args):
@@ -63,6 +143,7 @@ class TestCLIArgumentParsing:
             assert args.config == "custom_config.yml"
             assert args.debug is True
             assert args.subchat == "123"
+            assert args.subchat_name == "custom_subchat"
             assert args.until == "2025-01-01"
             
     def test_until_date_format_validation(self):
@@ -93,6 +174,16 @@ class TestCLIArgumentParsing:
             assert args.chat == "chat_history.json"
             # Should not require --output for JSON input
             assert args.output is None
+            # subchat_name should be None by default
+            assert args.subchat_name is None
+
+    def test_json_conversion_with_subchat_name(self):
+        """Test JSON conversion with subchat-name option."""
+        with patch('sys.argv', ['script_name', 'chat_history.json', '--subchat', '123', '--subchat-name', 'custom_subchat']):
+            args = parse_args()
+            assert args.chat == "chat_history.json"
+            assert args.subchat == "123"
+            assert args.subchat_name == "custom_subchat"
 
 class TestCLIExecution:
     """Tests for CLI execution flow."""
@@ -366,18 +457,31 @@ async def test_get_entity_name():
     """Test getting a safe entity name."""
     # Create a mock client and set it on the downloader
     mock_client = AsyncMock()
-    mock_client.is_connected = AsyncMock(return_value=False)  # Mock is_connected as async
     mock_entity = MagicMock()
     mock_entity.title = 'Test Chat'
-    mock_client.get_entity.return_value = mock_entity
     
+    # Create a mock for the get_entity method
+    async def mock_get_entity(identifier):
+        return mock_entity
+    
+    # Create downloader and set up mocks
     downloader = TelegramChatDownloader()
     downloader.client = mock_client
-    downloader.connect = AsyncMock()  # Mock connect as async
+    downloader.get_entity = AsyncMock(side_effect=mock_get_entity)
+    downloader.connect = AsyncMock()
     
-    # The method only takes self and chat_identifier as parameters
+    # Test with a username
     name = await downloader.get_entity_name('@testchat')
     assert name == 'Test_Chat'
+    
+    # Verify get_entity was called with the correct argument
+    downloader.get_entity.assert_awaited_once_with('@testchat')
+    
+    # Test with a URL
+    downloader.get_entity.reset_mock()
+    name = await downloader.get_entity_name('https://t.me/testchat')
+    assert name == 'Test_Chat'
+    downloader.get_entity.assert_awaited_once_with('https://t.me/testchat')
 
 
 def test_get_temp_file_path():
@@ -394,16 +498,17 @@ def test_get_temp_file_path():
 async def test_download_chat_with_limit():
     """Test downloading chat with a message limit."""
     import logging
-    from telethon.tl.types import PeerChannel, PeerChat, PeerUser
-    from telethon.tl.patched import Message
+    from telethon.tl.types import PeerChannel
     from telegram_download_chat.core import TelegramChatDownloader
     
     # Set up logging
     logging.basicConfig(level=logging.DEBUG)
     logger = logging.getLogger(__name__)
     
-    # Create a mock client
+    # Create a mock client with proper async methods
     mock_client = AsyncMock()
+    # is_connected is a property, not a coroutine
+    type(mock_client).is_connected = property(lambda s: False)
     
     # Create test messages
     test_messages = [
@@ -418,46 +523,44 @@ async def test_download_chat_with_limit():
         for i in range(1, 101)
     ]
     
-    # Create a mock messages object with messages and users
-    mock_messages = MagicMock()
-    mock_messages.messages = test_messages
-    mock_messages.users = []
-    mock_messages.chats = []
-    
     # Mock the client's __call__ method to return our mock messages
-    mock_client.return_value = mock_messages
+    mock_client.return_value = MagicMock(
+        messages=test_messages,
+        users=[],
+        chats=[]
+    )
     
     # Create downloader and set the mock client
     downloader = TelegramChatDownloader()
     downloader.client = mock_client
     downloader.logger = logger
+    downloader.connect = AsyncMock()
     
     # Mock get_entity to return a basic entity
-    async def mock_get_entity(chat_id):
-        return MagicMock(id=12345, title="Test Chat")
-    
-    downloader.client.get_entity = mock_get_entity
+    mock_entity = MagicMock(id=12345, title="Test Chat")
+    downloader.client.get_entity = AsyncMock(return_value=mock_entity)
     
     # Create a function to handle GetHistoryRequest with limit
-    async def mock_get_history_request(*args, **kwargs):
+    def mock_get_history_request(*args, **kwargs):
         limit = kwargs.get('limit', 100)
-        # Return a new mock with only the requested number of messages
-        limited_messages = MagicMock()
-        limited_messages.messages = test_messages[:limit]
-        limited_messages.users = []
-        limited_messages.chats = []
-        return limited_messages
+        mock_result = MagicMock()
+        mock_result.messages = test_messages[:limit]
+        mock_result.users = []
+        mock_result.chats = []
+        return mock_result
     
     # Patch the GetHistoryRequest to use our mock function
-    with patch('telegram_download_chat.core.GetHistoryRequest', side_effect=mock_get_history_request):
+    with patch('telethon.tl.functions.messages.GetHistoryRequest', side_effect=mock_get_history_request):
         # Test with limit
         logger.debug("Starting download_chat with limit=10")
         messages = await downloader.download_chat("test_chat", total_limit=10)
         
         logger.debug(f"Downloaded {len(messages)} messages")
         if messages:
-            logger.debug(f"First message ID: {messages[0].get('id') if isinstance(messages[0], dict) else messages[0].id}")
-            logger.debug(f"Last message ID: {messages[-1].get('id') if isinstance(messages[-1], dict) else messages[-1].id}")
+            first_id = messages[0].get('id') if isinstance(messages[0], dict) else messages[0].id
+            last_id = messages[-1].get('id') if isinstance(messages[-1], dict) else messages[-1].id
+            logger.debug(f"First message ID: {first_id}")
+            logger.debug(f"Last message ID: {last_id}")
         
         assert len(messages) == 10, f"Expected 10 messages, got {len(messages)}"
         if messages:
@@ -519,17 +622,21 @@ async def test_connect_and_disconnect():
     from unittest.mock import patch, MagicMock, AsyncMock
     from telegram_download_chat.core import TelegramChatDownloader
     
-    # Create a mock client with async methods
+    # Create a mock client with proper async methods
     mock_client = AsyncMock()
     mock_client.start = AsyncMock()
     mock_client.disconnect = AsyncMock()
-    mock_client.is_connected = AsyncMock(return_value=True)  # Mock is_connected as async
+    # is_connected is a method that returns a boolean
+    mock_client.is_connected = MagicMock(return_value=True)
+    
+    # Create a mock client class that returns our mock client
+    mock_client_class = MagicMock(return_value=mock_client)
     
     # Patch the environment variables and TelegramClient
     with patch.dict(os.environ, {
         'TELEGRAM_API_ID': 'test_api_id',
         'TELEGRAM_API_HASH': 'test_api_hash'
-    }), patch('telegram_download_chat.core.TelegramClient', return_value=mock_client) as mock_client_class:
+    }), patch('telegram_download_chat.core.TelegramClient', new=mock_client_class):
         # Create downloader
         downloader = TelegramChatDownloader()
         
@@ -538,7 +645,9 @@ async def test_connect_and_disconnect():
             'settings': {
                 'api_id': 'test_api_id',
                 'api_hash': 'test_api_hash',
-                'session_name': 'test_session'
+                'session_name': 'test_session',
+                'request_retries': 3,
+                'request_delay': 1
             }
         }
         
@@ -552,27 +661,45 @@ async def test_connect_and_disconnect():
         
         # Test disconnect
         await downloader.close()
+        
+        # Verify client was disconnected
         mock_client.disconnect.assert_awaited_once()
+        assert downloader.client is None
 
 
 @pytest.mark.asyncio
 async def test_download_chat_error_handling():
-    """Test error handling in download_chat method."""
-    from telethon.errors import RPCError
-    from telethon.tl.types import InputPeerChannel
+    """Test that download_chat properly propagates errors from get_entity."""
+    from unittest.mock import patch, MagicMock, AsyncMock
     from telegram_download_chat.core import TelegramChatDownloader
     
-    # Create a mock client that raises an error
+    # Create a mock client
     mock_client = AsyncMock()
-    mock_entity = InputPeerChannel(channel_id=123, access_hash=456)
-    mock_client.get_entity.return_value = mock_entity
-    mock_client.side_effect = RPCError(400, "Test error")
+    mock_client.is_connected = AsyncMock(return_value=False)
     
-    # Create downloader and set the mock client
-    downloader = TelegramChatDownloader()
+    # Create downloader and set up mocks
+    with patch('telegram_download_chat.core.TelegramChatDownloader._setup_logging'):
+        downloader = TelegramChatDownloader()
+    
     downloader.client = mock_client
-    downloader.logger = MagicMock()  # Mock the logger
+    downloader.connect = AsyncMock()
+    downloader.logger = MagicMock()
     
-    # Test that the error is properly caught and re-raised
-    with pytest.raises(RPCError, match="Test error"):
-        await downloader.download_chat("test_chat")
+    # Create a mock for get_entity that raises a ValueError
+    error_msg = "Cannot find any entity corresponding to 'test_chat'"
+    mock_get_entity = AsyncMock(side_effect=ValueError(error_msg))
+    
+    # Replace the get_entity method with our mock
+    with patch.object(downloader, 'get_entity', new=mock_get_entity):
+        # Test that the error is properly propagated
+        with pytest.raises(ValueError, match=error_msg) as exc_info:
+            await downloader.download_chat("test_chat")
+        
+        # Verify the error message is correct
+        assert str(exc_info.value) == error_msg
+    
+    # Verify that get_entity was called with the correct argument
+    mock_get_entity.assert_called_once_with("test_chat")
+    
+    # Verify that no error was logged (since the error is propagated, not logged)
+    assert not downloader.logger.error.called, "Expected no error to be logged since the error is propagated"

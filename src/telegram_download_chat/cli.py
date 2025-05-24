@@ -56,7 +56,12 @@ def parse_args():
     parser.add_argument(
         '--subchat',
         type=str,
-        help="Filter messages by reply_to_msg_id or reply_to_top_id (only with --json)"
+        help="Filter messages for txt by subchat id or URL (only with --json)"
+    )
+    parser.add_argument(
+        '--subchat-name',
+        type=str,
+        help="Name for the subchat directory (default: subchat_<subchat_id>)"
     )
     parser.add_argument(
         '--until',
@@ -82,12 +87,22 @@ def filter_messages_by_subchat(messages: List[Dict[str, Any]], subchat_id: str) 
     Returns:
         Filtered list of messages
     """
-    try:
-        # Try to convert subchat_id to int for comparison
-        target_id = int(subchat_id)
-    except (ValueError, TypeError):
-        # If conversion fails, try string comparison
-        target_id = subchat_id
+    # Convert subchat_id to int for comparison, or extract from URL
+    if subchat_id.startswith('https://t.me/c/'):
+        # Extract message ID from URL format: https://t.me/c/CHANNEL_ID/MESSAGE_ID
+        parts = subchat_id.strip('/').split('/')
+        if len(parts) >= 3:
+            try:
+                target_id = int(parts[-1])  # Take the last part as message ID
+            except ValueError:
+                raise ValueError(f"Invalid message ID in URL: {subchat_id}")
+        else:
+            raise ValueError(f"Invalid Telegram chat URL format: {subchat_id}")
+    else:
+        try:
+            target_id = int(subchat_id)
+        except ValueError:
+            raise ValueError(f"Invalid message ID format: {subchat_id}")
     
     filtered = []
     for msg in messages:
@@ -164,7 +179,8 @@ async def async_main():
             # Apply subchat filter if specified
             if args.subchat:
                 messages = filter_messages_by_subchat(messages, args.subchat)
-                txt_path = txt_path.with_name(f"{txt_path.stem}_subchat_{args.subchat}{txt_path.suffix}")
+                # Use subchat_name directly in filename
+                txt_path = downloads_dir / f"{args.subchat_name or f'{txt_path.stem}_subchat_{args.subchat}'}{txt_path.suffix}"
                 downloader.logger.info(f"Filtered to {len(messages)} messages in subchat {args.subchat}")
                 
             saved = await downloader.save_messages_as_txt(messages, txt_path)
@@ -176,8 +192,13 @@ async def async_main():
         downloader.logger.debug("Connecting to Telegram...")
         await downloader.connect()
         
+        safe_chat_name = await downloader.get_entity_name(args.chat)
+        if not safe_chat_name:
+            downloader.logger.error(f"Failed to get entity name for chat: {args.chat}")
+            return 1
+
         # Download chat history
-        downloader.logger.info(f"Downloading messages from chat: {args.chat}")
+        downloader.logger.info(f"Downloading messages from chat: {args.chat} ({safe_chat_name})")
         downloader.logger.debug(f"Using limit: {args.limit}")
         
         # Parse until_date if provided
@@ -221,7 +242,6 @@ async def async_main():
         if not output_file:
             # Get safe filename from entity name
             try:
-                safe_chat_name = await downloader.get_entity_name(args.chat)
                 downloader.logger.debug(f"Using entity name for output: {safe_chat_name}")
             except Exception as e:
                 downloader.logger.warning(f"Could not get entity name: {e}, using basic sanitization")

@@ -4,16 +4,16 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-import re
+from typing import Any, Dict, List, Optional, Tuple, Union
 import yaml
 from telethon import TelegramClient
-from telethon.tl.functions.messages import GetHistoryRequest
-from telethon.tl.types import Message, PeerUser
-
+from telethon.tl.custom import Message
+from telethon.tl.types import PeerUser, PeerChat, PeerChannel, User, Chat, Channel, TypePeer
+from telethon.errors import ChatIdInvalidError
 from .paths import get_default_config, get_default_config_path, ensure_app_dirs, get_app_dir
 
 class TelegramChatDownloader:
@@ -182,7 +182,7 @@ class TelegramChatDownloader:
         if not self.client:
             await self.connect()
         
-        entity = await self.client.get_entity(chat_id)
+        entity = await self.get_entity(chat_id)
         offset_id = 0
         all_messages = []
         
@@ -438,6 +438,95 @@ class TelegramChatDownloader:
         
         self.logger.info(f"Saved {len(messages)} messages to {output_file}")
     
+    async def get_entity(self, identifier: str) -> Optional[Union[User, Chat, Channel]]:
+        """Get Telegram entity by identifier (username, URL, or ID).
+        
+        Args:
+            identifier: Telegram entity identifier
+                - Username: @username
+                - URL: https://t.me/username
+                - ID: 123456789 or "-1001234567890" (user_id, group_id, or channel_id)
+                - Phone number: +1234567890
+                
+        Returns:
+            Telegram entity object (User, Chat, or Channel) or None if not found
+        """
+        try:
+            if not self.client or not self.client.is_connected():
+                await self.connect()
+            
+            self.logger.debug(f"Resolving entity: {identifier}")
+            
+            # Handle numeric IDs (either as int or string)
+            if isinstance(identifier, (int, str)) and str(identifier).lstrip('-').isdigit():
+                id_value = int(identifier)
+                self.logger.debug(f"Trying to resolve numeric ID: {id_value}")
+                
+                # Try different peer types
+                peer_types = [
+                    (PeerChannel, 'channel/supergroup'),
+                    (PeerChat, 'basic group'),
+                    (PeerUser, 'user')
+                ]
+                
+                for peer_cls, peer_type in peer_types:
+                    try:
+                        self.logger.debug(f"Trying to resolve as {peer_type}...")
+                        entity = await self.client.get_entity(peer_cls(id_value))
+                        self.logger.debug(f"Successfully resolved as {peer_type}")
+                        return entity
+                    except (ValueError, TypeError, KeyError, ChatIdInvalidError) as e:
+                        self.logger.debug(f"Failed to resolve as {peer_type}: {str(e)}")
+                        continue
+                    except Exception as e:
+                        self.logger.debug(f"Unexpected error resolving as {peer_type}: {str(e)}")
+                        continue
+                        
+                self.logger.warning(f"Could not resolve ID {id_value} as any peer type, trying alternative methods...")
+                
+                # Try to get the entity by first getting all dialogs
+                try:
+                    self.logger.debug("Trying to find entity in dialogs...")
+                    async for dialog in self.client.iter_dialogs():
+                        if hasattr(dialog.entity, 'id') and dialog.entity.id == abs(id_value):
+                            self.logger.debug(f"Found entity in dialogs: {dialog.entity}")
+                            return dialog.entity
+                except Exception as e:
+                    self.logger.debug(f"Error searching in dialogs: {str(e)}")
+                
+                # Try to get the entity by its ID directly (sometimes works for private chats)
+                try:
+                    self.logger.debug("Trying direct entity access...")
+                    return await self.client.get_entity(PeerChannel(abs(id_value)))
+                except Exception as e:
+                    self.logger.debug(f"Direct entity access failed: {str(e)}")
+                
+                # If we're here, we couldn't find the entity
+                self.logger.warning(f"Could not find entity with ID {id_value} using any method")
+                return None
+            
+            # For strings (usernames, URLs, phone numbers)
+            self.logger.debug(f"Trying to resolve as string identifier...")
+            try:
+                entity = await self.client.get_entity(identifier)
+                self.logger.debug(f"Successfully resolved string identifier")
+                return entity
+            except Exception as e:
+                self.logger.debug(f"Failed to resolve string identifier: {str(e)}")
+                raise
+                
+        except Exception as e:
+            self.logger.error(f"Error getting entity {identifier}: {str(e)}")
+            # Try one more time with a fresh connection
+            try:
+                self.logger.debug("Trying with a fresh connection...")
+                await self.client.disconnect()
+                await self.connect()
+                return await self.client.get_entity(identifier)
+            except Exception as e2:
+                self.logger.error(f"Second attempt failed: {str(e2)}")
+                return None
+
     async def get_entity_name(self, chat_identifier: str) -> str:
         """Get the name of a Telegram entity using client.get_entity().
         
@@ -455,12 +544,10 @@ class TelegramChatDownloader:
             return 'chat_history'
             
         try:
-            if not self.client or not self.client.is_connected():
-                await self.connect()
+            entity = await self.get_entity(chat_identifier)
+            if not entity:
+                return None
                 
-            # Get the entity using the client
-            entity = await self.client.get_entity(chat_identifier)
-            
             # Get the appropriate name based on entity type
             if hasattr(entity, 'title'):  # For chats/channels
                 name = entity.title

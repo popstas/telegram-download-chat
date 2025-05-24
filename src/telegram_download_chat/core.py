@@ -455,7 +455,7 @@ class TelegramChatDownloader:
             return 'chat_history'
             
         try:
-            if not self.client or not await self.client.is_connected():
+            if not self.client or not self.client.is_connected():
                 await self.connect()
                 
             # Get the entity using the client
@@ -490,7 +490,7 @@ class TelegramChatDownloader:
     
     async def close(self) -> None:
         """Close the Telegram client connection."""
-        if self.client and await self.client.is_connected():
+        if self.client and self.client.is_connected():
             await self.client.disconnect()
             self.client = None
     

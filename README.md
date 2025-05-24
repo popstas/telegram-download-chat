@@ -4,49 +4,29 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/pypi/pyversions/telegram-download-chat)](https://pypi.org/project/telegram-download-chat/)
 
-A command-line utility to download Telegram chat history to JSON format.
+A command-line utility to download Telegram chat history to JSON and TXT format.
 
 ## Features
 
 - Download complete chat history from any Telegram chat, group, or channel
 - Save messages in JSON format with full message metadata
+- Save messages in TXT format with user-friendly display names
 - Simple configuration with YAML config file
 - Support for resuming interrupted downloads
-- User-friendly command-line interface
-- User mapping for display names in text exports
-- Installable package with `uvx` for easy management
 
 ## Installation
 
-### Using uvx (recommended)
+### Using pip
 
-1. Install `uvx` if you haven't already:
-   ```bash
-   pip install uvx
-   ```
+```bash
+pip install telegram-download-chat
+```
 
-2. Install the package in development mode:
-   ```bash
-   uvx install -e .
-   ```
+### Using uvx
 
-   Or install it directly from the repository:
-   ```bash
-   uvx install git+https://github.com/yourusername/telegram-download-chat.git
-   ```
-
-### Manual Installation
-
-1. Clone this repository or download the source code
-2. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Copy the example config file and update it with your API credentials:
-   ```bash
-   cp config.example.yml config.yml
-   ```
+```bash
+uvx install git+https://github.com/popstas/telegram-download-chat.git
+```
 
 ## Configuration
 
@@ -106,7 +86,7 @@ options:
 
 ```bash
 # Download chat to default output file (chat_history.json)
-python telegram-download-chat.py https://t.me/username
+python telegram-download-chat.py username
 
 # Download messages until a specific date (exclusive)
 python telegram-download-chat.py https://t.me/username --until 2025-05-01

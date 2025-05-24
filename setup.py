@@ -9,7 +9,7 @@ long_description = (this_directory / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="telegram-download-chat",
-    version="0.1.1",
+    version="0.1.2",
     description="CLI utility for downloading Telegram chat history to JSON",
     long_description=long_description,
     long_description_content_type="text/markdown",

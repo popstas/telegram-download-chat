@@ -1,0 +1,10 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include config.yml.example
+recursive-include src/telegram_download_chat *.py
+recursive-include tests *.py
+recursive-include docs *
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * *.so

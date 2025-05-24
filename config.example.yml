@@ -1,0 +1,30 @@
+settings:
+  # Required API credentials - get these from https://my.telegram.org/apps
+  api_id: YOUR_API_ID
+  api_hash: YOUR_API_HASH
+
+  # Other settings are optional
+
+  # Path where downloaded chats will be saved
+  save_path: ./data/chats
+  
+  # Default number of messages to fetch per API request (50-1000)
+  fetch_limit: 500
+  
+  # Session file settings
+  session_name: session
+
+  # Wait time between API requests (in seconds)
+  request_delay: 0.1
+  # Maximum number of retries for failed requests
+  max_retries: 5
+  
+  # Log file path (empty for console only)
+  log_file: ./data/telegram_downloader.log
+  # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  log_level: INFO
+
+# User mapping for TXT export
+users_map:
+  123456: "Alice"
+  789012: "Bob"

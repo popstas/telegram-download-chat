@@ -57,16 +57,24 @@ users_map:
 
 ## Usage
 
-### Basic Usage
+For the first run, you will need to log in to your Telegram account.
 
 ```bash
-python telegram-download-chat.py https://t.me/username
+# Download private chat with username
+telegram-download-chat username
+
+# Download messages from group by invite link until a specific date (exclusive)
+telegram-download-chat https://t.me/+_m82VpT1ipg2f8dj --until 2025-05-01
+
+# Download last 100 messages from channel
+telegram-download-chat https://t.me/popstas_music --limit 100
 ```
+
 
 ### Command Line Options
 
 ```
-usage: telegram-download-chat.py [-h] [-o OUTPUT] [--limit LIMIT] [--until DATE] [-s] chat
+usage: telegram-download-chat [-h] [-o OUTPUT] [--limit LIMIT] [--until DATE] [-s] chat
 
 Download Telegram chat history to JSON
 
@@ -82,27 +90,8 @@ options:
   -s, --silent          Suppress progress output (default: False)
 ```
 
-### Examples
-
-```bash
-# Download chat to default output file (chat_history.json)
-python telegram-download-chat.py username
-
-# Download messages until a specific date (exclusive)
-python telegram-download-chat.py https://t.me/username --until 2025-05-01
-
-# Combine with other options
-python telegram-download-chat.py @username --limit 100 --until 2025-01-01 -o my_chat.json
-```
-
 ## Output Format
 
 The tool generates two files for each chat:
 1. `[chat_name].json` - Complete message data in JSON format
 2. `[chat_name].txt` - Human-readable text version of the chat
-
-## Notes
-
-- For the first run, you will need to log in to your Telegram account
-- Session is saved in `./data/session.session`
-- For work requires Python 3.7+

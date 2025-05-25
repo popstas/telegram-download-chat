@@ -56,12 +56,17 @@ def parse_args():
     parser.add_argument(
         '--subchat',
         type=str,
-        help="Filter messages for txt by subchat id or URL (only with --json)"
+        help="Filter messages for txt by subchat id or URL (only for JSON to TXT conversion)"
     )
     parser.add_argument(
         '--subchat-name',
         type=str,
         help="Name for the subchat directory (default: subchat_<subchat_id>)"
+    )
+    parser.add_argument(
+        '--user',
+        type=str,
+        help="Filter messages by sender ID (e.g., 12345 or user12345)"
     )
     parser.add_argument(
         '--until',
@@ -174,7 +179,16 @@ async def async_main():
             with open(json_path, 'r', encoding='utf-8') as f:
                 messages = json.load(f)
                 
+            # Check if messages is a dictionary with 'about' and 'chats' keys
+            if isinstance(messages, dict) and 'about' in messages and 'chats' in messages:
+                messages = downloader.convert_archive_to_messages(messages, user_filter=args.user)
+                
             txt_path = Path(json_path).with_suffix('.txt')
+            
+            # If user filter is specified, add it to the filename
+            if args.user:
+                user_id = args.user.replace('user', '') if args.user.startswith('user') else args.user
+                txt_path = txt_path.with_stem(f"{txt_path.stem}_user_{user_id}")
 
             # Apply subchat filter if specified
             if args.subchat:

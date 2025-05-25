@@ -341,9 +341,93 @@ class TelegramChatDownloader:
             return None
         return sender_id    
     
+    def convert_archive_to_messages(self, archive: Dict[str, Any], user_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Convert Telegram archive to list of messages.
+        
+        Args:
+            archive: Dictionary containing the Telegram export data
+            user_filter: Optional user ID to filter messages by sender (e.g., '12345' or 'user12345')
+            
+        Returns:
+            List of formatted message dictionaries
+        """
+        self.logger.debug("Converting archive to messages...")
+        if user_filter:
+            self.logger.info(f"Filtering messages by user: {user_filter}")
+            # Remove 'user' prefix if present for comparison
+            user_filter = user_filter.replace('user', '') if user_filter.startswith('user') else user_filter
+            
+        messages = []
+        
+        chats = archive.get('chats', {}).get('list', [])
+        left_chats = archive.get('left_chats', {}).get('list', [])
+        chats.extend(left_chats)
+
+        self.logger.info(f"Found {len(chats)} chats, including {len(left_chats)} left chats")
+        for chat in chats:
+            chat_id = chat.get('id')
+            if not chat_id:
+                continue
+                
+            for message in chat.get('messages', []):
+                # Skip non-message types
+                if message.get('type') != 'message':
+                    continue
+                    
+                # Handle text content (can be string, list of strings/objects, or None)
+                text = message.get('text', '')
+                if isinstance(text, list):
+                    text_parts = []
+                    for part in text:
+                        if isinstance(part, str):
+                            text_parts.append(part)
+                        elif isinstance(part, dict):
+                            text_parts.append(part.get('text', ''))
+                    text = ''.join(text_parts)
+                elif not isinstance(text, str):
+                    text = str(text)
+                    
+                # Get user ID from from_id (handling both 'user123' format and direct IDs)
+                from_id = message.get('from_id', '')
+                if isinstance(from_id, str) and from_id.startswith('user'):
+                    try:
+                        user_id = int(from_id[4:])  # Remove 'user' prefix
+                    except (ValueError, TypeError):
+                        user_id = from_id  # Fallback to original if conversion fails
+                else:
+                    user_id = from_id
+                    
+                # Skip if user filter is set and doesn't match
+                if user_filter and str(user_id) != user_filter:
+                    continue
+                    
+                # Format the message
+                formatted = {
+                    'id': message.get('id'),
+                    'peer_id': {
+                        '_': 'PeerChat' if chat.get('type') == 'group' else 'PeerChannel',
+                        'channel_id' if chat.get('type') in ['channel', 'public_supergroup'] 
+                            else 'user_id': chat_id
+                    },
+                    'date': message.get('date'),
+                    'message': text,
+                    'from_id': {
+                        '_': 'PeerUser',
+                        'user_id': user_id
+                    }
+                }
+                
+                # Add reply info if exists
+                if 'reply_to_message_id' in message:
+                    formatted['reply_to_msg_id'] = message['reply_to_message_id']
+                    
+                messages.append(formatted)
+        
+        return messages
+    
     async def save_messages_as_txt(self, messages: List[Dict[str, Any]], txt_path: Path) -> int:
         """Save messages to a human-readable text file.
-        
+         
         Args:
             messages: List of message dictionaries
             txt_path: Path to save the text file

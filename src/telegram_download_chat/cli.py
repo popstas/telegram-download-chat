@@ -74,12 +74,56 @@ def parse_args():
         help="Only download messages until this date (format: YYYY-MM-DD)"
     )
     parser.add_argument(
+        '--split',
+        choices=['month', 'year'],
+        help="Split output files by month or year"
+    )
+    parser.add_argument(
         '-v', '--version',
         action='version',
         version=f'%(prog)s {__version__}'
     )
     
     return parser.parse_args()
+
+
+def split_messages_by_date(messages: List[Dict[str, Any]], split_by: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Split messages by month or year based on message date.
+    
+    Args:
+        messages: List of message dictionaries
+        split_by: Either 'month' or 'year' to determine how to split
+        
+    Returns:
+        Dictionary with keys as date strings (YYYY-MM or YYYY) and values as message lists
+    """
+    from datetime import datetime
+    
+    split_messages = {}
+    
+    for msg in messages:
+        if not msg.get('date'):
+            continue
+            
+        try:
+            # Parse the date string to datetime object
+            dt = datetime.strptime(msg['date'].split('.')[0], '%Y-%m-%dT%H:%M:%S')
+            
+            # Create the key based on split type
+            if split_by == 'month':
+                key = dt.strftime('%Y-%m')  # YYYY-MM format
+            else:  # year
+                key = dt.strftime('%Y')  # YYYY format
+                
+            # Add message to the appropriate group
+            if key not in split_messages:
+                split_messages[key] = []
+            split_messages[key].append(msg)
+            
+        except (ValueError, AttributeError) as e:
+            continue
+            
+    return split_messages
 
 
 def filter_messages_by_subchat(messages: List[Dict[str, Any]], subchat_id: str) -> List[Dict[str, Any]]:
@@ -196,10 +240,32 @@ async def async_main():
                 # Use subchat_name directly in filename
                 txt_path = downloads_dir / f"{args.subchat_name or f'{txt_path.stem}_subchat_{args.subchat}'}{txt_path.suffix}"
                 downloader.logger.info(f"Filtered to {len(messages)} messages in subchat {args.subchat}")
+            
+            # Handle message splitting if requested
+            if args.split:
+                split_messages = split_messages_by_date(messages, args.split)
+                if not split_messages:
+                    downloader.logger.warning("No messages with valid dates found for splitting")
+                    saved = await downloader.save_messages_as_txt(messages, txt_path)
+                    downloader.logger.info(f"Saved {saved} messages to {txt_path}")
+                else:
+                    # Save each group to a separate file
+                    base_name = txt_path.stem
+                    ext = txt_path.suffix
+                    total_saved = 0
+                    
+                    for date_key, msgs in split_messages.items():
+                        split_file = txt_path.with_name(f"{base_name}_{date_key}{ext}")
+                        saved = await downloader.save_messages_as_txt(msgs, split_file)
+                        total_saved += saved
+                        downloader.logger.info(f"Saved {saved} messages to {split_file}")
+                    
+                    downloader.logger.info(f"Saved {total_saved} total messages in {len(split_messages)} files to {txt_path.parent}")
+            else:
+                saved = await downloader.save_messages_as_txt(messages, txt_path)
+                downloader.logger.info(f"Saved {saved} messages to {txt_path}")
                 
-            saved = await downloader.save_messages_as_txt(messages, txt_path)
-            downloader.logger.info(f"Saved {saved} messages to {txt_path}")
-            downloader.logger.debug(f"Conversion completed successfully")
+            downloader.logger.debug("Conversion completed successfully")
             return 0
             
         # Normal chat download mode
@@ -267,7 +333,28 @@ async def async_main():
                 output_file = str(Path(output_file).with_stem(f"{Path(output_file).stem}_subchat_{args.subchat}"))
         
         try:
-            await downloader.save_messages(messages, output_file)
+            if args.split:
+                # Split messages by date
+                split_messages = split_messages_by_date(messages, args.split)
+                
+                if not split_messages:
+                    downloader.logger.warning("No messages with valid dates found for splitting")
+                    await downloader.save_messages(messages, output_file)
+                else:
+                    # Save each group to a separate file
+                    output_path = Path(output_file)
+                    base_name = output_path.stem
+                    ext = output_path.suffix
+                    
+                    for date_key, msgs in split_messages.items():
+                        split_file = output_path.with_name(f"{base_name}_{date_key}{ext}")
+                        await downloader.save_messages(msgs, str(split_file))
+                        downloader.logger.info(f"Saved {len(msgs)} messages to {split_file}")
+                    
+                    downloader.logger.info(f"Saved {len(split_messages)} split files in {output_path.parent}")
+            else:
+                await downloader.save_messages(messages, output_file)
+                
         except Exception as e:
             downloader.logger.error(f"Failed to save messages: {e}", exc_info=args.debug)
             return 1

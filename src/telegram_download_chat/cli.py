@@ -370,6 +370,21 @@ async def async_main():
 
 def main() -> int:
     """Main entry point."""
+    # Support GUI mode: `telegram-download-chat gui`
+    if (len(sys.argv) >= 2 and sys.argv[1] == 'gui') or len(sys.argv) == 1:
+        try:
+            from .gui_app import main as gui_main
+            gui_main()
+            return 0
+        except ImportError as e:
+            print("GUI dependencies not installed. Please install with: pip install 'telegram-download-chat[gui]'")
+            print(e)
+            return 1
+        except Exception as e:
+            print(f"Error starting GUI: {e}")
+            print(e)
+            return 1
+            
     try:
         return asyncio.run(async_main())
     except KeyboardInterrupt:

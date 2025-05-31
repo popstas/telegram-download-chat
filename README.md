@@ -14,6 +14,7 @@ A powerful command-line utility to download and analyze Telegram chat history in
 - Filter messages by date range and specific users
 - Extract sub-conversations from message threads
 - Cross-platform support (Windows, macOS, Linux)
+- Optional graphical user interface (GUI) for easier interaction
 
 
 ## Use Cases
@@ -49,6 +50,27 @@ A powerful command-line utility to download and analyze Telegram chat history in
 ### Prerequisites
 - Python 3.8 or higher
 - pip (Python package manager)
+
+### GUI Version (Optional)
+
+For those who prefer a graphical interface, a GUI version is available. To use it:
+
+1. Install with GUI dependencies:
+   ```bash
+   pip install "telegram-download-chat[gui]"
+   ```
+
+2. Launch the GUI:
+   ```bash
+   telegram-download-chat gui
+   ```
+
+The GUI provides an easy-to-use interface with the following features:
+- Download chat history with configurable options
+- Convert exported JSON data to other formats
+- Real-time log viewing
+- File preview functionality
+- Browse and open downloaded files
 
 ### Install from PyPI (recommended)
 

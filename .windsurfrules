@@ -1,3 +1,5 @@
 Update README.md after features changes.
 
 Use `telegram-download-chat` for run cli.
+
+После build_windows.ps1 запускай приложение.

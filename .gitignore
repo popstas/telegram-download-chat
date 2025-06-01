@@ -79,3 +79,4 @@ coverage.xml
 # Local development
 .DS_Store
 Thumbs.db
+*.tar.gz

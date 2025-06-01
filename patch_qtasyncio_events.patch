@@ -1,0 +1,11 @@
+--- events.py.original
++++ events.py
+@@ -598,7 +598,7 @@
+     def _handle_task_exception(self, context):
+         if self._exception_handler is None:
+             if self._debug:
+-                print(f"{context["message"]} from task {context["task"]._name}, "
++                print(f"{context['message']} from task {context['task']._name}, "
+                       f"created at {self._format_time(context['task']._created)}")
+             return False
+         return self._exception_handler(context)

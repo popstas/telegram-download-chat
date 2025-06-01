@@ -28,6 +28,15 @@ echo "Installing/updating dependencies..."
 "$PYTHON_EXEC" -m pip install -e ".[gui]"
 "$PYTHON_EXEC" -m pip install pyinstaller Pillow>=10.0.0
 
+# Apply patch for PySide6.QtAsyncio.events.py f-string syntax error
+echo "Applying patch for PySide6.QtAsyncio.events.py..."
+EVENTS_PY="$SCRIPT_DIR/venv/lib/python3.9/site-packages/PySide6/QtAsyncio/events.py"
+if [ -f "$EVENTS_PY" ]; then
+    patch -N -r - "$EVENTS_PY" < "$SCRIPT_DIR/patch_qtasyncio_events.patch" || true
+else
+    echo "Warning: Could not find $EVENTS_PY to apply patch"
+fi
+
 # Clean previous builds
 echo "Cleaning previous builds..."
 rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/build" "$SCRIPT_DIR/telegram-download-chat.spec"
@@ -56,9 +65,13 @@ echo "Building executable..."
     --specpath "$SCRIPT_DIR" \
     "$SCRIPT_DIR/launcher.py"
 
-# Create a zip archive with the executable
-VERSION=$(grep -oP 'version = "\K[0-9]+\.[0-9]+\.[0-9]+(?=")' "$SCRIPT_DIR/pyproject.toml")
-ARCHIVE_NAME="telegram-download-chat-macos-x86_64-v${VERSION}.tar.gz"
+# Get version from pyproject.toml
+VERSION=$(grep '^version = ' "$SCRIPT_DIR/pyproject.toml" | sed -E 's/version = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/')
+if [ -z "$VERSION" ]; then
+    echo "Error: Could not extract version from pyproject.toml"
+    exit 1
+fi
+ARCHIVE_NAME="telegram-download-chat-macos-$(uname -m)-v${VERSION}.tar.gz"
 
 # Create a temporary directory for the archive
 TEMP_DIR="$(mktemp -d)"

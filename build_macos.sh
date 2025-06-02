@@ -45,15 +45,42 @@ rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/build" "$SCRIPT_DIR/telegram-download-cha
 BUILD_DIR="$(mktemp -d)"
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
-# Build the executable with PyInstaller
-echo "Building executable..."
+# Create .icns file from icon.png if it doesn't exist
+ICONSET_DIR="$SCRIPT_DIR/telegram-download-chat.iconset"
+ICON_SRC="$SCRIPT_DIR/assets/icon.png"
+ICONSET_DEST="$SCRIPT_DIR/telegram-download-chat.icns"
+
+if [ ! -f "$ICONSET_DEST" ]; then
+    echo "Creating .icns file..."
+    mkdir -p "$ICONSET_DIR"
+    
+    # Create icons of different sizes
+    sips -z 16 16     "$ICON_SRC" --out "$ICONSET_DIR/icon_16x16.png" > /dev/null
+    sips -z 32 32     "$ICON_SRC" --out "$ICONSET_DIR/icon_16x16@2x.png" > /dev/null
+    sips -z 32 32     "$ICON_SRC" --out "$ICONSET_DIR/icon_32x32.png" > /dev/null
+    sips -z 64 64     "$ICON_SRC" --out "$ICONSET_DIR/icon_32x32@2x.png" > /dev/null
+    sips -z 128 128   "$ICON_SRC" --out "$ICONSET_DIR/icon_128x128.png" > /dev/null
+    sips -z 256 256   "$ICON_SRC" --out "$ICONSET_DIR/icon_128x128@2x.png" > /dev/null
+    sips -z 256 256   "$ICON_SRC" --out "$ICONSET_DIR/icon_256x256.png" > /dev/null
+    sips -z 512 512   "$ICON_SRC" --out "$ICONSET_DIR/icon_256x256@2x.png" > /dev/null
+    sips -z 512 512   "$ICON_SRC" --out "$ICONSET_DIR/icon_512x512.png" > /dev/null
+    sips -z 1024 1024 "$ICON_SRC" --out "$ICONSET_DIR/icon_512x512@2x.png" > /dev/null
+    
+    # Create .icns file
+    iconutil -c icns "$ICONSET_DIR" -o "$ICONSET_DEST"
+    
+    # Clean up
+    rm -rf "$ICONSET_DIR"
+fi
+
+# Build the app bundle with PyInstaller
+echo "Building macOS app bundle..."
 "$PYTHON_EXEC" -m PyInstaller \
     --clean \
     --noconfirm \
-    --onefile \
-    --console \
-    --name telegram-download-chat \
-    --icon "$SCRIPT_DIR/assets/icon.png" \
+    --windowed \
+    --name "Telegram Download Chat" \
+    --icon "$ICONSET_DEST" \
     --hidden-import telegram_download_chat.core \
     --hidden-import telegram_download_chat.paths \
     --hidden-import telegram_download_chat._pyinstaller \
@@ -63,7 +90,52 @@ echo "Building executable..."
     --distpath "$SCRIPT_DIR/dist" \
     --workpath "$SCRIPT_DIR/build" \
     --specpath "$SCRIPT_DIR" \
+    --osx-bundle-identifier "com.popstas.telegram-download-chat" \
     "$SCRIPT_DIR/launcher.py"
+
+# Create a nicer app bundle structure
+APP_PATH="$SCRIPT_DIR/dist/Telegram Download Chat.app"
+CONTENTS_DIR="$APP_PATH/Contents"
+
+# Create Info.plist
+cat > "$CONTENTS_DIR/Info.plist" <<EOL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Telegram Download Chat</string>
+    <key>CFBundleDisplayName</key>
+    <string>Telegram Download Chat</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.popstas.telegram-download-chat</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleExecutable</key>
+    <string>Telegram Download Chat</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.13</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSRequiresAquaSystemAppearance</key>
+    <false/>
+</dict>
+</plist>
+EOL
+
+# Copy icon to Resources
+RESOURCES_DIR="$CONTENTS_DIR/Resources"
+mkdir -p "$RESOURCES_DIR"
+cp "$ICONSET_DEST" "$RESOURCES_DIR/AppIcon.icns"
+
+# Make sure the executable has the right permissions
+chmod +x "$CONTENTS_DIR/MacOS/Telegram Download Chat"
 
 # Get version from pyproject.toml
 VERSION=$(grep '^version = ' "$SCRIPT_DIR/pyproject.toml" | sed -E 's/version = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/')
@@ -71,23 +143,30 @@ if [ -z "$VERSION" ]; then
     echo "Error: Could not extract version from pyproject.toml"
     exit 1
 fi
-ARCHIVE_NAME="telegram-download-chat-macos-$(uname -m)-v${VERSION}.tar.gz"
 
-# Create a temporary directory for the archive
-TEMP_DIR="$(mktemp -d)"
-cp "$SCRIPT_DIR/dist/telegram-download-chat" "$TEMP_DIR/"
-cp "$SCRIPT_DIR/assets/icon.png" "$TEMP_DIR/"
+# Create DMG (optional)
+echo "Creating DMG..."
+DMG_NAME="Telegram-Download-Chat-${VERSION}.dmg"
+DMG_TEMP_DIR="$SCRIPT_DIR/dmg_temp"
+DMG_APP_DIR="$DMG_TEMP_DIR/Telegram Download Chat.app"
 
-# Create tar.gz archive
-echo "Creating archive..."
-tar -czf "$SCRIPT_DIR/$ARCHIVE_NAME" -C "$TEMP_DIR" .
+mkdir -p "$DMG_TEMP_DIR"
+cp -R "$APP_PATH" "$DMG_APP_DIR"
 
-# Cleanup
-rm -rf "$TEMP_DIR"
+# Create a symbolic link to Applications
+ln -s /Applications "$DMG_TEMP_DIR/Applications"
+
+# Create the DMG
+hdiutil create -volname "Telegram Download Chat $VERSION" \
+    -srcfolder "$DMG_TEMP_DIR" \
+    -ov -format UDZO "$SCRIPT_DIR/dist/$DMG_NAME"
+
+# Clean up
+rm -rf "$DMG_TEMP_DIR"
 
 echo "Build complete!"
-echo "Executable: $SCRIPT_DIR/dist/telegram-download-chat"
-echo "Archive: $SCRIPT_DIR/$ARCHIVE_NAME"
+echo "App bundle: $APP_PATH"
+echo "DMG: $SCRIPT_DIR/dist/$DMG_NAME"
 
 # Deactivate virtual environment
 deactivate

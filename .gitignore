@@ -80,3 +80,6 @@ coverage.xml
 .DS_Store
 Thumbs.db
 *.tar.gz
+
+# Version files
+=10.0.0

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QVBoxLayout, QHBoxLayout, QFormLayout,
     QPushButton, QFileDialog, QLabel, QTabWidget, QWidget, QLineEdit,
     QCheckBox, QSpinBox, QDateEdit, QListWidget, QProgressBar, QMessageBox, 
-    QStyle, QFrame, QTreeView, QHeaderView, QGroupBox, QInputDialog
+    QStyle, QFrame, QTreeView, QHeaderView, QGroupBox, QInputDialog, QSizePolicy
 )
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, Qt, QSize, QDate, QThread, Signal, QSettings
 from PySide6.QtGui import QKeySequence, QIcon, QShortcut, QStandardItemModel, QStandardItem
@@ -149,6 +149,11 @@ class MainWindow(QMainWindow):
         self.log_view.setLineWrapMode(QTextEdit.NoWrap)  # No line wrapping
         self.log_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # Show vertical scrollbar when needed
         self.log_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # Hide horizontal scrollbar
+        
+        # Connect textChanged signal to auto-scroll
+        self.log_view.textChanged.connect(lambda: self.log_view.verticalScrollBar().setValue(
+            self.log_view.verticalScrollBar().maximum()
+        ))
         self.file_list = QListWidget()
         self.preview = QTextEdit(readOnly=True)
         self.preview.setAcceptDrops(False)
@@ -243,16 +248,34 @@ class MainWindow(QMainWindow):
         self.copy_btn.clicked.connect(self.copy_to_clipboard)
         self.file_list.currentTextChanged.connect(self.show_preview)
         
-        # Set up keyboard shortcut
-        self.copy_shortcut = QShortcut(QKeySequence("Ctrl+C"), self)
-        self.copy_shortcut.activated.connect(self.copy_to_clipboard)
+        # Set up keyboard shortcut - handle both Cmd+C and Ctrl+C on macOS
+        if sys.platform == 'darwin':
+            # On macOS, we need to explicitly create a shortcut for Cmd+C
+            self.copy_shortcut = QShortcut(QKeySequence("Ctrl+C"), self)
+            self.copy_shortcut.setContext(Qt.ApplicationShortcut)
+            self.copy_shortcut.activated.connect(self.copy_to_clipboard)
+            
+            # Also create a separate shortcut for Cmd+C
+            self.cmd_copy_shortcut = QShortcut(QKeySequence("Meta+C"), self)
+            self.cmd_copy_shortcut.setContext(Qt.ApplicationShortcut)
+            self.cmd_copy_shortcut.activated.connect(self.copy_to_clipboard)
+        else:
+            # On other platforms, use the standard Copy shortcut
+            self.copy_shortcut = QShortcut(QKeySequence.Copy, self)
+            self.copy_shortcut.setContext(Qt.ApplicationShortcut)
+            self.copy_shortcut.activated.connect(self.copy_to_clipboard)
 
     def _build_download_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         form = QFormLayout()
         
-        # Main chat input
+        # Main chat input with larger size
+        chat_label = QLabel("Chat:")
+        label_font = chat_label.font()
+        label_font.setPointSize(label_font.pointSize() * 2)  # Double the font size
+        chat_label.setFont(label_font)
+        
         self.chat_edit = QLineEdit()
         font = self.chat_edit.font()
         font.setPointSize(font.pointSize() * 2)  # Double the font size
@@ -260,8 +283,20 @@ class MainWindow(QMainWindow):
         self.chat_edit.setPlaceholderText("@username, link or chat_id")
         self.chat_edit.returnPressed.connect(self.start_download)
         self.chat_edit.setText(self.config['settings'].get('chat_id', ''))  # Set default value from config
+        self.chat_edit.setMinimumHeight(60)  # Make it taller
+        self.chat_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         
-        form.addRow("Chat:", self.chat_edit)
+        # Create a container for the chat input to control spacing
+        chat_container = QWidget()
+        chat_layout = QVBoxLayout(chat_container)
+        chat_layout.setContentsMargins(0, 0, 0, 0)
+        chat_layout.setSpacing(2)  # Minimal spacing between label and input
+        chat_layout.addWidget(chat_label)
+        chat_layout.addWidget(self.chat_edit)
+        
+        form.addRow(chat_container)
+        form.setContentsMargins(5, 5, 5, 5)  # Reduce form margins
+        form.setSpacing(10)  # Slightly more spacing between rows
         
         # Add main form to layout
         layout.addLayout(form)
@@ -269,21 +304,44 @@ class MainWindow(QMainWindow):
         # Create a container for settings with compact spacing
         settings_container = QWidget()
         settings_layout = QVBoxLayout(settings_container)
-        settings_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins
-        settings_layout.setSpacing(0)  # Remove spacing between widgets
+        settings_layout.setContentsMargins(0, 0, 0, 0)  # No margins
+        settings_layout.setSpacing(0)  # No spacing between widgets
+        settings_layout.setAlignment(Qt.AlignTop)  # Align to top
         
-        # Create a tree view for settings
+        # Add settings container to the main layout
+        layout.addWidget(settings_container)
+        
+        # Create a tree view for settings with minimal height
         self.settings_tree = QTreeView()
         self.settings_tree.setHeaderHidden(True)
-        self.settings_tree.setIndentation(20)
+        self.settings_tree.setIndentation(10)  # Reduce indentation
         self.settings_tree.setRootIsDecorated(True)
         self.settings_tree.setExpandsOnDoubleClick(True)
-        self.settings_tree.setEditTriggers(QTreeView.NoEditTriggers)  # Disable editing
-        self.settings_tree.setSelectionMode(QTreeView.NoSelection)  # Disable selection
+        self.settings_tree.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)  # Disable editing
+        self.settings_tree.setSelectionMode(QTreeView.SelectionMode.SingleSelection)  # Allow single selection
+        self.settings_tree.setMinimumHeight(24)  # Ensure minimum height for visibility
+        self.settings_tree.setMaximumHeight(200)  # Set a reasonable max height
+        self.settings_tree.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # Show scrollbar when needed
+        
+        # Set size policy
+        tree_size_policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.settings_tree.setSizePolicy(tree_size_policy)
+        
+        # Add tree to settings layout
+        settings_layout.addWidget(self.settings_tree)
         
         # Create a widget that will be shown/hidden
         self.settings_widget = QWidget()
+        widget_size_policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self.settings_widget.setSizePolicy(widget_size_policy)  # Take minimum vertical space
         settings_form = QFormLayout(self.settings_widget)
+        settings_form.setContentsMargins(2, 2, 2, 2)  # Minimal margins
+        settings_form.setSpacing(4)  # Slightly more spacing for better readability
+        settings_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)  # Allow fields to grow
+        settings_form.setFormAlignment(Qt.AlignTop | Qt.AlignLeft)  # Align to top
+        
+        # Add settings widget to the layout
+        settings_layout.addWidget(self.settings_widget)
         
         # Output file selection
         self.output_edit = QLineEdit()
@@ -317,15 +375,27 @@ class MainWindow(QMainWindow):
         
         # Create a model for the tree
         model = QStandardItemModel()
-        root_item = model.invisibleRootItem()
+        model.setHorizontalHeaderLabels(['Settings'])
         
-        # Add settings item
-        settings_item = QStandardItem("Settings")
+        # Add settings item with proper styling
+        settings_item = QStandardItem("▼ Settings")  # Add arrow indicator
         settings_item.setCheckable(False)
-        root_item.appendRow(settings_item)
+        settings_item.setSelectable(True)
+        settings_item.setEditable(False)
+        font = settings_item.font()
+        font.setBold(True)
+        settings_item.setFont(font)
+        
+        # Add to model
+        model.appendRow(settings_item)
         
         # Set the model to the tree view
         self.settings_tree.setModel(model)
+        
+        # Make sure the item is expanded and visible
+        index = model.indexFromItem(settings_item)
+        self.settings_tree.setExpanded(index, False)  # Start collapsed
+        self.settings_tree.setCurrentIndex(index)  # Ensure it's selected
         
         # Connect the click event
         self.settings_tree.clicked.connect(self.toggle_settings_visibility)
@@ -334,18 +404,20 @@ class MainWindow(QMainWindow):
         settings_layout.addWidget(self.settings_tree)
         settings_layout.addWidget(self.settings_widget)
         
-        # Hide settings by default
+        # Hide settings by default (show only the tree view)
         self.settings_widget.setVisible(False)
         
-        # Add the container to the main layout
-        layout.addWidget(settings_container)
+        # Add the container to the main layout with minimal space
+        layout.addWidget(settings_container, 0, Qt.AlignTop)  # Don't allow it to stretch
         
         # Store the settings item for toggling
         self.settings_item = settings_item
         
-        # Create button container
+        # Create button container with minimal spacing
         button_container = QWidget()
         button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(5, 5, 5, 5)  # Reduce margins
+        button_layout.setSpacing(10)  # Reduce spacing between buttons
         button_layout.addStretch()
         
         # Create start button
@@ -421,8 +493,13 @@ class MainWindow(QMainWindow):
         
     def toggle_settings_visibility(self, index):
         """Toggle the visibility of the settings widget when the tree item is clicked."""
-        if index.data() == "Settings":
+        if index.isValid() and index.row() == 0:  # Only toggle for the Settings item
             self.settings_widget.setVisible(not self.settings_widget.isVisible())
+            # Adjust the tree height based on visibility
+            if self.settings_widget.isVisible():
+                self.settings_tree.setMaximumHeight(self.settings_tree.sizeHintForRow(0) * 2)  # Show more rows when expanded
+            else:
+                self.settings_tree.setMaximumHeight(self.settings_tree.sizeHintForRow(0) * 1.5)  # Show fewer rows when collapsed
 
     def _build_convert_tab(self):
         tab = QWidget()
@@ -456,10 +533,14 @@ class MainWindow(QMainWindow):
         """Build the settings tab with API credentials and Telegram login."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(5, 5, 5, 5)  # Reduce outer margins
+        layout.setSpacing(5)  # Reduce spacing between widgets
         
         # Create a form for API credentials
         api_group = QWidget()
         form = QFormLayout(api_group)
+        form.setContentsMargins(5, 5, 5, 5)  # Reduce form margins
+        form.setSpacing(5)  # Reduce spacing between form rows
         
         # API ID
         self.api_id_edit = QLineEdit()
@@ -493,7 +574,7 @@ class MainWindow(QMainWindow):
         # Add help text for API credentials
         help_label = QLabel(
             "<p>To get your API credentials:</p>"
-            "<ol>"
+            "<ol style='margin-top: 0; padding-left: 20px;'>"
             "<li>Go to <a href='https://my.telegram.org/'>my.telegram.org</a></li>"
             "<li>Log in with your phone number</li>"
             "<li>Go to 'API development tools'</li>"
@@ -503,14 +584,14 @@ class MainWindow(QMainWindow):
         )
         help_label.setOpenExternalLinks(True)
         help_label.setWordWrap(True)
-        help_label.setStyleSheet("margin-top: 10px;")
+        help_label.setStyleSheet("margin: 5px 0;")
         layout.addWidget(help_label)
         
         # Add a line separator
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
         line.setFrameShadow(QFrame.Sunken)
-        line.setStyleSheet("margin: 20px 0;")
+        line.setStyleSheet("margin: 10px 0;")
         layout.addWidget(line)
         
         # Session file path
@@ -518,18 +599,23 @@ class MainWindow(QMainWindow):
         
         # Create a group for session status (shown when logged in)
         self.session_status_group = QGroupBox("Telegram Session")
+        self.session_status_group.setStyleSheet("QGroupBox { margin-top: 5px; }")
         session_status_layout = QVBoxLayout(self.session_status_group)
+        session_status_layout.setContentsMargins(5, 15, 5, 5)  # Adjust title margin
         self.session_status_label = QLabel("Session is active")
         self.logout_btn = QPushButton("Logout")
-        self.logout_btn.clicked.connect(self._do_logout)
+        self.logout_btn.clicked.connect(lambda: asyncio.create_task(self._do_logout_async()))
         session_status_layout.addWidget(self.session_status_label)
         session_status_layout.addWidget(self.logout_btn)
         self.session_status_group.setVisible(self.session_file.exists())
         
         # Create a group for Telegram login (shown when not logged in)
         self.login_group = QGroupBox("First time Telegram login")
+        self.login_group.setStyleSheet("QGroupBox { margin-top: 5px; }")
         self.login_group.setVisible(not self.session_file.exists())
         login_form = QFormLayout(self.login_group)
+        login_form.setContentsMargins(5, 15, 5, 5)  # Adjust title margin
+        login_form.setSpacing(5)  # Reduce spacing between form rows
         
         # Phone number
         self.phone_edit = QLineEdit()
@@ -782,11 +868,35 @@ class MainWindow(QMainWindow):
                 
                 await self.downloader.client.sign_in(password=password)
             
-            # Save the session
-            self.downloader.client.session.save()
+            # Get user info while we have an active connection
+            me = await self.downloader.client.get_me()
+            name = f"{me.first_name or ''} {me.last_name or ''}".strip() or me.username or "Unknown"
+            phone = getattr(me, 'phone', self.phone_edit.text())
+            username = getattr(me, 'username', 'no_username')
             
-            # Update UI
-            await self._update_ui_after_login()
+            # Save the session and disconnect
+            self.downloader.client.session.save()
+            await self.downloader.client.disconnect()
+            
+            # Update UI with the user info we already have
+            self.login_btn.setEnabled(False)
+            self.get_code_btn.setEnabled(True)
+            self.get_code_btn.setText("Change Number")
+            
+            # Update session status
+            self.session_status_label.setText(f"Session for {phone} is active")
+            self.session_status_group.setVisible(True)
+            self.login_group.setVisible(False)
+            
+            # Show success message
+            QMessageBox.information(
+                self,
+                "Login Successful",
+                f"Successfully logged in as {name} (@{username})"
+            )
+            
+            # Save the phone number in settings
+            self._save_settings()
             
         except PhoneCodeInvalidError:
             QMessageBox.warning(self, "Error", "Invalid verification code. Please try again.")
@@ -796,8 +906,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Login Failed", f"Failed to login: {str(e)}")
             self._reset_login_ui()
         finally:
-            # Don't disconnect here - we want to keep the session active
-            pass
+            # Make sure we clean up the client if something went wrong
+            if hasattr(self, 'downloader') and self.downloader and hasattr(self.downloader, 'client'):
+                if self.downloader.client.is_connected():
+                    await self.downloader.client.disconnect()
+                self.downloader.client = None
     
     def _do_login(self):
         """Handle the login button click."""
@@ -842,7 +955,7 @@ class MainWindow(QMainWindow):
         # Save the phone number in settings
         self._save_settings()
         
-    def _do_logout(self):
+    async def _do_logout_async(self):
         """Handle logout by deleting the session file and resetting the UI."""
         reply = QMessageBox.question(
             self,
@@ -854,27 +967,43 @@ class MainWindow(QMainWindow):
         
         if reply == QMessageBox.Yes:
             try:
-                # Delete the session file
-                session_files = [
-                    self.session_file,
-                    self.session_file.with_suffix('.session-journal'),
-                    self.session_file.with_suffix('.session')
-                ]
+                # Get the session file path from the downloader if it exists
+                session_file = None
+                if hasattr(self, 'downloader') and self.downloader and hasattr(self.downloader, 'session'):
+                    session_file = Path(self.downloader.session.filename) if self.downloader.session and self.downloader.session.filename else None
                 
-                for session_file in session_files:
-                    if session_file.exists():
-                        session_file.unlink()
+                # Delete the session file if it exists
+                if session_file and session_file.exists():
+                    session_files = [
+                        session_file,
+                        session_file.with_suffix('.session-journal'),
+                        session_file.with_suffix('.session')
+                    ]
+                    
+                    for sf in session_files:
+                        if sf.exists():
+                            try:
+                                sf.unlink()
+                                self.log_view.append(f"Deleted session file: {sf}")
+                            except Exception as e:
+                                self.log_view.append(f"Failed to delete {sf}: {str(e)}")
+                
+                # Disconnect and clean up the client
+                if hasattr(self, 'downloader') and self.downloader and hasattr(self.downloader, 'client'):
+                    if self.downloader.client.is_connected():
+                        try:
+                            await self.downloader.client.disconnect()
+                        except Exception as e:
+                            self.log_view.append(f"Error disconnecting client: {str(e)}")
+                    self.downloader = None
                 
                 # Reset the UI
                 self._reset_login_ui()
                 self.session_status_group.setVisible(False)
                 self.login_group.setVisible(True)
                 
-                # Disconnect and clean up the client
-                if hasattr(self, 'downloader') and self.downloader and hasattr(self.downloader, 'client'):
-                    if self.downloader.client.is_connected():
-                        asyncio.create_task(self.downloader.client.disconnect())
-                    self.downloader = None
+                # Clear the session status
+                self.session_status_label.setText("No active session")
                 
                 self.log_view.append("Successfully logged out")
                 

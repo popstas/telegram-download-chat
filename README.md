@@ -295,7 +295,9 @@ Welcome to the group!
    - The tool respects Telegram's rate limits
    - Increase `request_delay` in config for more reliable downloads
    - Consider using a smaller `limit` parameter
-
+4. **Progress bar**
+   - progress show 1000 messages by default
+   - when current > 1000, set max to 10000, then 50000, then 100000, etc.
 ### Getting Help
 
 If you encounter any issues, please:

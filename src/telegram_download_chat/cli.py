@@ -10,6 +10,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+import traceback
 
 from . import __version__
 from .core import TelegramChatDownloader
@@ -197,6 +198,15 @@ async def async_main():
         if not args.chat:
             downloader.logger.error("Chat identifier is required")
             return 1
+            
+        # Connect to Telegram
+        try:
+            await downloader.connect()
+        except Exception as e:
+            downloader.logger.error(f"Failed to connect to Telegram: {e}")
+            downloader.logger.info("\nPlease make sure you have entered your API credentials in the config file.")
+            downloader.logger.info("You can edit the config file at: %s", get_default_config_path())
+            return 1
 
         # Get downloads directory from config
         downloads_dir = Path(downloader.config.get('settings', {}).get('save_path', get_app_dir() / 'downloads'))
@@ -293,12 +303,27 @@ async def async_main():
                 downloader.logger.error("Invalid date format. Please use YYYY-MM-DD")
                 return 1
 
+        # Determine output file
+        output_file = args.output
+        if not output_file:
+            # Get safe filename from entity name
+            try:
+                downloader.logger.debug(f"Using entity name for output: {safe_chat_name}")
+            except Exception as e:
+                downloader.logger.warning(f"Could not get entity name: {e}, using basic sanitization")
+                safe_chat_name = "".join(c if c.isalnum() else "_" for c in args.chat)
+            
+            output_file = str(downloads_dir / f"{safe_chat_name}.json")
+            
+            if args.subchat:
+                output_file = str(Path(output_file).with_stem(f"{Path(output_file).stem}_subchat_{args.subchat}"))
+        
         # Download messages
         download_kwargs = {
             'chat_id': args.chat,
-            'request_limit': args.limit if args.limit > 0 else 500,
+            'request_limit': args.limit if args.limit > 0 else 100,
             'total_limit': args.limit if args.limit > 0 else 0,
-            'output_file': args.output,
+            'output_file': output_file,
             'silent': False
         }
         if until_date:
@@ -316,21 +341,6 @@ async def async_main():
         if not messages:
             downloader.logger.warning("No messages to save")
             return 0
-        
-        # Determine output file
-        output_file = args.output
-        if not output_file:
-            # Get safe filename from entity name
-            try:
-                downloader.logger.debug(f"Using entity name for output: {safe_chat_name}")
-            except Exception as e:
-                downloader.logger.warning(f"Could not get entity name: {e}, using basic sanitization")
-                safe_chat_name = "".join(c if c.isalnum() else "_" for c in args.chat)
-            
-            output_file = str(downloads_dir / f"{safe_chat_name}.json")
-            
-            if args.subchat:
-                output_file = str(Path(output_file).with_stem(f"{Path(output_file).stem}_subchat_{args.subchat}"))
         
         try:
             if args.split:
@@ -361,6 +371,7 @@ async def async_main():
         
     except Exception as e:
         downloader.logger.error(f"An error occurred: {e}", exc_info=args.debug)
+        downloader.logger.error(traceback.format_exc())
         return 1
     finally:
         await downloader.close()

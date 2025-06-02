@@ -12,7 +12,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import yaml
 from telethon import TelegramClient
 from telethon.tl.custom import Message
-from telethon.tl.types import PeerUser, PeerChat, PeerChannel, User, Chat, Channel, TypePeer
+from telethon.tl.types import PeerUser, PeerChat, PeerChannel, User, Chat, Channel, TypePeer, Message, MessageService
+from telethon.tl.functions.channels import GetFullChannelRequest
+from telethon.tl.functions.messages import GetFullChatRequest
 from telethon.errors import ChatIdInvalidError
 from .paths import get_default_config, get_default_config_path, ensure_app_dirs, get_app_dir
 
@@ -25,6 +27,7 @@ class TelegramChatDownloader:
         self.config = self._load_config()
         self._setup_logging()
         self.client = None
+        self.phone_code_hash = None  # Store phone code hash for authentication
     
     def _load_config(self) -> Dict[str, Any]:
         """
@@ -67,6 +70,20 @@ class TelegramChatDownloader:
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 loaded_config = yaml.safe_load(f) or {}
+                
+            # Handle old config format (api_id/api_hash at root level)
+            if 'api_id' in loaded_config or 'api_hash' in loaded_config:
+                # Migrate old format to new format
+                if 'settings' not in loaded_config:
+                    loaded_config['settings'] = {}
+                if 'api_id' in loaded_config:
+                    loaded_config['settings']['api_id'] = loaded_config.pop('api_id')
+                if 'api_hash' in loaded_config:
+                    loaded_config['settings']['api_hash'] = loaded_config.pop('api_hash')
+                
+                # Save the updated config
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    yaml.safe_dump(loaded_config, f, default_flow_style=False)
                 
             # Merge with defaults to ensure all required keys exist
             return self._merge_configs(default_config, loaded_config)
@@ -117,7 +134,7 @@ class TelegramChatDownloader:
         self.logger.setLevel(getattr(logging, log_level.upper()))
         
         # Create formatter
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
         
         # Add file handler if log file is specified
         if log_file:
@@ -138,28 +155,111 @@ class TelegramChatDownloader:
         asyncio_logger = logging.getLogger('asyncio')
         asyncio_logger.setLevel(logging.WARNING)
     
-    async def connect(self) -> None:
-        """Connect to Telegram's servers."""
-        api_id = os.getenv('TELEGRAM_API_ID') or self.config.get('settings', {}).get('api_id')
-        api_hash = os.getenv('TELEGRAM_API_HASH') or self.config.get('settings', {}).get('api_hash')
-        if not api_id or not api_hash or api_id == "YOUR_API_ID" or api_hash == "YOUR_API_HASH":
-            raise ValueError("API ID and API hash must be provided in config or environment variables")
-
-        session_dir = get_app_dir()
-        session_file = Path(session_dir) / Path(self.config.get('settings', {}).get('session_name', 'session')).with_suffix(".session")
+    async def connect(self, phone: str = None, code: str = None, password: str = None):
+        """Connect to Telegram using the configured API credentials."""
+        from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, ApiIdInvalidError, PhoneNumberInvalidError
         
+        if self.client and await self.client.is_user_authorized():
+            return
 
-        request_delay = self.config.get('settings', {}).get('request_delay', 1)
-        request_retries = self.config.get('settings', {}).get('max_retries', 5)
+        # Get API credentials from settings section
+        settings = self.config.get('settings', {})
+        api_id = settings.get('api_id')
+        api_hash = settings.get('api_hash')
+        phone = settings.get('phone')
+        
+        # Default values
+        session_file = str(get_app_dir() / 'session.session')
+        request_delay = settings.get('request_delay', 1)
+        request_retries = settings.get('max_retries', 5)
+        
+        if not api_id or not api_hash:
+            error_msg = "API ID or API Hash not found in config. Please check your config file."
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.logger.debug(f"Connecting to Telegram with API ID: {api_id}")
+        self.logger.debug(f"Session file: {session_file}")
+        
+        try:
+            # Initialize the client
+            self.client = TelegramClient(
+                session=session_file,
+                api_id=api_id,
+                api_hash=api_hash,
+                request_retries=request_retries,
+                flood_sleep_threshold=request_delay
+            )
+            
+            # Connect to Telegram
+            await self.client.connect()
+            
+            is_authorized = await self.client.is_user_authorized()
 
-        self.client = TelegramClient(
-            str(session_file), api_id, api_hash,
-            request_retries=request_retries,
-            flood_sleep_threshold=request_delay
-        )
-        await self.client.start()
+            # send code request
+            if phone and not code and not is_authorized:
+                self.logger.info(f"Starting authentication for phone: {phone}")
+                sent_code = await self.client.send_code_request(phone)
+                self.phone_code_hash = sent_code.phone_code_hash
+                self.logger.info("Verification code sent to your Telegram account")
+                return
+            
+            # login
+            if phone and code and not is_authorized:
+                try:
+                    if not hasattr(self, 'phone_code_hash'):
+                        error_msg = "Please request a verification code first"
+                        self.logger.error(error_msg)
+                        raise ValueError(error_msg)
+                        
+                    await self.client.sign_in(
+                        phone=phone,
+                        code=code,
+                        phone_code_hash=self.phone_code_hash,
+                        password=password
+                    )
+                    self.logger.info("Successfully authenticated with code")
+                except SessionPasswordNeededError:
+                    if not password:
+                        error_msg = "2FA is enabled but no password provided. Set password parameter."
+                        self.logger.error(error_msg)
+                        raise ValueError(error_msg) from None
+                    
+                    self.logger.info("2FA password required")
+                    await self.client.sign_in(password=password)
+                    self.logger.info("Successfully authenticated with 2FA password")
+                except PhoneCodeInvalidError as e:
+                    error_msg = "Invalid verification code. Please check your code and try again."
+                    self.logger.error(error_msg)
+                    raise ValueError(error_msg) from e
+            else:
+                self.logger.debug("Using existing session")
+                
+            # Verify connection
+            me = await self.client.get_me()
+            if not me:
+                raise RuntimeError("Failed to get current user after authentication")
+                
+            self.logger.info(f"Successfully connected as {me.username or me.phone}")
+            await self.client.start()
+            return True
+            
+        except ApiIdInvalidError as e:
+            error_msg = "Invalid API ID or API Hash. Please check your credentials."
+            self.logger.error(error_msg)
+            raise ValueError(error_msg) from e
+        except PhoneNumberInvalidError as e:
+            error_msg = f"Invalid phone number: {phone}. Please check your phone number."
+            self.logger.error(error_msg)
+            raise ValueError(error_msg) from e
+        except Exception as e:
+            error_msg = f"Failed to connect to Telegram: {str(e)}"
+            self.logger.error(error_msg)
+            if hasattr(self, 'client') and self.client:
+                await self.client.disconnect()
+            raise RuntimeError(error_msg) from e
     
-    async def download_chat(self, chat_id: str, request_limit: int = 500, total_limit: int = 0, output_file: Optional[str] = None, 
+    async def download_chat(self, chat_id: str, request_limit: int = 100, total_limit: int = 0, output_file: Optional[str] = None, 
                          save_partial: bool = True, silent: bool = False, until_date: Optional[str] = None) -> List[Dict[str, Any]]:
         """Download messages from a chat with support for partial downloads and resuming.
         
@@ -183,6 +283,7 @@ class TelegramChatDownloader:
             await self.connect()
         
         entity = await self.get_entity(chat_id)
+            
         offset_id = 0
         all_messages = []
         
@@ -198,7 +299,7 @@ class TelegramChatDownloader:
         
         total_fetched = len(all_messages)
         last_save = asyncio.get_event_loop().time()
-        save_interval = 300  # Save partial results every 5 minutes
+        save_interval = 30  # Save partial results every 30 seconds
         
         while True:
             try:
@@ -233,8 +334,8 @@ class TelegramChatDownloader:
             # Add only new messages to avoid duplicates and filter by date if needed
             new_messages = []
             for msg in history.messages:
-                # Skip if message ID already exists
-                if any(m.id == msg.id for m in all_messages):
+                # Skip if message doesn't have an ID or if it already exists
+                if not hasattr(msg, 'id') or any(m.id == msg.id for m in all_messages if hasattr(m, 'id')):
                     continue
                 
                 # Filter by date if until_date is provided
@@ -276,7 +377,7 @@ class TelegramChatDownloader:
             current_time = asyncio.get_event_loop().time()
             
             # Save partial results periodically
-            if output_file and save_partial and (current_time - last_save > save_interval or len(history.messages) < limit):
+            if output_file and save_partial and current_time - last_save > save_interval:
                 self._save_partial_messages(all_messages, output_path)
                 last_save = current_time
 
@@ -355,7 +456,7 @@ class TelegramChatDownloader:
         if user_filter:
             self.logger.info(f"Filtering messages by user: {user_filter}")
             # Remove 'user' prefix if present for comparison
-            user_filter = user_filter.replace('user', '') if user_filter.startswith('user') else user_filter
+            user_filter = user_filter.replace('user', '') if user_filter and user_filter.startswith('user') else user_filter
             
         messages = []
         
@@ -504,7 +605,7 @@ class TelegramChatDownloader:
         serializable_messages = []
         for msg in messages:
             try:
-                msg_dict = msg.to_dict()
+                msg_dict = msg.to_dict() if hasattr(msg, 'to_dict') else msg
                 serializable_messages.append(self.make_serializable(msg_dict))
             except Exception as e:
                 self.logger.warning(f"Failed to serialize message: {e}")
@@ -519,6 +620,10 @@ class TelegramChatDownloader:
             txt_path = output_path.with_suffix('.txt')
             saved = await self.save_messages_as_txt(serializable_messages, txt_path)
             self.logger.info(f"Saved {saved} messages to {txt_path}")
+        
+        partial = self.get_temp_file_path(output_path)
+        if partial.exists():
+            partial.unlink()
         
         self.logger.info(f"Saved {len(messages)} messages to {output_file}")
     
@@ -670,37 +775,64 @@ class TelegramChatDownloader:
         return output_file.with_name(f".{output_file.name}.part")
     
     def _save_partial_messages(self, messages: List[Dict[str, Any]], output_file: Path) -> None:
-        """Save messages to a temporary file for partial downloads."""
+        """Save messages to a temporary file for partial downloads using JSONL format.
+        
+        Each line is a separate JSON object with two fields:
+        - 'm': message data
+        - 'i': message ID (for resuming)
+        """
         import json
         temp_file = self.get_temp_file_path(output_file)
         temp_file.parent.mkdir(parents=True, exist_ok=True)
         
-        # Save current messages and the ID of the last message for resuming
-        data = {
-            'messages': messages,
-            'last_id': messages[-1]['id'] if messages else 0
-        }
-        
+        # Write messages in JSONL format
         with open(temp_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            for msg in messages:
+                try:
+                    # Convert message to serializable format
+                    msg_dict = msg.to_dict() if hasattr(msg, 'to_dict') else msg
+                    serialized = self.make_serializable(msg_dict)
+                    # Get message ID, defaulting to 0 if not found
+                    msg_id = msg_dict.get('id') if hasattr(msg_dict, 'get') else getattr(msg_dict, 'id', 0)
+                    # Write as a single line
+                    json.dump({'m': serialized, 'i': msg_id}, f, ensure_ascii=False)
+                    f.write('\n')  # Add newline for JSONL format
+                except Exception as e:
+                    logging.warning(f"Failed to serialize message: {e}")
     
     def _load_partial_messages(self, output_file: Path) -> tuple[list[Dict[str, Any]], int]:
-        """Load messages from a temporary file if it exists."""
+        """Load messages from a temporary JSONL file if it exists.
+        
+        Returns:
+            tuple: (list of messages, last message ID)
+        """
         import json
         temp_file = self.get_temp_file_path(output_file)
         
         if not temp_file.exists():
             return [], 0
             
+        messages = []
+        last_id = 0
+        
         try:
             with open(temp_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-            if not isinstance(data, dict) or 'messages' not in data or 'last_id' not in data:
-                return [], 0
-                
-            return data['messages'], data['last_id']
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                        
+                    try:
+                        data = json.loads(line)
+                        if isinstance(data, dict) and 'm' in data:
+                            messages.append(data['m'])
+                            last_id = data.get('i', last_id)  # Update last_id if present
+                    except json.JSONDecodeError as e:
+                        logging.warning(f"Skipping invalid JSON line: {e}")
+                        continue
+                        
+            return messages, last_id
             
-        except (json.JSONDecodeError, KeyError, IOError) as e:
+        except (IOError, json.JSONDecodeError) as e:
             logging.warning(f"Error loading partial messages: {e}")
             return [], 0

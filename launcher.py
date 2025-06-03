@@ -7,12 +7,11 @@ import os
 import warnings
 from pathlib import Path
 
-# Suppress pkg_resources deprecation warning
+# Suppress pkg_resources deprecation warnings
 warnings.filterwarnings(
     'ignore',
-    message='pkg_resources is deprecated as an API',
-    category=UserWarning,
-    module='pyimod02_importers'
+    message='pkg_resources is deprecated',
+    category=DeprecationWarning
 )
 
 def main():

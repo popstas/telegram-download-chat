@@ -25,12 +25,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, Qt, QSize, QDate, QThread, Signal, QSettings
 from PySide6.QtGui import QKeySequence, QIcon, QShortcut, QStandardItemModel, QStandardItem
 import yaml
-from .cli import parse_args
-from .core import TelegramChatDownloader
+from telegram_download_chat.cli import parse_args
+from telegram_download_chat.core import TelegramChatDownloader
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError, \
     PhoneCodeEmptyError, PhoneNumberInvalidError, PhoneNumberUnoccupiedError, \
     PhoneNumberBannedError, FloodWaitError, RPCError
-from .paths import get_app_dir, ensure_app_dirs, get_default_config_path
+from telegram_download_chat.paths import get_app_dir, ensure_app_dirs, get_default_config_path
 
 
 class WorkerThread(QThread):
@@ -91,7 +91,7 @@ class WorkerThread(QThread):
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
         
-        while self._is_running and self.process.poll() is None:
+        while self.process.poll() is None:
             line = self.process.stdout.readline()
             if not line:
                 break
@@ -141,10 +141,41 @@ class MainWindow(QMainWindow):
         self.config = {'settings': {}}
         self.downloader = None
         
-        # Set window icon
-        icon_path = os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'icon.png')
-        if os.path.exists(icon_path):
+        # Set window icon - handle both development and PyInstaller bundled paths
+        def get_icon_path():
+            # Check if running in PyInstaller bundle
+            if getattr(sys, 'frozen', False):
+                # For PyInstaller bundled app
+                base_path = sys._MEIPASS
+                icon_path = os.path.join(base_path, 'assets', 'icon.ico')
+                if os.path.exists(icon_path):
+                    return icon_path
+            
+            # For development
+            paths = [
+                os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'icon.ico'),
+                os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'icon.png'),
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'assets', 'icon.ico'),
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'assets', 'icon.png'),
+            ]
+            
+            for path in paths:
+                if os.path.exists(path):
+                    return path
+            return None
+            
+        icon_path = get_icon_path()
+        if icon_path:
             self.setWindowIcon(QIcon(icon_path))
+            
+            # Set application-wide icon for Windows
+            if sys.platform == 'win32':
+                import ctypes
+                try:
+                    myappid = 'telegram.download.chat.gui.1.0'  # Arbitrary string
+                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+                except Exception as e:
+                    logging.warning(f"Could not set AppUserModelID: {e}")
             
         # Load settings before initializing UI components that might need them
         self._load_settings()

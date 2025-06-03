@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """CLI interface for telegram-download-chat package."""
 
+# Suppress pkg_resources deprecation warning
+import warnings
+warnings.filterwarnings(
+    'ignore',
+    message='pkg_resources is deprecated',
+    category=DeprecationWarning
+)
+
 import argparse
 import asyncio
 import json
@@ -13,9 +21,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 import traceback
 
-from . import __version__
-from .core import TelegramChatDownloader
-from .paths import get_default_config_path, get_app_dir
+from telegram_download_chat import __version__
+from telegram_download_chat.core import TelegramChatDownloader
+from telegram_download_chat.paths import get_default_config_path, get_app_dir
 
 # Global downloader instance for signal handling
 _downloader_instance = None
@@ -395,7 +403,7 @@ def main() -> int:
     # Support GUI mode: `telegram-download-chat gui`
     if (len(sys.argv) >= 2 and sys.argv[1] == 'gui') or len(sys.argv) == 1:
         try:
-            from .gui_app import main as gui_main
+            from telegram_download_chat.gui_app import main as gui_main
             gui_main()
             return 0
         except ImportError as e:

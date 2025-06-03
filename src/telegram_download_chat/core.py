@@ -17,7 +17,7 @@ from telethon.tl.types import PeerUser, PeerChat, PeerChannel, User, Chat, Chann
 from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.messages import GetFullChatRequest
 from telethon.errors import ChatIdInvalidError
-from .paths import get_default_config, get_default_config_path, ensure_app_dirs, get_app_dir
+from telegram_download_chat.paths import get_default_config, get_default_config_path, ensure_app_dirs, get_app_dir
 
 class TelegramChatDownloader:
     """Main class for downloading Telegram chat history."""

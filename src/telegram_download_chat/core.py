@@ -795,8 +795,16 @@ class TelegramChatDownloader:
             self.client = None
     
     def get_temp_file_path(self, output_file: Path) -> Path:
-        """Get path for temporary file to store partial downloads."""
-        return output_file.with_name(f"{output_file.stem}.part.jsonl")
+        """Get path for temporary file to store partial downloads.
+        
+        Args:
+            output_file: The target output file path
+            
+        Returns:
+            Path: Temporary file path with .part.jsonl extension
+        """
+        # Return path with .part.jsonl extension
+        return output_file.with_suffix('.part.jsonl')
     
     def _save_partial_messages(self, messages: List[Dict[str, Any]], output_file: Path) -> None:
         """Save messages to a temporary file for partial downloads using JSONL format.

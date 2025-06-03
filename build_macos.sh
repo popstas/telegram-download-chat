@@ -79,7 +79,7 @@ echo "Building macOS app bundle..."
     --clean \
     --noconfirm \
     --windowed \
-    --name "Telegram Download Chat" \
+    --name "telegram-download-chat" \
     --icon "$ICONSET_DEST" \
     --hidden-import telegram_download_chat.core \
     --hidden-import telegram_download_chat.paths \
@@ -137,18 +137,11 @@ cp "$ICONSET_DEST" "$RESOURCES_DIR/AppIcon.icns"
 # Make sure the executable has the right permissions
 chmod +x "$CONTENTS_DIR/MacOS/Telegram Download Chat"
 
-# Get version from pyproject.toml
-VERSION=$(grep '^version = ' "$SCRIPT_DIR/pyproject.toml" | sed -E 's/version = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/')
-if [ -z "$VERSION" ]; then
-    echo "Error: Could not extract version from pyproject.toml"
-    exit 1
-fi
-
 # Create DMG (optional)
 echo "Creating DMG..."
-DMG_NAME="Telegram-Download-Chat-${VERSION}.dmg"
+DMG_NAME="telegram-download-chat.dmg"
 DMG_TEMP_DIR="$SCRIPT_DIR/dmg_temp"
-DMG_APP_DIR="$DMG_TEMP_DIR/Telegram Download Chat.app"
+DMG_APP_DIR="$DMG_TEMP_DIR/telegram-download-chat.app"
 
 mkdir -p "$DMG_TEMP_DIR"
 cp -R "$APP_PATH" "$DMG_APP_DIR"
@@ -157,7 +150,7 @@ cp -R "$APP_PATH" "$DMG_APP_DIR"
 ln -s /Applications "$DMG_TEMP_DIR/Applications"
 
 # Create the DMG
-hdiutil create -volname "Telegram Download Chat $VERSION" \
+hdiutil create -volname "telegram-download-chat" \
     -srcfolder "$DMG_TEMP_DIR" \
     -ov -format UDZO "$SCRIPT_DIR/dist/$DMG_NAME"
 
@@ -167,6 +160,9 @@ rm -rf "$DMG_TEMP_DIR"
 echo "Build complete!"
 echo "App bundle: $APP_PATH"
 echo "DMG: $SCRIPT_DIR/dist/$DMG_NAME"
+
+# Ensure the final DMG has the correct name
+mv -f "$SCRIPT_DIR/dist/telegram-download-chat.dmg" "$SCRIPT_DIR/dist/telegram-download-chat.dmg"
 
 # Deactivate virtual environment
 deactivate

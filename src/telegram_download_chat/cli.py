@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,20 @@ from . import __version__
 from .core import TelegramChatDownloader
 from .paths import get_default_config_path, get_app_dir
 
+# Global downloader instance for signal handling
+_downloader_instance = None
+
+def signal_handler(sig, frame):
+    """Handle termination signals for graceful shutdown."""
+    global _downloader_instance
+    if _downloader_instance:
+        print("\nReceived termination signal, stopping download gracefully...")
+        _downloader_instance.stop()
+    else:
+        sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 def parse_args():
     """Parse command line arguments."""
@@ -169,32 +184,34 @@ def filter_messages_by_subchat(messages: List[Dict[str, Any]], subchat_id: str) 
 
 async def async_main():
     """Main async function."""
+    global _downloader_instance
     args = parse_args()
     
     # Initialize downloader with config
     downloader = TelegramChatDownloader(config_path=args.config)
-    
-    # Show config path and exit if requested
-    if args.show_config:
-        config_path = Path(args.config) if args.config else get_default_config_path()
-        downloader.logger.info(f"Configuration file: {config_path}")
-        if config_path.exists():
-            downloader.logger.info("\nCurrent configuration:")
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    downloader.logger.info(f.read())
-            except Exception as e:
-                downloader.logger.error(f"\nError reading config file: {e}")
-        else:
-            downloader.logger.info("\nConfiguration file does not exist yet. It will be created on first run.")
-        return 0
-    
-    # Set debug log level if requested
-    if args.debug:
-        downloader.logger.setLevel(logging.DEBUG)
-        downloader.logger.debug("Debug logging enabled")
+    _downloader_instance = downloader
     
     try:
+        # Show config path and exit if requested
+        if args.show_config:
+            config_path = Path(args.config) if args.config else get_default_config_path()
+            downloader.logger.info(f"Configuration file: {config_path}")
+            if config_path.exists():
+                downloader.logger.info("\nCurrent configuration:")
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        downloader.logger.info(f.read())
+                except Exception as e:
+                    downloader.logger.error(f"\nError reading config file: {e}")
+            else:
+                downloader.logger.info("\nConfiguration file does not exist yet. It will be created on first run.")
+            return 0
+        
+        # Set debug log level if requested
+        if args.debug:
+            downloader.logger.setLevel(logging.DEBUG)
+            downloader.logger.debug("Debug logging enabled")
+        
         if not args.chat:
             downloader.logger.error("Chat identifier is required")
             return 1
@@ -207,6 +224,11 @@ async def async_main():
             downloader.logger.info("\nPlease make sure you have entered your API credentials in the config file.")
             downloader.logger.info("You can edit the config file at: %s", get_default_config_path())
             return 1
+
+        # Set up stop file for inter-process communication using fixed name
+        import tempfile
+        stop_file = Path(tempfile.gettempdir()) / "telegram_download_stop.tmp"
+        downloader.set_stop_file(str(stop_file))
 
         # Get downloads directory from config
         downloads_dir = Path(downloader.config.get('settings', {}).get('save_path', get_app_dir() / 'downloads'))
@@ -262,15 +284,13 @@ async def async_main():
                     # Save each group to a separate file
                     base_name = txt_path.stem
                     ext = txt_path.suffix
-                    total_saved = 0
                     
                     for date_key, msgs in split_messages.items():
                         split_file = txt_path.with_name(f"{base_name}_{date_key}{ext}")
                         saved = await downloader.save_messages_as_txt(msgs, split_file)
-                        total_saved += saved
                         downloader.logger.info(f"Saved {saved} messages to {split_file}")
                     
-                    downloader.logger.info(f"Saved {total_saved} total messages in {len(split_messages)} files to {txt_path.parent}")
+                    downloader.logger.info(f"Saved {len(split_messages)} split files in {txt_path.parent}")
             else:
                 saved = await downloader.save_messages_as_txt(messages, txt_path)
                 downloader.logger.info(f"Saved {saved} messages to {txt_path}")
@@ -287,22 +307,10 @@ async def async_main():
             downloader.logger.error(f"Failed to get entity name for chat: {args.chat}")
             return 1
 
-        # Download chat history
-        downloader.logger.info(f"Downloading messages from chat: {args.chat} ({safe_chat_name})")
-        downloader.logger.debug(f"Using limit: {args.limit}")
+        # Get downloads directory from config
+        downloads_dir = Path(downloader.config.get('settings', {}).get('save_path', get_app_dir() / 'downloads'))
+        downloads_dir.mkdir(parents=True, exist_ok=True)
         
-        # Parse until_date if provided
-        until_date = None
-        if args.until:
-            try:
-                # Validate the date format
-                datetime.strptime(args.until, '%Y-%m-%d')
-                until_date = args.until
-                downloader.logger.info(f"Downloading messages until {until_date}")
-            except ValueError:
-                downloader.logger.error("Invalid date format. Please use YYYY-MM-DD")
-                return 1
-
         # Determine output file
         output_file = args.output
         if not output_file:
@@ -326,8 +334,8 @@ async def async_main():
             'output_file': output_file,
             'silent': False
         }
-        if until_date:
-            download_kwargs['until_date'] = until_date
+        if args.until:
+            download_kwargs['until_date'] = args.until
             
         messages = await downloader.download_chat(**download_kwargs)
         
@@ -375,9 +383,12 @@ async def async_main():
         return 1
     finally:
         await downloader.close()
-    
-    return 0
-
+        # Clean up stop file
+        downloader.cleanup_stop_file()
+        try:
+            stop_file.unlink()
+        except Exception:
+            pass
 
 def main() -> int:
     """Main entry point."""

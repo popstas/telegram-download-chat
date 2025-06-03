@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -28,6 +29,9 @@ class TelegramChatDownloader:
         self._setup_logging()
         self.client = None
         self.phone_code_hash = None  # Store phone code hash for authentication
+        self._stop_requested = False  # Flag for graceful shutdown
+        self._stop_file = None  # Path to stop file for inter-process communication
+        self._fetched_usernames_count = 0  # Counter for fetched usernames
     
     def _load_config(self) -> Dict[str, Any]:
         """
@@ -299,9 +303,16 @@ class TelegramChatDownloader:
         
         total_fetched = len(all_messages)
         last_save = asyncio.get_event_loop().time()
-        save_interval = 30  # Save partial results every 30 seconds
+        save_interval = 60  # Save partial results every 60 seconds
         
         while True:
+            # Check for graceful shutdown request
+            if self._stop_requested or (self._stop_file and self._stop_file.exists()):
+                self._stop_requested = True
+                if not silent:
+                    self.logger.info("Stop requested, breaking download loop...")
+                break
+                
             try:
                 history = await self.client(
                     GetHistoryRequest(
@@ -426,7 +437,13 @@ class TelegramChatDownloader:
             if not self.config.get('users_map', {}):
                 self.config['users_map'] = {}
             self.config['users_map'][user_id] = fetched_name
-            self._save_config()
+            self._fetched_usernames_count += 1
+            
+            # Log every 100 fetched usernames
+            if self._fetched_usernames_count % 100 == 0:
+                self._save_config()
+                self.logger.info(f"Fetched {self._fetched_usernames_count} usernames so far")
+            
             return fetched_name
 
     def _get_sender_id(self, msg: Dict[str, Any]) -> Optional[int]:
@@ -538,6 +555,8 @@ class TelegramChatDownloader:
         """
         saved = 0
         txt_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self.logger.info(f"Saving {len(messages)} messages to {txt_path}")
         
         with open(txt_path, 'w', encoding='utf-8') as f:
             for msg in messages:
@@ -573,6 +592,8 @@ class TelegramChatDownloader:
                 except Exception as e:
                     logging.warning(f"Error saving message to TXT: {e}")
         
+        if self._fetched_usernames_count > 0:
+            self._save_config()
 
         return saved
     
@@ -600,6 +621,8 @@ class TelegramChatDownloader:
             save_txt: If True, also save a TXT version of the chat
         """
         output_path = Path(output_file)
+
+        self.logger.info(f"Saving {len(messages)} messages to {output_path}")
         
         # Make messages serializable
         serializable_messages = []
@@ -622,7 +645,8 @@ class TelegramChatDownloader:
             self.logger.info(f"Saved {saved} messages to {txt_path}")
         
         partial = self.get_temp_file_path(output_path)
-        if partial.exists():
+        if partial.exists() and not self._stop_requested:
+            self.logger.info(f"Removing partial file: {partial}")
             partial.unlink()
         
         self.logger.info(f"Saved {len(messages)} messages to {output_file}")
@@ -772,7 +796,7 @@ class TelegramChatDownloader:
     
     def get_temp_file_path(self, output_file: Path) -> Path:
         """Get path for temporary file to store partial downloads."""
-        return output_file.with_name(f".{output_file.name}.part")
+        return output_file.with_name(f"{output_file.stem}.part.jsonl")
     
     def _save_partial_messages(self, messages: List[Dict[str, Any]], output_file: Path) -> None:
         """Save messages to a temporary file for partial downloads using JSONL format.
@@ -780,25 +804,62 @@ class TelegramChatDownloader:
         Each line is a separate JSON object with two fields:
         - 'm': message data
         - 'i': message ID (for resuming)
+        
+        Only new messages (not already in the file) are appended.
+        Check only last 10000 messages.
         """
         import json
+        import time
+        
+        start_time = time.time()
         temp_file = self.get_temp_file_path(output_file)
         temp_file.parent.mkdir(parents=True, exist_ok=True)
         
-        # Write messages in JSONL format
-        with open(temp_file, 'w', encoding='utf-8') as f:
-            for msg in messages:
+        # Load existing message IDs to avoid duplicates (only last 10k lines for performance)
+        existing_ids = set()
+        if temp_file.exists():
+            try:
+                with open(temp_file, 'r', encoding='utf-8') as f:
+                    # Read all lines first, then take only the last 10k
+                    all_lines = f.readlines()
+                    last_10k_lines = all_lines[-10000:] if len(all_lines) > 10000 else all_lines
+                    
+                    for line in last_10k_lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            if isinstance(data, dict) and 'i' in data:
+                                existing_ids.add(data['i'])
+                        except json.JSONDecodeError:
+                            continue
+            except IOError:
+                pass
+        
+        # Append only new messages in JSONL format
+        new_saved_count = 0
+        with open(temp_file, 'a', encoding='utf-8') as f:
+            for msg in messages[-10000:]:
                 try:
                     # Convert message to serializable format
                     msg_dict = msg.to_dict() if hasattr(msg, 'to_dict') else msg
                     serialized = self.make_serializable(msg_dict)
                     # Get message ID, defaulting to 0 if not found
                     msg_id = msg_dict.get('id') if hasattr(msg_dict, 'get') else getattr(msg_dict, 'id', 0)
-                    # Write as a single line
-                    json.dump({'m': serialized, 'i': msg_id}, f, ensure_ascii=False)
-                    f.write('\n')  # Add newline for JSONL format
+                    
+                    # Only append if this message ID is not already in the file
+                    if msg_id not in existing_ids:
+                        # Write as a single line
+                        json.dump({'m': serialized, 'i': msg_id}, f, ensure_ascii=False)
+                        f.write('\n')  # Add newline for JSONL format
+                        existing_ids.add(msg_id)  # Track this ID to avoid duplicates in this batch
+                        new_saved_count += 1
                 except Exception as e:
-                    logging.warning(f"Failed to serialize message: {e}")
+                    self.logger.warning(f"Failed to serialize message: {e}")
+        
+        save_time = time.time() - start_time
+        self.logger.info(f"Saved {new_saved_count} new messages to partial file in {save_time:.2f}s")
     
     def _load_partial_messages(self, output_file: Path) -> tuple[list[Dict[str, Any]], int]:
         """Load messages from a temporary JSONL file if it exists.
@@ -836,3 +897,31 @@ class TelegramChatDownloader:
         except (IOError, json.JSONDecodeError) as e:
             logging.warning(f"Error loading partial messages: {e}")
             return [], 0
+
+    def stop(self) -> None:
+        """Set the stop flag for graceful shutdown."""
+        self._stop_requested = True
+        # Also create stop file if it was set up
+        if self._stop_file:
+            try:
+                self._stop_file.touch()
+            except Exception:
+                pass  # Ignore errors creating stop file
+
+    def set_stop_file(self, stop_file_path: str) -> None:
+        """Set up file-based stop communication."""
+        self._stop_file = Path(stop_file_path)
+        # Clean up any existing stop file
+        if self._stop_file.exists():
+            try:
+                self._stop_file.unlink()
+            except Exception:
+                pass
+
+    def cleanup_stop_file(self) -> None:
+        """Clean up the stop file."""
+        if self._stop_file and self._stop_file.exists():
+            try:
+                self._stop_file.unlink()
+            except Exception:
+                pass

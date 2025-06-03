@@ -36,7 +36,7 @@ from .paths import get_app_dir, ensure_app_dirs, get_default_config_path
 class WorkerThread(QThread):
     log = Signal(str)
     progress = Signal(int, int)  # current, maximum
-    finished = Signal(list)
+    finished = Signal(list, bool)  # files, was_stopped_by_user
     
     def __init__(self, cmd_args, output_dir):
         super().__init__()
@@ -44,13 +44,25 @@ class WorkerThread(QThread):
         self.output_dir = output_dir
         self.current_max = 1000  # Initial maximum value
         self._is_running = True
+        self._stopped_by_user = False
         self.process = None
+        self._stop_file = None  # Path to stop file for inter-process communication
         
     def stop(self):
         self._is_running = False
+        self._stopped_by_user = True
         if self.process:
-            self.process.terminate()
-
+            # Create a stop file to signal the process to stop gracefully
+            if not self._stop_file:
+                import tempfile
+                self._stop_file = Path(tempfile.gettempdir()) / "telegram_download_stop.tmp"
+            try:
+                self._stop_file.touch()
+                self.log.emit("\nSending graceful shutdown signal...")
+            except Exception:
+                # Fallback to terminate if stop file creation fails
+                self.process.terminate()
+            
     def _update_progress(self, current):
         # Dynamically adjust maximum value based on current progress
         new_max = self.current_max
@@ -99,12 +111,8 @@ class WorkerThread(QThread):
         
         # If we broke out of the loop because stop was requested
         if not self._is_running and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)  # Give it 5 seconds to terminate
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-            self.log.emit("\nDownload stopped by user")
+            # Wait for the process to stop
+            self.process.wait()
         
         # after completion, collect files in output_dir
         p = Path(self.output_dir)
@@ -114,7 +122,15 @@ class WorkerThread(QThread):
             # Sort by modification time, newest first
             for f in sorted(all_files, key=lambda x: x.stat().st_mtime, reverse=True):
                 files.append(str(f.absolute()))
-        self.finished.emit(files)
+        
+        # Clean up stop file if it exists
+        if self._stop_file and self._stop_file.exists():
+            try:
+                self._stop_file.unlink()
+            except Exception:
+                pass
+                
+        self.finished.emit(files, self._stopped_by_user)
 
 
 class MainWindow(QMainWindow):
@@ -145,7 +161,13 @@ class MainWindow(QMainWindow):
         font = self.log_view.font()
         font.setPointSize(12)  # Larger font size
         self.log_view.setFont(font)
-        self.log_view.setFixedHeight(int(self.log_view.fontMetrics().height() * 1.5))  # Slightly more than one line height
+        
+        # Track log expansion state
+        self.log_expanded = False
+        self.log_collapsed_height = int(self.log_view.fontMetrics().height() * 1.5)  # Slightly more than one line height
+        self.log_expanded_height = int(self.log_view.fontMetrics().height() * 10.5)  # 10 lines height
+        
+        self.log_view.setFixedHeight(self.log_collapsed_height)
         self.log_view.setLineWrapMode(QTextEdit.NoWrap)  # No line wrapping
         self.log_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # Show vertical scrollbar when needed
         self.log_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # Hide horizontal scrollbar
@@ -214,8 +236,29 @@ class MainWindow(QMainWindow):
             }
         """)
         self.copy_log_btn.clicked.connect(self.copy_log_to_clipboard)
-        
         log_header.addWidget(self.copy_log_btn)
+        
+        # Add expand/collapse button with +/- text
+        self.expand_log_btn = QPushButton("+")
+        self.expand_log_btn.setToolTip("Expand log")
+        self.expand_log_btn.setFixedSize(20, 20)
+        self.expand_log_btn.setStyleSheet("""
+            QPushButton {
+                border: none;
+                padding: 0px;
+                background: transparent;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background: #f0f0f0;
+                border-radius: 3px;
+            }
+        """)
+        self.expand_log_btn.clicked.connect(self.toggle_log_expansion)
+        
+        log_header.addWidget(self.expand_log_btn)
+
         log_header.addStretch()
         
         vbox.addLayout(log_header)
@@ -288,9 +331,9 @@ class MainWindow(QMainWindow):
         
         # Create a container for the chat input to control spacing
         chat_container = QWidget()
-        chat_layout = QVBoxLayout(chat_container)
+        chat_layout = QHBoxLayout(chat_container)  # Changed from QVBoxLayout to QHBoxLayout
         chat_layout.setContentsMargins(0, 0, 0, 0)
-        chat_layout.setSpacing(2)  # Minimal spacing between label and input
+        chat_layout.setSpacing(10)  # Increased spacing for horizontal layout
         chat_layout.addWidget(chat_label)
         chat_layout.addWidget(self.chat_edit)
         
@@ -378,7 +421,7 @@ class MainWindow(QMainWindow):
         model.setHorizontalHeaderLabels(['Settings'])
         
         # Add settings item with proper styling
-        settings_item = QStandardItem("▼ Settings")  # Add arrow indicator
+        settings_item = QStandardItem("Settings ▶")  # Add arrow indicator (collapsed state)
         settings_item.setCheckable(False)
         settings_item.setSelectable(True)
         settings_item.setEditable(False)
@@ -492,14 +535,19 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(tab, "Download")
         
     def toggle_settings_visibility(self, index):
-        """Toggle the visibility of the settings widget when the tree item is clicked."""
-        if index.isValid() and index.row() == 0:  # Only toggle for the Settings item
-            self.settings_widget.setVisible(not self.settings_widget.isVisible())
-            # Adjust the tree height based on visibility
-            if self.settings_widget.isVisible():
-                self.settings_tree.setMaximumHeight(self.settings_tree.sizeHintForRow(0) * 2)  # Show more rows when expanded
+        """Toggle the settings visibility and update arrow indicator."""
+        if index.isValid() and index.row() == 0:  # Only handle clicks on the settings item
+            # Toggle visibility
+            is_visible = self.settings_widget.isVisible()
+            self.settings_widget.setVisible(not is_visible)
+            
+            # Update arrow indicator
+            if is_visible:
+                # Collapsing - show right arrow
+                self.settings_item.setText("Settings ▶")
             else:
-                self.settings_tree.setMaximumHeight(self.settings_tree.sizeHintForRow(0) * 1.5)  # Show fewer rows when collapsed
+                # Expanding - show down arrow
+                self.settings_item.setText("Settings ▼")
 
     def _build_convert_tab(self):
         tab = QWidget()
@@ -910,8 +958,8 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'downloader') and self.downloader and hasattr(self.downloader, 'client'):
                 if self.downloader.client.is_connected():
                     await self.downloader.client.disconnect()
-                self.downloader.client = None
-    
+                self.downloader = None
+                
     def _do_login(self):
         """Handle the login button click."""
         if not self.code_edit.text().strip():
@@ -1040,7 +1088,8 @@ class MainWindow(QMainWindow):
     def start_convert(self):
         cmd = [sys.executable, "-m", "telegram_download_chat.cli"]
         if self.conv_debug.isChecked(): cmd.append("--debug")
-        cmd += [self.export_edit.text()]
+        input_file = self.export_edit.text()
+        cmd += [input_file]
         if self.conv_user_edit.text(): cmd += ["--user", self.conv_user_edit.text()]
         downloads_dir = get_downloads_dir()
         output_path = Path(self.conv_output.text()) if self.conv_output.text() else downloads_dir / "converted_chat.json"
@@ -1060,6 +1109,7 @@ class MainWindow(QMainWindow):
         self.worker.progress.connect(self.update_progress)
         self.worker.finished.connect(self.on_finished)
         self.start_btn.setEnabled(False)
+        self.start_btn.setText("Downloading...")
         self.stop_btn.setEnabled(True)
         self.worker.start()
         
@@ -1067,52 +1117,58 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'worker') and self.worker.isRunning():
             self.stop_btn.setEnabled(False)
             self.worker.stop()
-
+            self.log_view.append("Stopping download and saving messages...")
+        
     def update_progress(self, current, maximum):
         """Update the progress bar with current and maximum values."""
         self.progress.setMaximum(maximum)
         self.progress.setValue(current)
 
-    def on_finished(self, files):
+    def on_finished(self, files, was_stopped_by_user):
         self.file_list.clear()
         if files:
             self.file_list.addItems([os.path.basename(f) for f in files])
             self.file_list.setCurrentRow(0)  # Select first file
             self.open_btn.setEnabled(True)
             self.copy_btn.setEnabled(True)
-            self.log_view.append("\nDownload completed!")
+            # Provide appropriate feedback based on how the download ended
+            if was_stopped_by_user:
+                self.log_view.append(f"\nDownload stopped by user.")
+            else:
+                self.log_view.append("\nDownload completed!")
         else:
             self.log_view.append("\nNo files were downloaded.")
             self.open_btn.setEnabled(False)
             self.copy_btn.setEnabled(False)
             self.preview.clear()
             self.file_size_label.setText("Size: 0 KB")
-
+        
         # Reset progress bar and buttons
         self.progress.setMaximum(1000)
         self.progress.setValue(1000)
         self.start_btn.setEnabled(True)
+        self.start_btn.setText("Start download")
         self.stop_btn.setEnabled(False)
-        # Change download button to gray
+        # Reset download button to original green style
         self.start_btn.setStyleSheet("""
             QPushButton {
-                background-color: #666666;
+                background-color: #4CAF50;
                 color: white;
                 font-weight: bold;
                 font-size: 16px;
                 padding: 12px 24px;
                 border: none;
                 border-radius: 6px;
-                min-width: 100px;
+                min-width: 180px;
                 min-height: 40px;
                 margin-top: 20px;
-                margin-left: 10px;
+                margin-right: 10px;
             }
             QPushButton:hover {
-                background-color: #e53935;
+                background-color: #45a049;
             }
             QPushButton:pressed {
-                background-color: #c62828;
+                background-color: #3d8b40;
             }
             QPushButton:disabled {
                 background-color: #666666;
@@ -1191,6 +1247,19 @@ class MainWindow(QMainWindow):
             subprocess.call(['open', folder])
         else:
             subprocess.call(['xdg-open', folder])
+
+    def toggle_log_expansion(self):
+        """Toggle the log view expansion."""
+        if self.log_expanded:
+            self.log_view.setFixedHeight(self.log_collapsed_height)
+            self.expand_log_btn.setText("+")
+            self.expand_log_btn.setToolTip("Expand log")
+        else:
+            self.log_view.setFixedHeight(self.log_expanded_height)
+            self.expand_log_btn.setText("-")
+            self.expand_log_btn.setToolTip("Collapse log")
+        
+        self.log_expanded = not self.log_expanded
 
 def get_downloads_dir():
     args = parse_args()

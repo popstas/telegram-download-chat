@@ -244,6 +244,68 @@ telegram-download-chat group_username --subchat 12345 --subchat-name "Important 
 telegram-download-chat group_username --subchat "https://t.me/c/123456789/12345"
 ```
 
+## Graphical User Interface (GUI)
+
+For users who prefer a visual interface, the application includes an optional GUI that provides an intuitive way to download Telegram chats.
+
+### Launching the GUI
+
+```bash
+# Launch the GUI application
+telegram-download-chat --gui
+```
+
+### GUI Features
+
+The GUI provides all the functionality of the command-line interface with additional user-friendly features:
+
+#### Main Interface
+- **Chat Input**: Enter chat identifier (username, phone number, chat ID, or URL)
+- **Output Directory**: Select where to save downloaded files
+- **Download Options**: Configure limit, date filters, and other parameters
+- **Progress Tracking**: Real-time progress bar showing download status
+- **File List**: View all downloaded files with easy access
+
+#### Advanced Options
+- **Message Limit**: Set maximum number of messages to download
+- **Date Filter**: Download messages only until a specific date
+- **User Filter**: Filter messages by specific sender
+- **Subchat Extraction**: Extract messages from specific threads
+- **Debug Mode**: Enable detailed logging for troubleshooting
+
+#### Smart Download Management
+- **Pause/Resume**: Stop and resume downloads at any time
+- **Message Saving**: When you stop a download, all messages that were already fetched are automatically saved
+- **Progress Persistence**: Downloads can be resumed from where they left off
+- **File Organization**: Downloaded files are automatically organized and displayed
+
+#### Stop and Save Functionality
+One of the key GUI features is the ability to stop downloads while preserving progress:
+
+1. **During Download**: Click the "Stop" button to halt the current download
+2. **Automatic Saving**: The application will save all messages that were already downloaded
+3. **User Feedback**: You'll see a message like "Stopping download and saving messages..."
+4. **File Collection**: After stopping, the GUI will display "Messages saved successfully! Found X file(s)."
+5. **File Access**: All saved files are immediately available in the file list
+
+This feature is particularly useful for:
+- Large chats where you want to preview initial messages
+- Testing downloads before committing to full extraction
+- Situations where you need to stop due to time constraints
+- Recovering partial downloads when issues occur
+
+### GUI vs Command Line
+
+| Feature | GUI | Command Line |
+|---------|-----|--------------|
+| Ease of use | Intuitive interface | Requires command knowledge |
+| Progress tracking | Visual progress bar | Text-based progress |
+| File management | Integrated file browser | Manual file navigation |
+| Stop/Resume | One-click stop with auto-save | Manual interruption |
+| Configuration | Visual forms | Manual config editing |
+| Batch operations | One chat at a time | Scriptable |
+| Automation | Interactive only | Fully scriptable |
+
 ## Output Formats
 
 The tool generates the following files for each chat:
@@ -268,7 +330,7 @@ A human-readable version of the chat with:
 
 ```
 2025-05-25 10:30:15 Alice:
-Hello everyone! 👋
+Hello everyone! 
 
 2025-05-25 10:31:22 Bob (replying to Alice):
 Hi Alice! How are you?

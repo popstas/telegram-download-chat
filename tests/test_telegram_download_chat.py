@@ -277,7 +277,7 @@ class TestCLIExecution:
         
         with patch('sys.argv', ['script_name', str(test_json)]), \
              patch('telegram_download_chat.cli.TelegramChatDownloader', return_value=mock_downloader), \
-             patch('telegram_download_chat.cli.get_app_dir', return_value=tmp_path):
+             patch('telegram_download_chat.paths.get_app_dir', return_value=tmp_path):
             
             # Mock the file operations
             with patch('builtins.open', mock_open()) as mock_file:
@@ -353,7 +353,7 @@ class TestCLIExecution:
         
         # Patch the downloader class to return our mock
         with patch('telegram_download_chat.cli.TelegramChatDownloader', return_value=mock_downloader) as mock_tg_class, \
-             patch('telegram_download_chat.cli.get_app_dir', return_value=tmp_path), \
+             patch('telegram_download_chat.paths.get_app_dir', return_value=tmp_path), \
              patch('sys.argv', ['script.py', test_chat, '--config', str(config_path)]), \
              patch('sys.stdout', new_callable=StringIO) as mock_stdout, \
              patch('sys.stderr', new_callable=StringIO) as mock_stderr:

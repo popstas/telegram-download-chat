@@ -232,7 +232,7 @@ class MainWindow(QMainWindow):
     def _save_settings(self):
         """Save settings to config."""
         try:
-            # Save window geometry and state
+            self._load_settings()            # Save window geometry and state
             geometry = self.saveGeometry()
             state = self.saveState()
             
@@ -602,11 +602,12 @@ class MainWindow(QMainWindow):
     
     def _show_about_dialog(self):
         """Show the about dialog."""
+        from telegram_download_chat import __version__
         QMessageBox.about(
             self,
             "About Telegram Download Chat",
-            "<h2>Telegram Download Chat</h2>"
-            "<p>Version 1.0.0</p>"
+            f"<h2>Telegram Download Chat</h2>"
+            f"<p>Version {__version__}</p>"
             "<p>A tool to download Telegram chat history.</p>"
             "<p>Copyright 2025 Stanislav Popov. All rights reserved.</p>"
         )

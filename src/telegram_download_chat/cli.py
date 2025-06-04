@@ -403,7 +403,7 @@ def main() -> int:
     # Support GUI mode: `telegram-download-chat gui`
     if (len(sys.argv) >= 2 and sys.argv[1] == 'gui') or len(sys.argv) == 1:
         try:
-            from telegram_download_chat.gui_app import main as gui_main
+            from telegram_download_chat.gui.main import main as gui_main
             gui_main()
             return 0
         except ImportError as e:

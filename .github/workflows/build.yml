@@ -25,7 +25,7 @@ jobs:
         .\build_windows.ps1
     
     - name: Upload Windows artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: telegram-download-chat-windows
         path: dist/telegram-download-chat.exe
@@ -53,7 +53,7 @@ jobs:
         bash build_macos.sh
     
     - name: Upload macOS artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: telegram-download-chat-macos
         path: dist/telegram-download-chat.dmg

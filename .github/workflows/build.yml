@@ -22,6 +22,14 @@ jobs:
     
     - name: Run Windows build script
       run: |
+        # Extract version from tag if available, otherwise use 0.0.0
+        if ("${{ github.ref }}" -like 'refs/tags/*') {
+          $VERSION = "${{ github.ref }}" -replace 'refs/tags/v',''
+        } else {
+          $VERSION = "0.0.0"
+        }
+        Write-Host "Using version: $VERSION"
+        $env:SETUPTOOLS_SCM_PRETEND_VERSION = $VERSION
         .\build_windows.ps1
     
     - name: Upload Windows artifact
@@ -55,7 +63,14 @@ jobs:
         
     - name: Run macOS build script
       run: |
-        bash build_macos.sh
+        # Extract version from tag if available, otherwise use 0.0.0
+        if [[ ${{ github.ref }} == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION="0.0.0"
+        fi
+        echo "Using version: $VERSION"
+        SETUPTOOLS_SCM_PRETEND_VERSION=$VERSION bash build_macos.sh
     
     - name: Upload macOS artifact
       uses: actions/upload-artifact@v4

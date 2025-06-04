@@ -23,7 +23,7 @@ import traceback
 
 from telegram_download_chat import __version__
 from telegram_download_chat.core import TelegramChatDownloader
-from telegram_download_chat.paths import get_default_config_path, get_app_dir
+from telegram_download_chat.paths import get_default_config_path, get_downloads_dir
 
 # Global downloader instance for signal handling
 _downloader_instance = None
@@ -239,7 +239,7 @@ async def async_main():
         downloader.set_stop_file(str(stop_file))
 
         # Get downloads directory from config
-        downloads_dir = Path(downloader.config.get('settings', {}).get('save_path', get_app_dir() / 'downloads'))
+        downloads_dir = Path(downloader.config.get('settings', {}).get('save_path', get_downloads_dir()))
         downloads_dir.mkdir(parents=True, exist_ok=True)
         
         # Handle JSON conversion mode if --subchat is provided without --json
@@ -316,7 +316,7 @@ async def async_main():
             return 1
 
         # Get downloads directory from config
-        downloads_dir = Path(downloader.config.get('settings', {}).get('save_path', get_app_dir() / 'downloads'))
+        downloads_dir = Path(downloader.config.get('settings', {}).get('save_path', get_downloads_dir()))
         downloads_dir.mkdir(parents=True, exist_ok=True)
         
         # Determine output file

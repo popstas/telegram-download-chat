@@ -1,0 +1,13 @@
+- [x] Copy to clipboard hotkey should copy selected file to clipboard, log.
+- [x] Add "Files" block with list of downloaded files
+- [x] Add "Open Downloads" button to open downloads folder 
+- [x] Make log collapsed by default
+- [x] Add icon to "Copy log to clipboard" button
+- [x] Make working "Copy log to clipboard" with icon
+- [x] Move "Log" section above "Files" section
+- [x] Set app icon
+- [x] Settings doesn't load for download_tab.py
+- [x] Filename is output.txt, should be empty by default, autodetect by chat name
+- [x] At the "Settings" tab: Telegram login should be displayed when no session. When session is loaded, show session name and "Logout" button.
+- [x] At the "Settings" tab: "Get code" doesn't work
+- [x] At the "Settings" tab: "Login" doesn't work

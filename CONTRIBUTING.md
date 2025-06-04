@@ -10,10 +10,29 @@ Thank you for your interest in contributing to Telegram Download Chat! This docu
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
-3. Install development dependencies:
+3. Install the package in development mode with all dependencies:
    ```bash
    pip install -e ".[dev]"
    ```
+4. Install pre-commit hooks for code quality:
+   ```bash
+   pre-commit install
+   ```
+
+## Code Style
+
+- Follow PEP 8 style guide
+- Use type hints for all new code
+- Run code formatters before committing:
+  ```bash
+  black .
+  isort .
+  ```
+- Run linters:
+  ```bash
+  flake8 .
+  mypy .
+  ```
 
 ## Running Tests
 
@@ -23,17 +42,35 @@ Before submitting changes, please run the test suite:
 pytest -v
 ```
 
-## Release Process
+### Running Specific Tests
 
-### 1. Prepare the Release
+Run tests matching a pattern:
+```bash
+pytest -k "test_name_pattern"
+```
 
-1. Ensure all changes for the release are merged to the main branch
-2. Make sure all tests are passing
-3. Update the CHANGELOG.md with the changes in this release
+Run tests with coverage:
+```bash
+pytest --cov=telegram_download_chat
+```
 
-### 2. Bump the Version
+## Version Management
 
-The project uses `bumpversion` to manage version numbers. To bump the version, run one of:
+We use a combination of `bumpversion` and `setuptools-scm` for version management:
+
+1. **bumpversion** is used to:
+   - Update version in `__init__.py` and other files
+   - Create git tags
+   - Make commits with version bumps
+
+2. **setuptools-scm** is used to:
+   - Generate version numbers from git tags during builds
+   - Create a `_version.py` file automatically
+   - Ensure consistent versioning across built packages
+
+### Updating the Version
+
+Use one of these commands to update the version:
 
 ```bash
 # For a patch release (0.0.1 -> 0.0.2)
@@ -47,8 +84,38 @@ bumpversion major
 ```
 
 This will:
-- Update the version in all relevant files (pyproject.toml, setup.py, __init__.py)
+- Update version in all tracked files
 - Create a git commit with the version bump
+- Create a git tag with the new version
+
+## Release Process
+
+1. Ensure all changes for the release are merged to the main branch
+2. Make sure all tests are passing
+3. Update the CHANGELOG.md with the changes in this release
+4. Bump the version using bumpversion (see Version Management section above)
+5. Push the version bump commit and tag:
+   ```bash
+   git push
+   git push --tags
+   ```
+6. Create a new release on GitHub with the changelog
+
+## Building the Package
+
+To build the package:
+```bash
+python -m build
+```
+
+To build the Windows executable:
+```powershell
+.\build_windows.ps1
+```
+
+## Debugging
+
+For debugging the GUI, you can use the VS Code launch configuration in `.vscode/launch.json`.
 - Create a git tag with the new version
 
 ### 3. Push Changes

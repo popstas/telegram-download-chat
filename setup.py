@@ -2,14 +2,20 @@
 
 from pathlib import Path
 from setuptools import setup, find_packages
+import os
+import sys
+
+# Add src to path so we can import __version__
+sys.path.insert(0, os.path.abspath('src'))
+from telegram_download_chat import __version__
 
 # Read the contents of README.md
-this_directory = Path(__file__).parent
-long_description = (this_directory / "README.md").read_text(encoding="utf-8")
+with open("README.md", "r", encoding="utf-8") as fh:
+    long_description = fh.read()
 
 setup(
     name="telegram-download-chat",
-    version="0.3.0",
+    version=__version__,
     description="CLI utility for downloading Telegram chat history to JSON",
     long_description=long_description,
     long_description_content_type="text/markdown",

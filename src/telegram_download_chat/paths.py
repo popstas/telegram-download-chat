@@ -20,6 +20,9 @@ def get_app_dir() -> Path:
     
     return base_dir / 'telegram-download-chat'
 
+def get_downloads_dir() -> Path:
+    return get_app_dir() / 'downloads'
+
 def get_default_config() -> Dict[str, Any]:
     """
     Get the default configuration.

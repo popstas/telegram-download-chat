@@ -87,13 +87,13 @@ jobs:
     
     steps:
     - name: Download Windows artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: telegram-download-chat-windows
         path: artifacts/windows
     
     - name: Download macOS artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: telegram-download-chat-macos
         path: artifacts/macos

@@ -48,6 +48,11 @@ jobs:
       run: |
         brew install libmagic
         
+    - name: Install Python build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install setuptools_scm
+        
     - name: Run macOS build script
       run: |
         bash build_macos.sh

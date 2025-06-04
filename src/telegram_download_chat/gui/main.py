@@ -104,7 +104,6 @@ def setup_logging():
     
     # Set log level for external libraries
     logging.getLogger('telethon').setLevel(logging.WARNING)
-    logging.getLogger('PIL').setLevel(logging.WARNING)
     
     # Enable debug logging for our application
     logging.getLogger('telegram_download_chat').setLevel(logging.INFO)

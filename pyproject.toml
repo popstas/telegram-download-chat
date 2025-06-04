@@ -43,6 +43,9 @@ dev = [
     "flake8>=4.0.0"
 ]
 
+[tool.bumpversion]
+current_version = "0.3.0"
+
 [tool.setuptools_scm]
 # Use git tags for versioning
 write_to = "src/telegram_download_chat/_version.py"

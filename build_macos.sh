@@ -3,7 +3,13 @@
 # Usage: ./build_macos.sh
 
 # Stop on first error and print commands
-set -e
+set -euo pipefail
+
+# Get the current version from setuptools-scm
+VERSION=$(python -c "from setuptools_scm import get_version; print(get_version(root='..'))")
+VERSION_MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2)
+
+echo "Building version: $VERSION"
 
 # Get the script's directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -100,8 +106,9 @@ CONTENTS_DIR="$APP_PATH/Contents"
 # Create Resources directory if it doesn't exist
 mkdir -p "$CONTENTS_DIR/Resources"
 
-# Create Info.plist
-cat > "$CONTENTS_DIR/Info.plist" <<EOL
+# Create Info.plist with version substitution
+TMP_PLIST=$(mktemp)
+cat > "$TMP_PLIST" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -113,9 +120,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<EOL
     <key>CFBundleIdentifier</key>
     <string>com.popstas.telegram-download-chat</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>__VERSION__</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>__VERSION_MAJOR_MINOR__</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleExecutable</key>
@@ -130,7 +137,12 @@ cat > "$CONTENTS_DIR/Info.plist" <<EOL
     <false/>
 </dict>
 </plist>
-EOL
+EOF
+
+# Replace placeholders with actual version values
+sed -i.bak "s/__VERSION__/$VERSION/g; s/__VERSION_MAJOR_MINOR__/$VERSION_MAJOR_MINOR/g" "$TMP_PLIST"
+mv "$TMP_PLIST" "$CONTENTS_DIR/Info.plist"
+rm -f "${TMP_PLIST}.bak"
 
 # Copy icon to Resources
 cp "$ICONSET_DEST" "$CONTENTS_DIR/Resources/AppIcon.icns"

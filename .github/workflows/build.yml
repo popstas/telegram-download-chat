@@ -113,11 +113,6 @@ jobs:
       with:
         tag_name: ${{ github.ref }}
         name: Release v${{ steps.get_version.outputs.version }}
-        body: |
-          Release v${{ steps.get_version.outputs.version }}
-          
-          ### Changes
-          - Update changelog here
         draft: false
         prerelease: false
         files: |

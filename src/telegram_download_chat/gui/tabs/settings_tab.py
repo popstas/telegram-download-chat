@@ -864,6 +864,8 @@ class SettingsTab(QWidget):
                 # Save phone number in settings
                 self.config.set('settings.phone', phone)
                 self.config.save()
+
+                await self.telegram_auth.client.disconnect()
                 
                 # Notify parent
                 self.auth_state_changed.emit(True)

@@ -24,11 +24,11 @@ settings:
   # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
   log_level: INFO
 
-# User mapping for TXT export
+# Optional mapping for overriding user full names
 users_map:
   123456: "Alice"
   789012: "Bob"
 
-# Chat mapping for TXT export
+# Optional mapping for overriding chat titles
 chats_map:
   100123456: "MyGroup"

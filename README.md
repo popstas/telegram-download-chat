@@ -234,7 +234,7 @@ users_map:
 ```
 
 ### Chat Mapping
-Use `chats_map` to provide friendly names for chat IDs when saving TXT output:
+Full chat titles are fetched automatically. Use `chats_map` only if you want to override them:
 
 ```yaml
 chats_map:

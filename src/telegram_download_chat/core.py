@@ -410,14 +410,19 @@ class TelegramChatDownloader:
     
 
     async def fetch_user_name(self, user_id: int) -> str:
-        """Fetch username from Telegram."""
+        """Fetch full name for a user from Telegram."""
         try:
             if not self.client:
                 await self.connect()
             user = await self.client.get_entity(PeerUser(user_id))
-            name = user.first_name or user.username or user.last_name or str(user_id)
-            if user.last_name and user.first_name:
-                name = f"{user.first_name} {user.last_name}"
+
+            # Prefer the human readable first/last name combination
+            name = " ".join(filter(None, [getattr(user, "first_name", None), getattr(user, "last_name", None)])).strip()
+
+            # Fallback to username only when no name is set
+            if not name:
+                name = user.username or str(user_id)
+
             return name
         except Exception:
             return str(user_id)
@@ -453,7 +458,7 @@ class TelegramChatDownloader:
             return "Unknown"
         if peer_id in self.config.get('chats_map', {}):
             return self.config['chats_map'][peer_id]
-        name = await self.get_entity_name(str(peer_id))
+        name = await self.get_entity_full_name(str(peer_id))
         if not self.config.get('chats_map', {}):
             self.config['chats_map'] = {}
         self.config['chats_map'][peer_id] = name
@@ -837,6 +842,27 @@ class TelegramChatDownloader:
             
             safe_name = re.sub(r'[^\w\-_.]', '_', chat)
             return safe_name or 'chat_history'
+
+    async def get_entity_full_name(self, identifier: Union[str, int]) -> str:
+        """Return the raw title or name for a chat/channel/user."""
+        if not identifier:
+            return 'Unknown'
+        try:
+            entity = await self.get_entity(identifier)
+            if not entity:
+                return str(identifier)
+
+            if hasattr(entity, 'title'):
+                return entity.title
+            if hasattr(entity, 'first_name') or hasattr(entity, 'last_name'):
+                name = ' '.join(filter(None, [getattr(entity, 'first_name', ''), getattr(entity, 'last_name', '')])).strip()
+                return name or str(identifier)
+            if hasattr(entity, 'username') and entity.username:
+                return entity.username
+
+            return str(identifier)
+        except Exception:
+            return str(identifier)
     
     async def close(self) -> None:
         """Close the Telegram client connection."""

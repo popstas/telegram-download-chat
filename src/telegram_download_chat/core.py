@@ -447,17 +447,26 @@ class TelegramChatDownloader:
             return fetched_name
 
     def _get_sender_id(self, msg: Dict[str, Any]) -> Optional[int]:
-        """Get sender ID from message."""
-        sender = msg.get('from_id') or msg.get('sender_id') or ''
+        """Extract the sender ID from a message dictionary."""
+
+        # Telegram messages can store the sender information in different
+        # locations depending on how the message was obtained.  Prefer the
+        # explicit ``from_id``/``sender_id`` fields when available and fall back
+        # to ``peer_id`` only if those are missing.
+        sender = msg.get('from_id') or msg.get('sender_id') or msg.get('peer_id')
+
         if isinstance(sender, dict):
-            sender = sender.get('user_id') or sender.get('channel_id') or sender.get('chat_id') or ''
-        else:
-            sender = msg.get('peer_id', {}).get('user_id') or ''
+            sender = (
+                sender.get('user_id')
+                or sender.get('channel_id')
+                or sender.get('chat_id')
+                or sender
+            )
+
         try:
-            sender_id = int(sender)
-        except Exception:
+            return int(sender)
+        except (TypeError, ValueError):
             return None
-        return sender_id    
     
     def convert_archive_to_messages(self, archive: Dict[str, Any], user_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         """Convert Telegram archive to list of messages.

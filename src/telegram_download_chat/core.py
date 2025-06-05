@@ -32,6 +32,9 @@ class TelegramChatDownloader:
         self._stop_requested = False  # Flag for graceful shutdown
         self._stop_file = None  # Path to stop file for inter-process communication
         self._fetched_usernames_count = 0  # Counter for fetched usernames
+        self._fetched_chatnames_count = 0  # Counter for fetched chat names
+        self._self_id: Optional[int] = None  # ID of the current user
+        self._self_name: Optional[str] = None  # Full name of the current user
     
     def _load_config(self) -> Dict[str, Any]:
         """
@@ -243,7 +246,12 @@ class TelegramChatDownloader:
             me = await self.client.get_me()
             if not me:
                 raise RuntimeError("Failed to get current user after authentication")
-                
+
+            self._self_id = getattr(me, "id", None)
+            self._self_name = " ".join(
+                filter(None, [getattr(me, "first_name", None), getattr(me, "last_name", None)])
+            ).strip() or (me.username or getattr(me, "phone", ""))
+
             self.logger.info(f"Successfully connected as {me.username or me.phone}")
             await self.client.start()
             return True
@@ -409,14 +417,19 @@ class TelegramChatDownloader:
     
 
     async def fetch_user_name(self, user_id: int) -> str:
-        """Fetch username from Telegram."""
+        """Fetch full name for a user from Telegram."""
         try:
             if not self.client:
                 await self.connect()
             user = await self.client.get_entity(PeerUser(user_id))
-            name = user.first_name or user.username or user.last_name or str(user_id)
-            if user.last_name and user.first_name:
-                name = f"{user.first_name} {user.last_name}"
+
+            # Prefer the human readable first/last name combination
+            name = " ".join(filter(None, [getattr(user, "first_name", None), getattr(user, "last_name", None)])).strip()
+
+            # Fallback to username only when no name is set
+            if not name:
+                name = user.username or str(user_id)
+
             return name
         except Exception:
             return str(user_id)
@@ -443,8 +456,45 @@ class TelegramChatDownloader:
             if self._fetched_usernames_count % 100 == 0:
                 self._save_config()
                 self.logger.info(f"Fetched {self._fetched_usernames_count} usernames so far")
-            
+
             return fetched_name
+
+    async def _get_peer_display_name(self, peer_id: int) -> str:
+        """Return the display name for a peer and cache it appropriately."""
+        if not peer_id:
+            return "Unknown"
+
+        # Users take precedence over chats when resolving IDs
+        if peer_id in self.config.get("users_map", {}):
+            return self.config["users_map"][peer_id]
+        if peer_id in self.config.get("chats_map", {}):
+            return self.config["chats_map"][peer_id]
+
+        entity = None
+        try:
+            entity = await self.get_entity(peer_id)
+        except Exception as e:
+            self.logger.debug(f"Failed to get entity {peer_id}: {e}")
+
+        if isinstance(entity, User):
+            # Bots are also instances of User
+            return await self._get_user_display_name(peer_id)
+
+        if isinstance(entity, (Chat, Channel)):
+            name = entity.title or str(peer_id)
+            if not self.config.get("chats_map", {}):
+                self.config["chats_map"] = {}
+            self.config["chats_map"][peer_id] = name
+            self._fetched_chatnames_count += 1
+            if self._fetched_chatnames_count % 100 == 0:
+                self._save_config()
+                self.logger.info(
+                    f"Fetched {self._fetched_chatnames_count} chat names so far"
+                )
+            return name
+
+        # Fallback: treat as user if type could not be determined
+        return await self._get_user_display_name(peer_id)
 
     def _get_sender_id(self, msg: Dict[str, Any]) -> Optional[int]:
         """Extract the sender ID from a message dictionary."""
@@ -465,6 +515,28 @@ class TelegramChatDownloader:
 
         try:
             return int(sender)
+        except (TypeError, ValueError):
+            return None
+
+    def _get_recipient_id(self, msg: Dict[str, Any]) -> Optional[int]:
+        """Determine the recipient ID for arrow formatting."""
+        peer = msg.get('peer_id') or msg.get('to_id')
+        sender_id = self._get_sender_id(msg)
+
+        if isinstance(peer, dict):
+            if 'user_id' in peer:
+                other_id = peer.get('user_id')
+                if self._self_id and sender_id != self._self_id:
+                    return self._self_id
+                return other_id
+            peer = (
+                peer.get('channel_id')
+                or peer.get('chat_id')
+                or peer
+            )
+
+        try:
+            return int(peer)
         except (TypeError, ValueError):
             return None
     
@@ -592,16 +664,25 @@ class TelegramChatDownloader:
                     if not text and 'message' in msg:  # Fallback for different message formats
                         text = msg['message']
                     
+                    # Get recipient name
+                    recipient_name = ""
+                    recipient_id = self._get_recipient_id(msg)
+                    if recipient_id:
+                        recipient_name = await self._get_peer_display_name(recipient_id)
+
                     # Format and write the message
                     if date_fmt or sender_name:
-                        f.write(f"{date_fmt} {sender_name}:\n{text}\n\n")
+                        if recipient_name:
+                            f.write(f"{date_fmt} {sender_name} -> {recipient_name}:\n{text}\n\n")
+                        else:
+                            f.write(f"{date_fmt} {sender_name}:\n{text}\n\n")
                     else:
                         f.write(f"{text}\n\n")
                     saved += 1
                 except Exception as e:
                     logging.warning(f"Error saving message to TXT: {e}")
         
-        if self._fetched_usernames_count > 0:
+        if self._fetched_usernames_count > 0 or self._fetched_chatnames_count > 0:
             self._save_config()
 
         return saved
@@ -796,6 +877,27 @@ class TelegramChatDownloader:
             
             safe_name = re.sub(r'[^\w\-_.]', '_', chat)
             return safe_name or 'chat_history'
+
+    async def get_entity_full_name(self, identifier: Union[str, int]) -> str:
+        """Return the raw title or name for a chat/channel/user."""
+        if not identifier:
+            return 'Unknown'
+        try:
+            entity = await self.get_entity(identifier)
+            if not entity:
+                return str(identifier)
+
+            if hasattr(entity, 'title'):
+                return entity.title
+            if hasattr(entity, 'first_name') or hasattr(entity, 'last_name'):
+                name = ' '.join(filter(None, [getattr(entity, 'first_name', ''), getattr(entity, 'last_name', '')])).strip()
+                return name or str(identifier)
+            if hasattr(entity, 'username') and entity.username:
+                return entity.username
+
+            return str(identifier)
+        except Exception:
+            return str(identifier)
     
     async def close(self) -> None:
         """Close the Telegram client connection."""

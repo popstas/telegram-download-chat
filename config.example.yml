@@ -24,7 +24,13 @@ settings:
   # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
   log_level: INFO
 
-# User mapping for TXT export
+# Optional mapping for overriding user and bot full names
+# Names are fetched automatically and stored here
 users_map:
   123456: "Alice"
   789012: "Bob"
+
+# Optional mapping for overriding group or channel titles
+# Titles for groups and channels are fetched automatically
+chats_map:
+  100123456: "MyGroup"

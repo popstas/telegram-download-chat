@@ -117,6 +117,7 @@ settings:
   log_file: app.log        # Path to log file (relative to app dir or absolute)
 
 # Map user IDs to display names for text exports
+# Names for users and bots are automatically fetched and stored here
 users_map:
   123456: "Alice"
   789012: "Bob"
@@ -225,7 +226,7 @@ The tool will process the archive and generate both JSON and TXT files with the 
 If the download is interrupted, you can simply run the same command again to resume from where it left off. The tool automatically saves progress to a temporary file.
 
 ### User Mapping
-Edit the `users_map` section in your config file to map Telegram user IDs to display names in the TXT output:
+Display names for users and bots are collected automatically. You can override them in the `users_map` section:
 
 ```yaml
 users_map:
@@ -234,7 +235,7 @@ users_map:
 ```
 
 ### Chat Mapping
-Full chat titles are fetched automatically. Use `chats_map` only if you want to override them:
+Titles for group and channel chats are fetched automatically. Use `chats_map` only if you want to override them:
 
 ```yaml
 chats_map:

@@ -460,24 +460,41 @@ class TelegramChatDownloader:
             return fetched_name
 
     async def _get_peer_display_name(self, peer_id: int) -> str:
-        """Get display name for a chat/channel/user."""
+        """Return the display name for a peer and cache it appropriately."""
         if not peer_id:
             return "Unknown"
-        if peer_id in self.config.get('chats_map', {}):
-            return self.config['chats_map'][peer_id]
-        if peer_id in self.config.get('users_map', {}):
-            return self.config['users_map'][peer_id]
 
-        name = await self.get_entity_full_name(str(peer_id))
+        # Users take precedence over chats when resolving IDs
+        if peer_id in self.config.get("users_map", {}):
+            return self.config["users_map"][peer_id]
+        if peer_id in self.config.get("chats_map", {}):
+            return self.config["chats_map"][peer_id]
 
-        if not self.config.get('chats_map', {}):
-            self.config['chats_map'] = {}
-        self.config['chats_map'][peer_id] = name
-        self._fetched_chatnames_count += 1
-        if self._fetched_chatnames_count % 100 == 0:
-            self._save_config()
-            self.logger.info(f"Fetched {self._fetched_chatnames_count} chat names so far")
-        return name
+        entity = None
+        try:
+            entity = await self.get_entity(peer_id)
+        except Exception as e:
+            self.logger.debug(f"Failed to get entity {peer_id}: {e}")
+
+        if isinstance(entity, User):
+            # Bots are also instances of User
+            return await self._get_user_display_name(peer_id)
+
+        if isinstance(entity, (Chat, Channel)):
+            name = entity.title or str(peer_id)
+            if not self.config.get("chats_map", {}):
+                self.config["chats_map"] = {}
+            self.config["chats_map"][peer_id] = name
+            self._fetched_chatnames_count += 1
+            if self._fetched_chatnames_count % 100 == 0:
+                self._save_config()
+                self.logger.info(
+                    f"Fetched {self._fetched_chatnames_count} chat names so far"
+                )
+            return name
+
+        # Fallback: treat as user if type could not be determined
+        return await self._get_user_display_name(peer_id)
 
     def _get_sender_id(self, msg: Dict[str, Any]) -> Optional[int]:
         """Extract the sender ID from a message dictionary."""

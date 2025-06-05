@@ -33,6 +33,8 @@ class TelegramChatDownloader:
         self._stop_file = None  # Path to stop file for inter-process communication
         self._fetched_usernames_count = 0  # Counter for fetched usernames
         self._fetched_chatnames_count = 0  # Counter for fetched chat names
+        self._self_id: Optional[int] = None  # ID of the current user
+        self._self_name: Optional[str] = None  # Full name of the current user
     
     def _load_config(self) -> Dict[str, Any]:
         """
@@ -244,7 +246,12 @@ class TelegramChatDownloader:
             me = await self.client.get_me()
             if not me:
                 raise RuntimeError("Failed to get current user after authentication")
-                
+
+            self._self_id = getattr(me, "id", None)
+            self._self_name = " ".join(
+                filter(None, [getattr(me, "first_name", None), getattr(me, "last_name", None)])
+            ).strip() or (me.username or getattr(me, "phone", ""))
+
             self.logger.info(f"Successfully connected as {me.username or me.phone}")
             await self.client.start()
             return True
@@ -458,7 +465,11 @@ class TelegramChatDownloader:
             return "Unknown"
         if peer_id in self.config.get('chats_map', {}):
             return self.config['chats_map'][peer_id]
+        if peer_id in self.config.get('users_map', {}):
+            return self.config['users_map'][peer_id]
+
         name = await self.get_entity_full_name(str(peer_id))
+
         if not self.config.get('chats_map', {}):
             self.config['chats_map'] = {}
         self.config['chats_map'][peer_id] = name
@@ -491,15 +502,22 @@ class TelegramChatDownloader:
             return None
 
     def _get_recipient_id(self, msg: Dict[str, Any]) -> Optional[int]:
-        """Extract the recipient (peer) ID from a message."""
+        """Determine the recipient ID for arrow formatting."""
         peer = msg.get('peer_id') or msg.get('to_id')
+        sender_id = self._get_sender_id(msg)
+
         if isinstance(peer, dict):
+            if 'user_id' in peer:
+                other_id = peer.get('user_id')
+                if self._self_id and sender_id != self._self_id:
+                    return self._self_id
+                return other_id
             peer = (
-                peer.get('user_id')
-                or peer.get('channel_id')
+                peer.get('channel_id')
                 or peer.get('chat_id')
                 or peer
             )
+
         try:
             return int(peer)
         except (TypeError, ValueError):

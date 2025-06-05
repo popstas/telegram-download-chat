@@ -28,3 +28,7 @@ settings:
 users_map:
   123456: "Alice"
   789012: "Bob"
+
+# Chat mapping for TXT export
+chats_map:
+  100123456: "MyGroup"

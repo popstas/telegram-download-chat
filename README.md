@@ -233,6 +233,14 @@ users_map:
   789012: "Bob Johnson"
 ```
 
+### Chat Mapping
+Use `chats_map` to provide friendly names for chat IDs when saving TXT output:
+
+```yaml
+chats_map:
+  100123456: "MyGroup"
+```
+
 ### Subchat Extraction
 Extract conversations from specific threads or reply chains:
 
@@ -329,13 +337,13 @@ A human-readable version of the chat with:
 ### Example Output Structure
 
 ```
-2025-05-25 10:30:15 Alice:
-Hello everyone! 
+2025-05-25 10:30:15 Alice -> MyGroup:
+Hello everyone!
 
-2025-05-25 10:31:22 Bob (replying to Alice):
+2025-05-25 10:31:22 Bob -> MyGroup (replying to Alice):
 Hi Alice! How are you?
 
-2025-05-25 10:32:45 Charlie:
+2025-05-25 10:32:45 Charlie -> MyGroup:
 Welcome to the group!
 ```
 

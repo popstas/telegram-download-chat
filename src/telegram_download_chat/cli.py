@@ -53,7 +53,7 @@ def parse_args():
     )
     parser.add_argument(
         '-o', '--output',
-        help="Output file path (default: chat_history_<chat_id>.json)",
+        help="Output file path (default: <chat_name>.json)",
         default=None
     )
     parser.add_argument(

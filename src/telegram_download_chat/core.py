@@ -17,7 +17,7 @@ from telethon.tl.types import PeerUser, PeerChat, PeerChannel, User, Chat, Chann
 from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.messages import GetFullChatRequest
 from telethon.errors import ChatIdInvalidError
-from telegram_download_chat.paths import get_default_config, get_default_config_path, ensure_app_dirs, get_app_dir
+from telegram_download_chat.paths import get_default_config, get_default_config_path, ensure_app_dirs, get_app_dir, get_downloads_dir, get_relative_to_downloads_dir
 
 class TelegramChatDownloader:
     """Main class for downloading Telegram chat history."""
@@ -637,8 +637,6 @@ class TelegramChatDownloader:
         saved = 0
         txt_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.logger.info(f"Saving {len(messages)} messages to {txt_path}")
-        
         with open(txt_path, 'w', encoding='utf-8') as f:
             for msg in messages:
                 try:
@@ -712,8 +710,6 @@ class TelegramChatDownloader:
         """
         output_path = Path(output_file)
 
-        self.logger.info(f"Saving {len(messages)} messages to {output_path}")
-        
         # Make messages serializable
         serializable_messages = []
         for msg in messages:
@@ -732,14 +728,16 @@ class TelegramChatDownloader:
         if save_txt:
             txt_path = output_path.with_suffix('.txt')
             saved = await self.save_messages_as_txt(serializable_messages, txt_path)
-            self.logger.info(f"Saved {saved} messages to {txt_path}")
+            txt_path_relative = get_relative_to_downloads_dir(txt_path)
+            self.logger.info(f"Saved {saved} messages to {txt_path_relative}")
         
         partial = self.get_temp_file_path(output_path)
         if partial.exists() and not self._stop_requested:
-            self.logger.info(f"Removing partial file: {partial}")
+            self.logger.debug(f"Removing partial file: {partial}")
             partial.unlink()
         
-        self.logger.info(f"Saved {len(messages)} messages to {output_file}")
+        output_file_relative = get_relative_to_downloads_dir(output_path)
+        self.logger.info(f"Saved {len(messages)} messages to {output_file_relative}")
     
     async def get_entity(self, identifier: str) -> Optional[Union[User, Chat, Channel]]:
         """Get Telegram entity by identifier (username, URL, or ID).

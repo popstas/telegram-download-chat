@@ -13,17 +13,15 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import signal
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List
 import traceback
 
 from telegram_download_chat import __version__
 from telegram_download_chat.core import TelegramChatDownloader
-from telegram_download_chat.paths import get_default_config_path, get_downloads_dir
+from telegram_download_chat.paths import get_default_config_path, get_downloads_dir, get_relative_to_downloads_dir
 
 # Global downloader instance for signal handling
 _downloader_instance = None
@@ -190,6 +188,43 @@ def filter_messages_by_subchat(messages: List[Dict[str, Any]], subchat_id: str) 
     
     return filtered
 
+
+async def _run_with_status(task_coro: Any, logger: logging.Logger, message: str = None):
+    """Run a coroutine and show a status message if it takes more than 2 seconds.
+    
+    The function will wait for either the task to complete or 2 seconds to elapse,
+    whichever comes first. If the task is still running after 2 seconds, a status
+    message will be shown.
+    """
+    task = asyncio.create_task(task_coro)
+    
+    try:
+        # Wait for either the task to complete or 2 seconds to elapse
+        done, pending = await asyncio.wait(
+            [task],
+            timeout=2.0,
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # If task is still pending after timeout, show status message
+        if pending and not message:
+            message = "Saving messages..."
+            logger.info(message)
+            
+    except asyncio.CancelledError:
+        task.cancel()
+        raise
+        
+    return await task
+
+
+async def save_messages_with_status(downloader: TelegramChatDownloader, messages: List[Any], output_file: str) -> None:
+    return await _run_with_status(downloader.save_messages(messages, output_file), downloader.logger)
+
+
+async def save_txt_with_status(downloader: TelegramChatDownloader, messages: List[Any], txt_file: Path) -> int:
+    return await _run_with_status(downloader.save_messages_as_txt(messages, txt_file), downloader.logger)
+
 async def async_main():
     """Main async function."""
     global _downloader_instance
@@ -286,8 +321,9 @@ async def async_main():
                 split_messages = split_messages_by_date(messages, args.split)
                 if not split_messages:
                     downloader.logger.warning("No messages with valid dates found for splitting")
-                    saved = await downloader.save_messages_as_txt(messages, txt_path)
-                    downloader.logger.info(f"Saved {saved} messages to {txt_path}")
+                    saved = await save_txt_with_status(downloader, messages, txt_path)
+                    saved_relative = get_relative_to_downloads_dir(txt_path)
+                    downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
                 else:
                     # Save each group to a separate file
                     base_name = txt_path.stem
@@ -295,13 +331,15 @@ async def async_main():
                     
                     for date_key, msgs in split_messages.items():
                         split_file = txt_path.with_name(f"{base_name}_{date_key}{ext}")
-                        saved = await downloader.save_messages_as_txt(msgs, split_file)
-                        downloader.logger.info(f"Saved {saved} messages to {split_file}")
+                        saved = await save_txt_with_status(downloader, msgs, split_file)
+                        saved_relative = get_relative_to_downloads_dir(split_file)
+                        downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
                     
                     downloader.logger.info(f"Saved {len(split_messages)} split files in {txt_path.parent}")
             else:
-                saved = await downloader.save_messages_as_txt(messages, txt_path)
-                downloader.logger.info(f"Saved {saved} messages to {txt_path}")
+                saved = await save_txt_with_status(downloader, messages, txt_path)
+                saved_relative = get_relative_to_downloads_dir(txt_path)
+                downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
                 
             downloader.logger.debug("Conversion completed successfully")
             return 0
@@ -365,7 +403,7 @@ async def async_main():
                 
                 if not split_messages:
                     downloader.logger.warning("No messages with valid dates found for splitting")
-                    await downloader.save_messages(messages, output_file)
+                    await save_messages_with_status(downloader, messages, output_file)
                 else:
                     # Save each group to a separate file
                     output_path = Path(output_file)
@@ -374,12 +412,12 @@ async def async_main():
                     
                     for date_key, msgs in split_messages.items():
                         split_file = output_path.with_name(f"{base_name}_{date_key}{ext}")
-                        await downloader.save_messages(msgs, str(split_file))
+                        await save_messages_with_status(downloader, msgs, str(split_file))
                         downloader.logger.info(f"Saved {len(msgs)} messages to {split_file}")
                     
                     downloader.logger.info(f"Saved {len(split_messages)} split files in {output_path.parent}")
             else:
-                await downloader.save_messages(messages, output_file)
+                await save_messages_with_status(downloader, messages, output_file)
                 
         except Exception as e:
             downloader.logger.error(f"Failed to save messages: {e}", exc_info=args.debug)

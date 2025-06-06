@@ -20,6 +20,9 @@ echo "Creating virtual environment..."
 python3 -m venv venv
 source venv/bin/activate
 
+# Ensure universal build when compiling any native modules
+export ARCHFLAGS="-arch arm64 -arch x86_64"
+
 # Ensure we're using the correct Python from the virtual environment
 PYTHON_EXEC="$SCRIPT_DIR/venv/bin/python"
 if [ ! -f "$PYTHON_EXEC" ]; then
@@ -33,9 +36,18 @@ echo "Installing/updating dependencies..."
 "$PYTHON_EXEC" -m pip install -e ".[gui]"
 "$PYTHON_EXEC" -m pip install pyinstaller Pillow>=10.0.0
 
+# Determine short Python version (e.g. python3.11)
+PYTHON_VERSION_SHORT=$("$PYTHON_EXEC" - <<'EOF'
+import sys
+print(f"python{sys.version_info.major}.{sys.version_info.minor}")
+EOF
+)
+
+# Path to PySide6 QtAsyncio events module varies by Python version
+EVENTS_PY="$SCRIPT_DIR/venv/lib/$PYTHON_VERSION_SHORT/site-packages/PySide6/QtAsyncio/events.py"
+
 # Apply patch for PySide6.QtAsyncio.events.py f-string syntax error
 echo "Applying patch for PySide6.QtAsyncio.events.py..."
-EVENTS_PY="$SCRIPT_DIR/venv/lib/python3.9/site-packages/PySide6/QtAsyncio/events.py"
 if [ -f "$EVENTS_PY" ]; then
     patch -N -r - "$EVENTS_PY" < "$SCRIPT_DIR/patch_qtasyncio_events.patch" || true
 else
@@ -115,11 +127,9 @@ echo "Building macOS app bundle..."
     --workpath "$SCRIPT_DIR/build" \
     --specpath "$SCRIPT_DIR" \
     --osx-bundle-identifier "com.popstas.telegram-download-chat" \
+    --target-arch universal2 \
     --osx-entitlements-file "$ENTITLEMENTS_FILE" \
     "$SCRIPT_DIR/launcher.py"
-
-# Clean up the entitlements file
-rm -f "$ENTITLEMENTS_FILE"
 
 # Remove any existing quarantine attributes
 xattr -cr "$SCRIPT_DIR/dist/telegram-download-chat.app"
@@ -278,6 +288,9 @@ xattr -dr com.apple.quarantine "$SCRIPT_DIR/dist/$DMG_NAME" 2>/dev/null || true
 if command -v hdiutil &> /dev/null; then
     hdiutil verify "$SCRIPT_DIR/dist/$DMG_NAME" || true
 fi
+
+# Remove temporary entitlements file now that signing is complete
+rm -f "$ENTITLEMENTS_FILE"
 
 # Create a verification report for debugging
 spctl -a -t exec -vv "$SCRIPT_DIR/dist/telegram-download-chat.app" 2>&1 | tee "$SCRIPT_DIR/dist/code_sign_verify.txt" || true

@@ -45,6 +45,7 @@ Write-Host "Building executable..."
     --add-data "assets/icon.ico;assets/" `
     --hidden-import "telegram_download_chat.core" `
     --hidden-import "telegram_download_chat.paths" `
+    --hidden-import "telegram_download_chat.gui.main" `
     --additional-hooks-dir "$hooksDir" `
     "launcher.py"
 

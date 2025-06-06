@@ -118,6 +118,7 @@ echo "Building macOS app bundle..."
     --hidden-import telegram_download_chat.core \
     --hidden-import telegram_download_chat.paths \
     --hidden-import telegram_download_chat._pyinstaller \
+    --hidden-import telegram_download_chat.gui.main \
     --add-data "$SCRIPT_DIR/assets/icon.png:assets" \
     --paths "$SCRIPT_DIR/src" \
     --additional-hooks-dir "$SCRIPT_DIR/src/_pyinstaller_hooks" \

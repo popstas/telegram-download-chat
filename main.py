@@ -35,13 +35,10 @@ def is_gui_mode():
 def main():
     if is_gui_mode():
         try:
-            from telegram_download_chat.gui_app import main as gui_main
-            downloader = TelegramChatDownloader(config_path=args.config)
-            output_dir = downloader.config.get('settings', {}).get('save_path', get_app_dir() / 'downloads')
-            gui_main(output_dir=output_dir)
-        except ImportError as e:
-            print(f"Error: {e}")
-            print("GUI dependencies not found. Falling back to CLI mode.")
+            from telegram_download_chat.gui.main import main as gui_main
+            gui_main()
+        except ImportError:
+            print("GUI dependencies not installed. Falling back to CLI mode.")
             from telegram_download_chat.cli import main as cli_main
             cli_main()
     else:

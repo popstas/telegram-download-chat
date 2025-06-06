@@ -23,6 +23,12 @@ def get_app_dir() -> Path:
 def get_downloads_dir() -> Path:
     return get_app_dir() / 'downloads'
 
+def get_relative_to_downloads_dir(path: Path) -> Path:
+    try:
+        return path.relative_to(get_downloads_dir())
+    except ValueError:
+        return path
+
 def get_default_config() -> Dict[str, Any]:
     """
     Get the default configuration.

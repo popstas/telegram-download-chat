@@ -269,23 +269,9 @@ rm -f "$SCRIPT_DIR/dist/telegram-download-chat-temp.dmg"
 # Clean up
 rm -rf "$DMG_TEMP_DIR"
 
-# Sign the DMG with ad-hoc signature (skip if not available)
-if command -v codesign &> /dev/null; then
-    codesign --force --sign - --timestamp \
-        --options runtime \
-        --entitlements "$ENTITLEMENTS_FILE" \
-        --no-strict \
-        "$SCRIPT_DIR/dist/$DMG_NAME" || true
-fi
-
 # Set the DMG to not show the "untrusted app" warning
 xattr -c "$SCRIPT_DIR/dist/$DMG_NAME" 2>/dev/null || true
 xattr -dr com.apple.quarantine "$SCRIPT_DIR/dist/$DMG_NAME" 2>/dev/null || true
-
-# Verify the DMG (skip if not available)
-if command -v hdiutil &> /dev/null; then
-    hdiutil verify "$SCRIPT_DIR/dist/$DMG_NAME" || true
-fi
 
 # Remove temporary entitlements file now that signing is complete
 rm -f "$ENTITLEMENTS_FILE"

@@ -190,6 +190,23 @@ def filter_messages_by_subchat(messages: List[Dict[str, Any]], subchat_id: str) 
     
     return filtered
 
+
+async def _run_with_status(task_coro: Any, logger: logging.Logger, message: str = "Saving messages..."):
+    """Run a coroutine and show a status message if it takes more than 2 seconds."""
+    task = asyncio.create_task(task_coro)
+    await asyncio.sleep(2)
+    if not task.done():
+        logger.info(message)
+    return await task
+
+
+async def save_messages_with_status(downloader: TelegramChatDownloader, messages: List[Any], output_file: str) -> None:
+    return await _run_with_status(downloader.save_messages(messages, output_file), downloader.logger)
+
+
+async def save_txt_with_status(downloader: TelegramChatDownloader, messages: List[Any], txt_file: Path) -> int:
+    return await _run_with_status(downloader.save_messages_as_txt(messages, txt_file), downloader.logger)
+
 async def async_main():
     """Main async function."""
     global _downloader_instance
@@ -286,7 +303,7 @@ async def async_main():
                 split_messages = split_messages_by_date(messages, args.split)
                 if not split_messages:
                     downloader.logger.warning("No messages with valid dates found for splitting")
-                    saved = await downloader.save_messages_as_txt(messages, txt_path)
+                    saved = await save_txt_with_status(downloader, messages, txt_path)
                     downloader.logger.info(f"Saved {saved} messages to {txt_path}")
                 else:
                     # Save each group to a separate file
@@ -295,12 +312,12 @@ async def async_main():
                     
                     for date_key, msgs in split_messages.items():
                         split_file = txt_path.with_name(f"{base_name}_{date_key}{ext}")
-                        saved = await downloader.save_messages_as_txt(msgs, split_file)
+                        saved = await save_txt_with_status(downloader, msgs, split_file)
                         downloader.logger.info(f"Saved {saved} messages to {split_file}")
                     
                     downloader.logger.info(f"Saved {len(split_messages)} split files in {txt_path.parent}")
             else:
-                saved = await downloader.save_messages_as_txt(messages, txt_path)
+                saved = await save_txt_with_status(downloader, messages, txt_path)
                 downloader.logger.info(f"Saved {saved} messages to {txt_path}")
                 
             downloader.logger.debug("Conversion completed successfully")
@@ -365,7 +382,7 @@ async def async_main():
                 
                 if not split_messages:
                     downloader.logger.warning("No messages with valid dates found for splitting")
-                    await downloader.save_messages(messages, output_file)
+                    await save_messages_with_status(downloader, messages, output_file)
                 else:
                     # Save each group to a separate file
                     output_path = Path(output_file)
@@ -374,12 +391,12 @@ async def async_main():
                     
                     for date_key, msgs in split_messages.items():
                         split_file = output_path.with_name(f"{base_name}_{date_key}{ext}")
-                        await downloader.save_messages(msgs, str(split_file))
+                        await save_messages_with_status(downloader, msgs, str(split_file))
                         downloader.logger.info(f"Saved {len(msgs)} messages to {split_file}")
                     
                     downloader.logger.info(f"Saved {len(split_messages)} split files in {output_path.parent}")
             else:
-                await downloader.save_messages(messages, output_file)
+                await save_messages_with_status(downloader, messages, output_file)
                 
         except Exception as e:
             downloader.logger.error(f"Failed to save messages: {e}", exc_info=args.debug)

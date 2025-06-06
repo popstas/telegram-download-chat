@@ -20,8 +20,6 @@ echo "Creating virtual environment..."
 python3 -m venv venv
 source venv/bin/activate
 
-# Ensure universal build when compiling any native modules
-export ARCHFLAGS="-arch arm64 -arch x86_64"
 
 # Ensure we're using the correct Python from the virtual environment
 PYTHON_EXEC="$SCRIPT_DIR/venv/bin/python"
@@ -127,7 +125,6 @@ echo "Building macOS app bundle..."
     --workpath "$SCRIPT_DIR/build" \
     --specpath "$SCRIPT_DIR" \
     --osx-bundle-identifier "com.popstas.telegram-download-chat" \
-    --target-arch universal2 \
     --osx-entitlements-file "$ENTITLEMENTS_FILE" \
     "$SCRIPT_DIR/launcher.py"
 

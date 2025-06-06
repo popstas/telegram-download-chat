@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Get the current version from setuptools-scm
-VERSION=$(python -c "from setuptools_scm import get_version; print(get_version(root='..'))")
+VERSION=$(python -c "from setuptools_scm import get_version; print(get_version(root='.'))")
 VERSION_MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2)
 
 echo "Building version: $VERSION"

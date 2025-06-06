@@ -269,21 +269,8 @@ rm -f "$SCRIPT_DIR/dist/telegram-download-chat-temp.dmg"
 # Clean up
 rm -rf "$DMG_TEMP_DIR"
 
-# Set the DMG to not show the "untrusted app" warning
-xattr -c "$SCRIPT_DIR/dist/$DMG_NAME" 2>/dev/null || true
-xattr -dr com.apple.quarantine "$SCRIPT_DIR/dist/$DMG_NAME" 2>/dev/null || true
 
-# Remove temporary entitlements file now that signing is complete
-rm -f "$ENTITLEMENTS_FILE"
 
-# Create a verification report for debugging
-spctl -a -t exec -vv "$SCRIPT_DIR/dist/telegram-download-chat.app" 2>&1 | tee "$SCRIPT_DIR/dist/code_sign_verify.txt" || true
-
-echo "Build complete!"
-echo "App bundle: $APP_PATH"
-echo "DMG: $SCRIPT_DIR/dist/$DMG_NAME"
-
-# Deactivate virtual environment
 deactivate
 
 exit 0

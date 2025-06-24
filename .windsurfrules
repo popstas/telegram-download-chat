@@ -52,7 +52,7 @@ src/telegram_download_chat/
    - Emits progress and completion signals
 
 ## Development Notes
-- Uses PySide6 for the GUI
+- Uses PySide6-Essentials for the GUI
 - Follows MVC pattern where possible
 - Uses signals/slots for inter-component communication
 - Config stored in YAML format

@@ -633,6 +633,8 @@ async def test_connect_and_disconnect():
     mock_client.disconnect = AsyncMock()
     # is_connected is a method that returns a boolean
     mock_client.is_connected = MagicMock(return_value=True)
+    # return user object for get_me()
+    mock_client.get_me = AsyncMock(return_value=MagicMock(first_name='Test', last_name='', username='tester', phone='123'))
     
     # Create a mock client class that returns our mock client
     mock_client_class = MagicMock(return_value=mock_client)

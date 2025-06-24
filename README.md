@@ -60,6 +60,8 @@ For those who prefer a graphical interface, a GUI version is available. To use i
    pip install "telegram-download-chat[gui]"
    ```
 
+   The GUI depends on the lightweight **PySide6-Essentials** package.
+
 2. Launch the GUI:
    ```bash
    telegram-download-chat gui

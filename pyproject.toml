@@ -33,7 +33,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = [
-    "PySide6>=6.5.0"
+    "PySide6-Essentials>=6.5.0"
 ]
 dev = [
     "pytest>=6.0",

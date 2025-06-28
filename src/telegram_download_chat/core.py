@@ -173,7 +173,12 @@ class TelegramChatDownloader:
         settings = self.config.get('settings', {})
         api_id = settings.get('api_id')
         api_hash = settings.get('api_hash')
-        phone = settings.get('phone')
+        # Only fall back to the value stored in the config if the caller didn't
+        # supply a phone number explicitly. Previously we would always override
+        # the passed ``phone`` argument which meant the login flow could never
+        # start when the config didn't contain a phone value.
+        if phone is None:
+            phone = settings.get('phone')
         
         # Default values
         session_file = str(get_app_dir() / 'session.session')
@@ -200,8 +205,11 @@ class TelegramChatDownloader:
             
             # Connect to Telegram
             await self.client.connect()
-            
+
             is_authorized = await self.client.is_user_authorized()
+            self.logger.debug(
+                f"Connection status: is_authorized={is_authorized}, phone={phone}"
+            )
 
             # send code request
             if phone and not code and not is_authorized:
@@ -243,14 +251,23 @@ class TelegramChatDownloader:
                 self.logger.debug("Using existing session")
                 
             # Verify connection
+            self.logger.debug("Retrieving current user via get_me()")
             me = await self.client.get_me()
+            self.logger.debug(f"get_me returned: {me}")
             if not me:
                 raise RuntimeError("Failed to get current user after authentication")
 
             self._self_id = getattr(me, "id", None)
-            self._self_name = " ".join(
-                filter(None, [getattr(me, "first_name", None), getattr(me, "last_name", None)])
-            ).strip() or (me.username or getattr(me, "phone", ""))
+            first = getattr(me, "first_name", None)
+            last = getattr(me, "last_name", None)
+            name_parts = []
+            if isinstance(first, str):
+                name_parts.append(first)
+            if isinstance(last, str):
+                name_parts.append(last)
+            self._self_name = " ".join(name_parts).strip() or (
+                getattr(me, "username", None) or getattr(me, "phone", "")
+            )
 
             self.logger.info(f"Successfully connected as {me.username or me.phone}")
             await self.client.start()

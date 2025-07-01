@@ -173,9 +173,9 @@ telegram-download-chat --show-config
 ### Command Line Options
 
 ```
-usage: telegram-download-chat [-h] [-o OUTPUT] [--limit LIMIT] [--until DATE] [--subchat SUBCHAT] 
-                            [--subchat-name NAME] [--user USER] [--config CONFIG] [--debug] 
-                            [--show-config] [-v]
+usage: telegram-download-chat [-h] [-o OUTPUT] [--limit LIMIT] [--until DATE] [--subchat SUBCHAT]
+                            [--subchat-name NAME] [--user USER] [--config CONFIG] [--debug]
+                            [--sort {asc,desc}] [--show-config] [-v]
                             [chat]
 
 Download Telegram chat history to JSON and TXT formats.
@@ -193,6 +193,7 @@ options:
   --user USER           Filter messages by sender ID
   -c, --config CONFIG   Path to config file
   --debug               Enable debug logging
+  --sort {asc,desc}     Sort messages by date (default: desc)
   --show-config         Show config file location and exit
   -v, --version         Show program's version number and exit
 ```

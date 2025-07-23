@@ -186,6 +186,18 @@ class DownloadTab(QWidget):
         self.limit_spin.setRange(0, 1000000)
         settings_form.addRow("Message limit:", self.limit_spin)
 
+        # Base date for last days
+        self.from_edit = QDateEdit()
+        self.from_edit.setCalendarPopup(True)
+        self.from_edit.setDisplayFormat("yyyy-MM-dd")
+        self.from_edit.setDate(QDate())
+        settings_form.addRow("Base date:", self.from_edit)
+
+        # Last days
+        self.last_days_spin = QSpinBox()
+        self.last_days_spin.setRange(0, 3650)
+        settings_form.addRow("Last days:", self.last_days_spin)
+
         # Until date
         self.until_edit = QDateEdit()
         self.until_edit.setCalendarPopup(True)
@@ -396,6 +408,17 @@ class DownloadTab(QWidget):
             if "limit" in settings and settings["limit"] is not None:
                 self.limit_spin.setValue(settings["limit"])
 
+            if "from_date" in settings and settings["from_date"]:
+                try:
+                    date = QDate.fromString(settings["from_date"], "yyyy-MM-dd")
+                    if date.isValid():
+                        self.from_edit.setDate(date)
+                except Exception as e:
+                    logging.warning(f"Failed to parse from date: {e}")
+
+            if "last_days" in settings and settings["last_days"] is not None:
+                self.last_days_spin.setValue(int(settings["last_days"]))
+
             if "until" in settings and settings["until"]:
                 try:
                     date = QDate.fromString(settings["until"], "yyyy-MM-dd")
@@ -438,6 +461,12 @@ class DownloadTab(QWidget):
                     "chat": self.chat_edit.text().strip(),
                     "output": self.output_edit.text().strip(),
                     "limit": self.limit_spin.value(),
+                    "from_date": (
+                        self.from_edit.date().toString("yyyy-MM-dd")
+                        if self.from_edit.date().isValid()
+                        else ""
+                    ),
+                    "last_days": self.last_days_spin.value(),
                     "until": (
                         self.until_edit.date().toString("yyyy-MM-dd")
                         if self.until_edit.date().isValid()
@@ -512,6 +541,14 @@ class DownloadTab(QWidget):
         limit = self.limit_spin.value()
         if limit > 0:
             cmd_args.extend(["--limit", str(limit)])
+
+        if self.from_edit.date().isValid():
+            from_date = self.from_edit.date().toString("yyyy-MM-dd")
+            cmd_args.extend(["--from", from_date])
+
+        last_days = self.last_days_spin.value()
+        if last_days > 0:
+            cmd_args.extend(["--last-days", str(last_days)])
 
         if self.until_edit.date().isValid():
             until_date = self.until_edit.date().toString("yyyy-MM-dd")
@@ -703,6 +740,12 @@ class DownloadTab(QWidget):
         settings["chat"] = self.chat_edit.text()
         settings["output"] = self.output_edit.text()
         settings["limit"] = self.limit_spin.value()
+        settings["from_date"] = (
+            self.from_edit.date().toString("yyyy-MM-dd")
+            if self.from_edit.date().isValid()
+            else ""
+        )
+        settings["last_days"] = self.last_days_spin.value()
         settings["until"] = (
             self.until_edit.date().toString("yyyy-MM-dd")
             if self.until_edit.date().isValid()
@@ -722,6 +765,12 @@ class DownloadTab(QWidget):
         self.chat_edit.setText(settings.get("chat", ""))
         self.output_edit.setText(settings.get("output", ""))
         self.limit_spin.setValue(int(settings.get("limit", 0)))
+
+        from_date = settings.get("from_date", "")
+        if from_date:
+            self.from_edit.setDate(QDate.fromString(from_date, "yyyy-MM-dd"))
+
+        self.last_days_spin.setValue(int(settings.get("last_days", 0)))
 
         until_date = settings.get("until", "")
         if until_date:

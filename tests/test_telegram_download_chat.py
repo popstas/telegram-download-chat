@@ -164,6 +164,21 @@ class TestFilterMessagesBySubchat:
             assert args.until == "2025-01-01"
             assert args.sort == "asc"
 
+    def test_from_and_last_days_arguments(self):
+        """Test parsing of --from and --last-days options."""
+        test_args = [
+            "script_name",
+            "chat",
+            "--from",
+            "2025-06-05",
+            "--last-days",
+            "1",
+        ]
+        with patch("sys.argv", test_args):
+            args = parse_args()
+            assert args.from_date == "2025-06-05"
+            assert args.last_days == 1
+
     def test_until_date_format_validation(self):
         """Test that invalid date formats are accepted by the parser but handled in async_main."""
         with patch("sys.argv", ["script_name", "test_chat", "--until", "invalid-date"]):
@@ -198,12 +213,42 @@ class TestFilterMessagesBySubchat:
     def test_json_conversion_with_subchat_name(self):
         """Test JSON conversion with subchat-name option."""
         with patch(
-            "sys.argv", ["script_name", "chat_history.json", "--subchat", "123", "--subchat-name", "custom_subchat"]
+            "sys.argv",
+            [
+                "script_name",
+                "chat_history.json",
+                "--subchat",
+                "123",
+                "--subchat-name",
+                "custom_subchat",
+            ],
         ):
             args = parse_args()
             assert args.chat == "chat_history.json"
             assert args.subchat == "123"
             assert args.subchat_name == "custom_subchat"
+
+    @pytest.mark.asyncio
+    async def test_last_days_converted_to_until(self, mock_downloader, tmp_path):
+        """Test that --last-days computes --until correctly."""
+        mock_downloader.connect = AsyncMock()
+        mock_downloader.close = AsyncMock()
+        mock_downloader.cleanup_stop_file = MagicMock()
+        mock_downloader.config = {"settings": {"save_path": str(tmp_path)}}
+        mock_downloader.get_entity_name = AsyncMock(return_value="chat")
+        mock_downloader.download_chat = AsyncMock(return_value=[])
+
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--from", "2025-06-05", "--last-days", "1"],
+        ), patch(
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
+        ):
+            await async_main()
+
+        args, kwargs = mock_downloader.download_chat.call_args
+        assert kwargs.get("until_date") == "2025-06-04"
 
 
 class TestCLIExecution:
@@ -226,7 +271,8 @@ class TestCLIExecution:
         with patch("sys.argv", ["script_name", "--show-config"]), patch(
             "telegram_download_chat.cli.Path", return_value=mock_path
         ), patch("builtins.open", mock_open(read_data=config_content)), patch(
-            "telegram_download_chat.cli.TelegramChatDownloader", return_value=mock_downloader
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
         ):
 
             # Import here to avoid import issues with patching
@@ -256,7 +302,8 @@ class TestCLIExecution:
 
         # Mock the command line arguments and downloader
         with patch("sys.argv", ["script_name"]), patch(
-            "telegram_download_chat.cli.TelegramChatDownloader", return_value=mock_downloader
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
         ):
 
             # Call the async_main function
@@ -267,16 +314,22 @@ class TestCLIExecution:
 
             # Verify the error message was logged
             error_found = any(
-                args and args[0] == "Chat identifier is required" for args, _ in mock_logger.error.call_args_list
+                args and args[0] == "Chat identifier is required"
+                for args, _ in mock_logger.error.call_args_list
             )
-            assert error_found, "Expected error message 'Chat identifier is required' not found"
+            assert (
+                error_found
+            ), "Expected error message 'Chat identifier is required' not found"
 
     @pytest.mark.asyncio
     async def test_json_conversion_flow(self, tmp_path):
         """Test JSON conversion flow."""
         # Create a test JSON file with sample messages
         test_json = tmp_path / "test.json"
-        test_messages = [{"id": 1, "message": "Test message 1"}, {"id": 2, "message": "Test message 2"}]
+        test_messages = [
+            {"id": 1, "message": "Test message 1"},
+            {"id": 2, "message": "Test message 2"},
+        ]
         test_json.write_text(json.dumps(test_messages))
 
         # Create an AsyncMock for the downloader
@@ -294,7 +347,8 @@ class TestCLIExecution:
         mock_downloader.save_messages_as_txt.return_value = len(test_messages)
 
         with patch("sys.argv", ["script_name", str(test_json)]), patch(
-            "telegram_download_chat.cli.TelegramChatDownloader", return_value=mock_downloader
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
         ), patch("telegram_download_chat.paths.get_app_dir", return_value=tmp_path):
 
             # Mock the file operations
@@ -308,7 +362,9 @@ class TestCLIExecution:
 
             # Verify the logger was called with expected messages
             debug_messages = [call[0][0] for call in mock_logger.debug.call_args_list]
-            assert any("Loading messages from JSON file:" in msg for msg in debug_messages)
+            assert any(
+                "Loading messages from JSON file:" in msg for msg in debug_messages
+            )
 
             # Verify save_messages_as_txt was called with the correct arguments
             expected_output = test_json.with_suffix(".txt")
@@ -319,7 +375,9 @@ class TestCLIExecution:
             assert str(call_args[1]) == str(expected_output)
             assert call_args[2] == "desc"
 
-    @pytest.mark.skip(reason="Skipping test_download_flow due to complexity of mocking.")
+    @pytest.mark.skip(
+        reason="Skipping test_download_flow due to complexity of mocking."
+    )
     @pytest.mark.asyncio
     async def test_download_flow(self, tmp_path, monkeypatch, capsys):
         """Test the complete chat download flow from CLI to file save."""
@@ -370,8 +428,11 @@ class TestCLIExecution:
 
         # Patch the downloader class to return our mock
         with patch(
-            "telegram_download_chat.cli.TelegramChatDownloader", return_value=mock_downloader
-        ) as mock_tg_class, patch("telegram_download_chat.paths.get_app_dir", return_value=tmp_path), patch(
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
+        ) as mock_tg_class, patch(
+            "telegram_download_chat.paths.get_app_dir", return_value=tmp_path
+        ), patch(
             "sys.argv", ["script.py", test_chat, "--config", str(config_path)]
         ), patch(
             "sys.stdout", new_callable=StringIO
@@ -405,7 +466,9 @@ class TestCLIExecution:
             print("\n=== Mock Calls ===")
             print(f"TelegramChatDownloader calls: {mock_tg_class.mock_calls}")
             print(f"download_chat calls: {mock_downloader.download_chat.mock_calls}")
-            print(f"get_entity_name calls: {mock_downloader.get_entity_name.mock_calls}")
+            print(
+                f"get_entity_name calls: {mock_downloader.get_entity_name.mock_calls}"
+            )
             print(f"save_messages called: {mock_downloader.save_messages.called}")
             print(f"close called: {mock_downloader.close.called}")
 
@@ -574,15 +637,26 @@ async def test_download_chat_with_limit():
         return mock_result
 
     # Patch the GetHistoryRequest to use our mock function
-    with patch("telethon.tl.functions.messages.GetHistoryRequest", side_effect=mock_get_history_request):
+    with patch(
+        "telethon.tl.functions.messages.GetHistoryRequest",
+        side_effect=mock_get_history_request,
+    ):
         # Test with limit
         logger.debug("Starting download_chat with limit=10")
         messages = await downloader.download_chat("test_chat", total_limit=10)
 
         logger.debug(f"Downloaded {len(messages)} messages")
         if messages:
-            first_id = messages[0].get("id") if isinstance(messages[0], dict) else messages[0].id
-            last_id = messages[-1].get("id") if isinstance(messages[-1], dict) else messages[-1].id
+            first_id = (
+                messages[0].get("id")
+                if isinstance(messages[0], dict)
+                else messages[0].id
+            )
+            last_id = (
+                messages[-1].get("id")
+                if isinstance(messages[-1], dict)
+                else messages[-1].id
+            )
             logger.debug(f"First message ID: {first_id}")
             logger.debug(f"Last message ID: {last_id}")
 
@@ -607,7 +681,10 @@ async def test_save_messages():
     from telegram_download_chat.core import TelegramChatDownloader
 
     # Create test message data
-    test_message_data = [{"id": 1, "message": "Test message 1"}, {"id": 2, "message": "Test message 2"}]
+    test_message_data = [
+        {"id": 1, "message": "Test message 1"},
+        {"id": 2, "message": "Test message 2"},
+    ]
 
     # Create mock Message objects with to_dict method
     test_messages = []
@@ -624,7 +701,9 @@ async def test_save_messages():
         # Create downloader and save messages
         downloader = TelegramChatDownloader()
         downloader.logger = MagicMock()  # Mock the logger
-        await downloader.save_messages(test_messages, str(output_file), sort_order="desc")
+        await downloader.save_messages(
+            test_messages, str(output_file), sort_order="desc"
+        )
 
         # Verify file was created and contains correct data
         assert output_file.exists()
@@ -656,9 +735,10 @@ async def test_connect_and_disconnect():
     mock_client_class = MagicMock(return_value=mock_client)
 
     # Patch the environment variables and TelegramClient
-    with patch.dict(os.environ, {"TELEGRAM_API_ID": "test_api_id", "TELEGRAM_API_HASH": "test_api_hash"}), patch(
-        "telegram_download_chat.core.TelegramClient", new=mock_client_class
-    ):
+    with patch.dict(
+        os.environ,
+        {"TELEGRAM_API_ID": "test_api_id", "TELEGRAM_API_HASH": "test_api_hash"},
+    ), patch("telegram_download_chat.core.TelegramClient", new=mock_client_class):
         # Create downloader
         downloader = TelegramChatDownloader()
 
@@ -725,15 +805,27 @@ async def test_download_chat_error_handling():
     mock_get_entity.assert_called_once_with("test_chat")
 
     # Verify that no error was logged (since the error is propagated, not logged)
-    assert not downloader.logger.error.called, "Expected no error to be logged since the error is propagated"
+    assert (
+        not downloader.logger.error.called
+    ), "Expected no error to be logged since the error is propagated"
 
 
 def test_prepare_messages_for_txt_ordering():
     downloader = TelegramChatDownloader()
     messages = [
         {"id": 1, "date": "2025-07-01 10:00:00+00:00", "text": "parent"},
-        {"id": 2, "date": "2025-07-01 10:05:00+00:00", "text": "reply1", "reply_to": {"reply_to_msg_id": 1}},
-        {"id": 3, "date": "2025-07-01 10:10:00+00:00", "text": "reply2", "reply_to": {"reply_to_msg_id": 1}},
+        {
+            "id": 2,
+            "date": "2025-07-01 10:05:00+00:00",
+            "text": "reply1",
+            "reply_to": {"reply_to_msg_id": 1},
+        },
+        {
+            "id": 3,
+            "date": "2025-07-01 10:10:00+00:00",
+            "text": "reply2",
+            "reply_to": {"reply_to_msg_id": 1},
+        },
     ]
 
     ordered = downloader.prepare_messages_for_txt(messages, "desc")
@@ -796,14 +888,21 @@ async def test_folder_download(tmp_path):
     mock_downloader.config = {"settings": {"save_path": str(tmp_path)}}
 
     mock_downloader.list_folders.return_value = [
-        DialogFilter(id=1, title=folder_name, pinned_peers=[peer], include_peers=[], exclude_peers=[])
+        DialogFilter(
+            id=1,
+            title=folder_name,
+            pinned_peers=[peer],
+            include_peers=[],
+            exclude_peers=[],
+        )
     ]
     mock_downloader.get_entity_name = AsyncMock(return_value="Chat1")
     mock_downloader.download_chat = AsyncMock(return_value=[{"id": 1}])
     mock_downloader.save_messages = AsyncMock()
 
     with patch("sys.argv", ["script", f"folder:{folder_name}"]), patch(
-        "telegram_download_chat.cli.TelegramChatDownloader", return_value=mock_downloader
+        "telegram_download_chat.cli.TelegramChatDownloader",
+        return_value=mock_downloader,
     ):
         result = await async_main()
 

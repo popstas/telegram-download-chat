@@ -83,12 +83,18 @@ class WorkerThread(QThread):
 
     def run(self):
         files = []
+        env = os.environ.copy()
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+
         self.process = subprocess.Popen(
             self.cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            encoding="utf-8",
+            errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+            env=env,
         )
         
         while self.process.poll() is None:

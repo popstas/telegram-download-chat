@@ -659,10 +659,17 @@ class TelegramChatDownloader:
     def prepare_messages_for_txt(
         self, messages: List[Dict[str, Any]], sort_order: str = "desc"
     ) -> List[Dict[str, Any]]:
-        """Sort messages and place replied-to messages before replies."""
+        """Sort messages and group replies with their parents.
+
+        When ``sort_order`` is ``"asc"`` messages are ordered from oldest to
+        newest with each replied-to message followed by its replies. When
+        ``sort_order`` is ``"desc"`` the order is reversed and replies come
+        before the messages they reference.
+        """
+
         from datetime import datetime
 
-        def parse_dt(msg):
+        def parse_dt(msg: Dict[str, Any]) -> datetime:
             date_str = msg.get("date")
             if not date_str:
                 return datetime.min
@@ -671,42 +678,38 @@ class TelegramChatDownloader:
             except Exception:
                 return datetime.min
 
-        sorted_msgs = sorted(messages, key=parse_dt, reverse=(sort_order == "desc"))
-        id_map = {m.get("id"): m for m in sorted_msgs if m.get("id") is not None}
-        inserted = set()
-        result = []
+        # Build mapping of message id -> message and tree of replies
+        id_map: Dict[Any, Dict[str, Any]] = {
+            m.get("id"): m for m in messages if m.get("id") is not None
+        }
+        children: Dict[Any, List[Dict[str, Any]]] = {}
+        roots: List[Dict[str, Any]] = []
 
-        for msg in sorted_msgs:
-            msg_id = msg.get("id")
-            if msg_id in inserted:
-                continue
+        for msg in messages:
+            reply = msg.get("reply_to") or {}
+            reply_id = reply.get("reply_to_msg_id") or msg.get("reply_to_msg_id")
+            if reply_id and reply_id in id_map:
+                children.setdefault(reply_id, []).append(msg)
+            else:
+                roots.append(msg)
 
-            chain = []
-            current = msg
-            visited = set()
-            while True:
-                reply = current.get("reply_to") or {}
-                reply_id = reply.get("reply_to_msg_id") or current.get("reply_to_msg_id")
-                if not reply_id or reply_id in visited:
-                    break
-                visited.add(reply_id)
-                parent = id_map.get(reply_id)
-                if not parent or parent.get("id") in inserted:
-                    break
-                chain.append(parent)
-                current = parent
+        def sort_msgs(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            return sorted(msgs, key=parse_dt, reverse=(sort_order == "desc"))
 
-            for parent in reversed(chain):
-                pid = parent.get("id")
-                if pid not in inserted:
-                    result.append(parent)
-                    inserted.add(pid)
+        def traverse(msg: Dict[str, Any]) -> List[Dict[str, Any]]:
+            child_msgs = []
+            for child in sort_msgs(children.get(msg.get("id"), [])):
+                child_msgs.extend(traverse(child))
 
-            result.append(msg)
-            if msg_id is not None:
-                inserted.add(msg_id)
+            if sort_order == "desc":
+                return child_msgs + [msg]
+            return [msg] + child_msgs
 
-        return result
+        ordered_messages: List[Dict[str, Any]] = []
+        for root in sort_msgs(roots):
+            ordered_messages.extend(traverse(root))
+
+        return ordered_messages
 
     async def save_messages_as_txt(
         self, messages: List[Dict[str, Any]], txt_path: Path, sort_order: str = "desc"

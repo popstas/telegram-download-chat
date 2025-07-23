@@ -39,49 +39,49 @@ jobs:
         path: dist/telegram-download-chat.exe
         if-no-files-found: error
 
-  build-macos:
-    name: Build macOS
-    runs-on: macos-latest
+  # build-macos:
+  #   name: Build macOS
+  #   runs-on: macos-latest
     
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+  #   - name: Set up Python
+  #     uses: actions/setup-python@v4
+  #     with:
+  #       python-version: '3.11'
     
-    - name: Install dependencies
-      run: |
-        brew install libmagic
+  #   - name: Install dependencies
+  #     run: |
+  #       brew install libmagic
         
-    - name: Install Python build dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install setuptools_scm
+  #   - name: Install Python build dependencies
+  #     run: |
+  #       python -m pip install --upgrade pip
+  #       pip install setuptools_scm
         
-    - name: Run macOS build script
-      run: |
-        # Extract version from tag if available, otherwise use 0.0.0
-        if [[ ${{ github.ref }} == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
-        else
-          VERSION="0.0.0"
-        fi
-        echo "Using version: $VERSION"
-        SETUPTOOLS_SCM_PRETEND_VERSION=$VERSION bash build_macos.sh
+  #   - name: Run macOS build script
+  #     run: |
+  #       # Extract version from tag if available, otherwise use 0.0.0
+  #       if [[ ${{ github.ref }} == refs/tags/* ]]; then
+  #         VERSION=${GITHUB_REF#refs/tags/v}
+  #       else
+  #         VERSION="0.0.0"
+  #       fi
+  #       echo "Using version: $VERSION"
+  #       SETUPTOOLS_SCM_PRETEND_VERSION=$VERSION bash build_macos.sh
     
-    - name: Upload macOS artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: telegram-download-chat-macos
-        path: dist/telegram-download-chat.dmg
-        if-no-files-found: error
+  #   - name: Upload macOS artifact
+  #     uses: actions/upload-artifact@v4
+  #     with:
+  #       name: telegram-download-chat-macos
+  #       path: dist/telegram-download-chat.dmg
+  #       if-no-files-found: error
 
   release:
     name: Create Release
-    needs: [build-windows, build-macos]
+    needs: [build-windows]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -95,11 +95,11 @@ jobs:
         name: telegram-download-chat-windows
         path: artifacts/windows
     
-    - name: Download macOS artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: telegram-download-chat-macos
-        path: artifacts/macos
+    # - name: Download macOS artifact
+    #   uses: actions/download-artifact@v4
+    #   with:
+    #     name: telegram-download-chat-macos
+    #     path: artifacts/macos
     
     - name: Get version from tag
       id: get_version
@@ -117,6 +117,5 @@ jobs:
         prerelease: false
         files: |
           artifacts/windows/telegram-download-chat.exe
-          artifacts/macos/telegram-download-chat.dmg
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

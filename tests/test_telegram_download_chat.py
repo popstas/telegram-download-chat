@@ -274,7 +274,6 @@ class TestCLIExecution:
             "telegram_download_chat.cli.TelegramChatDownloader",
             return_value=mock_downloader,
         ):
-
             # Import here to avoid import issues with patching
             from telegram_download_chat.cli import main
 
@@ -305,7 +304,6 @@ class TestCLIExecution:
             "telegram_download_chat.cli.TelegramChatDownloader",
             return_value=mock_downloader,
         ):
-
             # Call the async_main function
             result = await async_main()
 
@@ -350,7 +348,6 @@ class TestCLIExecution:
             "telegram_download_chat.cli.TelegramChatDownloader",
             return_value=mock_downloader,
         ), patch("telegram_download_chat.paths.get_app_dir", return_value=tmp_path):
-
             # Mock the file operations
             with patch("builtins.open", mock_open()) as mock_file:
                 # Mock the json.load to return our test messages
@@ -439,7 +436,6 @@ class TestCLIExecution:
         ) as mock_stdout, patch(
             "sys.stderr", new_callable=StringIO
         ) as mock_stderr:
-
             # Import here to ensure patches are in place
             from telegram_download_chat.cli import main
 

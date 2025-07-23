@@ -86,7 +86,9 @@ class TelegramChatDownloader:
                 print("2. Create a new application")
                 print("3. Copy API ID and API Hash")
                 print(f"4. Edit the config file at: {config_path}")
-                print("5. Replace 'YOUR_API_ID' and 'YOUR_API_HASH' with your credentials")
+                print(
+                    "5. Replace 'YOUR_API_ID' and 'YOUR_API_HASH' with your credentials"
+                )
                 print("=" * 80 + "\n")
                 return default_config
             except Exception as e:
@@ -106,7 +108,9 @@ class TelegramChatDownloader:
                 if "api_id" in loaded_config:
                     loaded_config["settings"]["api_id"] = loaded_config.pop("api_id")
                 if "api_hash" in loaded_config:
-                    loaded_config["settings"]["api_hash"] = loaded_config.pop("api_hash")
+                    loaded_config["settings"]["api_hash"] = loaded_config.pop(
+                        "api_hash"
+                    )
 
                 # Save the updated config
                 with open(config_path, "w", encoding="utf-8") as f:
@@ -119,7 +123,9 @@ class TelegramChatDownloader:
             logging.error(f"Error loading config from {config_path}: {e}")
             return default_config
 
-    def _merge_configs(self, default: Dict[str, Any], custom: Dict[str, Any]) -> Dict[str, Any]:
+    def _merge_configs(
+        self, default: Dict[str, Any], custom: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Recursively merge two configuration dictionaries.
 
@@ -132,7 +138,11 @@ class TelegramChatDownloader:
         """
         result = default.copy()
         for key, value in custom.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
                 result[key] = self._merge_configs(result[key], value)
             else:
                 result[key] = value
@@ -141,7 +151,9 @@ class TelegramChatDownloader:
     def _setup_logging(self) -> None:
         """Configure logging based on config."""
         log_level = self.config.get("settings", {}).get("log_level", "INFO")
-        log_file = self.config.get("settings", {}).get("log_file", get_app_dir() / "app.log")
+        log_file = self.config.get("settings", {}).get(
+            "log_file", get_app_dir() / "app.log"
+        )
 
         # Ensure log directory exists
         if log_file:
@@ -161,7 +173,9 @@ class TelegramChatDownloader:
         self.logger.setLevel(getattr(logging, log_level.upper()))
 
         # Create formatter
-        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+        formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        )
 
         # Add file handler if log file is specified
         if log_file:
@@ -211,7 +225,9 @@ class TelegramChatDownloader:
         request_retries = settings.get("max_retries", 5)
 
         if not api_id or not api_hash:
-            error_msg = "API ID or API Hash not found in config. Please check your config file."
+            error_msg = (
+                "API ID or API Hash not found in config. Please check your config file."
+            )
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
@@ -232,7 +248,9 @@ class TelegramChatDownloader:
             await self.client.connect()
 
             is_authorized = await self.client.is_user_authorized()
-            self.logger.debug(f"Connection status: is_authorized={is_authorized}, phone={phone}")
+            self.logger.debug(
+                f"Connection status: is_authorized={is_authorized}, phone={phone}"
+            )
 
             # send code request
             if phone and not code and not is_authorized:
@@ -251,7 +269,10 @@ class TelegramChatDownloader:
                         raise ValueError(error_msg)
 
                     await self.client.sign_in(
-                        phone=phone, code=code, phone_code_hash=self.phone_code_hash, password=password
+                        phone=phone,
+                        code=code,
+                        phone_code_hash=self.phone_code_hash,
+                        password=password,
                     )
                     self.logger.info("Successfully authenticated with code")
                 except SessionPasswordNeededError:
@@ -298,7 +319,9 @@ class TelegramChatDownloader:
             self.logger.error(error_msg)
             raise ValueError(error_msg) from e
         except PhoneNumberInvalidError as e:
-            error_msg = f"Invalid phone number: {phone}. Please check your phone number."
+            error_msg = (
+                f"Invalid phone number: {phone}. Please check your phone number."
+            )
             self.logger.error(error_msg)
             raise ValueError(error_msg) from e
         except Exception as e:
@@ -353,7 +376,9 @@ class TelegramChatDownloader:
                 all_messages = loaded_messages
                 offset_id = last_id
                 if not silent:
-                    self.logger.info(f"Resuming download from message ID {offset_id}...")
+                    self.logger.info(
+                        f"Resuming download from message ID {offset_id}..."
+                    )
 
         total_fetched = len(all_messages)
         last_save = asyncio.get_event_loop().time()
@@ -400,13 +425,17 @@ class TelegramChatDownloader:
             new_messages = []
             for msg in history.messages:
                 # Skip if message doesn't have an ID or if it already exists
-                if not hasattr(msg, "id") or any(m.id == msg.id for m in all_messages if hasattr(m, "id")):
+                if not hasattr(msg, "id") or any(
+                    m.id == msg.id for m in all_messages if hasattr(m, "id")
+                ):
                     continue
 
                 # Filter by date if until_date is provided
                 if until_date and hasattr(msg, "date") and msg.date:
                     # Convert until_date to timezone-aware datetime at start of day
-                    until = datetime.strptime(until_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    until = datetime.strptime(until_date, "%Y-%m-%d").replace(
+                        tzinfo=timezone.utc
+                    )
 
                     # Ensure msg.date is timezone-aware (in case it's not already)
                     msg_date = msg.date
@@ -416,7 +445,9 @@ class TelegramChatDownloader:
                     # Compare dates (not times)
                     if msg_date.date() < until.date():
                         if not silent:
-                            self.logger.debug(f"Reached message from {msg_date} which is older than {until_date}")
+                            self.logger.debug(
+                                f"Reached message from {msg_date} which is older than {until_date}"
+                            )
                         break
 
                 new_messages.append(msg)
@@ -430,7 +461,9 @@ class TelegramChatDownloader:
             # If we broke out of the loop early due to date filtering, we're done
             if until_date and len(new_messages) < len(history.messages):
                 if not silent:
-                    self.logger.info(f"Reached messages older than {until_date}, stopping")
+                    self.logger.info(
+                        f"Reached messages older than {until_date}, stopping"
+                    )
                 break
 
             # Update offset to the oldest message we just fetched
@@ -440,12 +473,18 @@ class TelegramChatDownloader:
             current_time = asyncio.get_event_loop().time()
 
             # Save partial results periodically
-            if output_file and save_partial and current_time - last_save > save_interval:
+            if (
+                output_file
+                and save_partial
+                and current_time - last_save > save_interval
+            ):
                 self._save_partial_messages(all_messages, output_path)
                 last_save = current_time
 
             if not silent:
-                self.logger.info(f"Fetched: {total_fetched} (batch: {len(new_messages)} new)")
+                self.logger.info(
+                    f"Fetched: {total_fetched} (batch: {len(new_messages)} new)"
+                )
 
             if total_limit > 0 and total_fetched >= total_limit:
                 break
@@ -467,7 +506,15 @@ class TelegramChatDownloader:
             user = await self.client.get_entity(PeerUser(user_id))
 
             # Prefer the human readable first/last name combination
-            name = " ".join(filter(None, [getattr(user, "first_name", None), getattr(user, "last_name", None)])).strip()
+            name = " ".join(
+                filter(
+                    None,
+                    [
+                        getattr(user, "first_name", None),
+                        getattr(user, "last_name", None),
+                    ],
+                )
+            ).strip()
 
             # Fallback to username only when no name is set
             if not name:
@@ -498,7 +545,9 @@ class TelegramChatDownloader:
             # Log every 100 fetched usernames
             if self._fetched_usernames_count % 100 == 0:
                 self._save_config()
-                self.logger.info(f"Fetched {self._fetched_usernames_count} usernames so far")
+                self.logger.info(
+                    f"Fetched {self._fetched_usernames_count} usernames so far"
+                )
 
             return fetched_name
 
@@ -531,7 +580,9 @@ class TelegramChatDownloader:
             self._fetched_chatnames_count += 1
             if self._fetched_chatnames_count % 100 == 0:
                 self._save_config()
-                self.logger.info(f"Fetched {self._fetched_chatnames_count} chat names so far")
+                self.logger.info(
+                    f"Fetched {self._fetched_chatnames_count} chat names so far"
+                )
             return name
 
         # Fallback: treat as user if type could not be determined
@@ -547,7 +598,12 @@ class TelegramChatDownloader:
         sender = msg.get("from_id") or msg.get("sender_id") or msg.get("peer_id")
 
         if isinstance(sender, dict):
-            sender = sender.get("user_id") or sender.get("channel_id") or sender.get("chat_id") or sender
+            sender = (
+                sender.get("user_id")
+                or sender.get("channel_id")
+                or sender.get("chat_id")
+                or sender
+            )
 
         try:
             return int(sender)
@@ -589,7 +645,9 @@ class TelegramChatDownloader:
             self.logger.info(f"Filtering messages by user: {user_filter}")
             # Remove 'user' prefix if present for comparison
             user_filter = (
-                user_filter.replace("user", "") if user_filter and user_filter.startswith("user") else user_filter
+                user_filter.replace("user", "")
+                if user_filter and user_filter.startswith("user")
+                else user_filter
             )
 
         messages = []
@@ -598,7 +656,9 @@ class TelegramChatDownloader:
         left_chats = archive.get("left_chats", {}).get("list", [])
         chats.extend(left_chats)
 
-        self.logger.info(f"Found {len(chats)} chats, including {len(left_chats)} left chats")
+        self.logger.info(
+            f"Found {len(chats)} chats, including {len(left_chats)} left chats"
+        )
         for chat in chats:
             chat_id = chat.get("id")
             if not chat_id:
@@ -640,8 +700,12 @@ class TelegramChatDownloader:
                 formatted = {
                     "id": message.get("id"),
                     "peer_id": {
-                        "_": "PeerChat" if chat.get("type") == "group" else "PeerChannel",
-                        "channel_id" if chat.get("type") in ["channel", "public_supergroup"] else "user_id": chat_id,
+                        "_": "PeerChat"
+                        if chat.get("type") == "group"
+                        else "PeerChannel",
+                        "channel_id"
+                        if chat.get("type") in ["channel", "public_supergroup"]
+                        else "user_id": chat_id,
                     },
                     "date": message.get("date"),
                     "message": text,
@@ -750,7 +814,9 @@ class TelegramChatDownloader:
 
                     # Get message text
                     text = msg.get("text", "")
-                    if not text and "message" in msg:  # Fallback for different message formats
+                    if (
+                        not text and "message" in msg
+                    ):  # Fallback for different message formats
                         text = msg["message"]
 
                     # Get recipient name
@@ -762,7 +828,9 @@ class TelegramChatDownloader:
                     # Format and write the message
                     if date_fmt or sender_name:
                         if recipient_name:
-                            f.write(f"{date_fmt} {sender_name} -> {recipient_name}:\n{text}\n\n")
+                            f.write(
+                                f"{date_fmt} {sender_name} -> {recipient_name}:\n{text}\n\n"
+                            )
                         else:
                             f.write(f"{date_fmt} {sender_name}:\n{text}\n\n")
                     else:
@@ -792,7 +860,11 @@ class TelegramChatDownloader:
                 return None
 
     async def save_messages(
-        self, messages: List[Message], output_file: str, save_txt: bool = True, sort_order: str = "desc"
+        self,
+        messages: List[Message],
+        output_file: str,
+        save_txt: bool = True,
+        sort_order: str = "desc",
     ) -> None:
         """Save messages to JSON and optionally to TXT.
 
@@ -820,7 +892,9 @@ class TelegramChatDownloader:
         # Save TXT if requested
         if save_txt:
             txt_path = output_path.with_suffix(".txt")
-            saved = await self.save_messages_as_txt(serializable_messages, txt_path, sort_order)
+            saved = await self.save_messages_as_txt(
+                serializable_messages, txt_path, sort_order
+            )
             txt_path_relative = get_relative_to_downloads_dir(txt_path)
             self.logger.info(f"Saved {saved} messages to {txt_path_relative}")
 
@@ -852,12 +926,19 @@ class TelegramChatDownloader:
             self.logger.debug(f"Resolving entity: {identifier}")
 
             # Handle numeric IDs (either as int or string)
-            if isinstance(identifier, (int, str)) and str(identifier).lstrip("-").isdigit():
+            if (
+                isinstance(identifier, (int, str))
+                and str(identifier).lstrip("-").isdigit()
+            ):
                 id_value = int(identifier)
                 self.logger.debug(f"Trying to resolve numeric ID: {id_value}")
 
                 # Try different peer types
-                peer_types = [(PeerChannel, "channel/supergroup"), (PeerChat, "basic group"), (PeerUser, "user")]
+                peer_types = [
+                    (PeerChannel, "channel/supergroup"),
+                    (PeerChat, "basic group"),
+                    (PeerUser, "user"),
+                ]
 
                 for peer_cls, peer_type in peer_types:
                     try:
@@ -869,17 +950,25 @@ class TelegramChatDownloader:
                         self.logger.debug(f"Failed to resolve as {peer_type}: {str(e)}")
                         continue
                     except Exception as e:
-                        self.logger.debug(f"Unexpected error resolving as {peer_type}: {str(e)}")
+                        self.logger.debug(
+                            f"Unexpected error resolving as {peer_type}: {str(e)}"
+                        )
                         continue
 
-                self.logger.warning(f"Could not resolve ID {id_value} as any peer type, trying alternative methods...")
+                self.logger.warning(
+                    f"Could not resolve ID {id_value} as any peer type, trying alternative methods..."
+                )
 
                 # Try to get the entity by first getting all dialogs
                 try:
                     self.logger.debug("Trying to find entity in dialogs...")
                     async for dialog in self.client.iter_dialogs():
-                        if hasattr(dialog.entity, "id") and dialog.entity.id == abs(id_value):
-                            self.logger.debug(f"Found entity in dialogs: {dialog.entity}")
+                        if hasattr(dialog.entity, "id") and dialog.entity.id == abs(
+                            id_value
+                        ):
+                            self.logger.debug(
+                                f"Found entity in dialogs: {dialog.entity}"
+                            )
                             return dialog.entity
                 except Exception as e:
                     self.logger.debug(f"Error searching in dialogs: {str(e)}")
@@ -892,7 +981,9 @@ class TelegramChatDownloader:
                     self.logger.debug(f"Direct entity access failed: {str(e)}")
 
                 # If we're here, we couldn't find the entity
-                self.logger.warning(f"Could not find entity with ID {id_value} using any method")
+                self.logger.warning(
+                    f"Could not find entity with ID {id_value} using any method"
+                )
                 return None
 
             # For strings (usernames, URLs, phone numbers)
@@ -941,10 +1032,22 @@ class TelegramChatDownloader:
             # Get the appropriate name based on entity type
             if hasattr(entity, "title"):  # For chats/channels
                 name = entity.title
-            elif hasattr(entity, "username") and entity.username:  # For users with username
+            elif (
+                hasattr(entity, "username") and entity.username
+            ):  # For users with username
                 name = entity.username
-            elif hasattr(entity, "first_name") or hasattr(entity, "last_name"):  # For users
-                name = " ".join(filter(None, [getattr(entity, "first_name", ""), getattr(entity, "last_name", "")]))
+            elif hasattr(entity, "first_name") or hasattr(
+                entity, "last_name"
+            ):  # For users
+                name = " ".join(
+                    filter(
+                        None,
+                        [
+                            getattr(entity, "first_name", ""),
+                            getattr(entity, "last_name", ""),
+                        ],
+                    )
+                )
             else:
                 name = str(entity.id)
 
@@ -978,7 +1081,13 @@ class TelegramChatDownloader:
                 return entity.title
             if hasattr(entity, "first_name") or hasattr(entity, "last_name"):
                 name = " ".join(
-                    filter(None, [getattr(entity, "first_name", ""), getattr(entity, "last_name", "")])
+                    filter(
+                        None,
+                        [
+                            getattr(entity, "first_name", ""),
+                            getattr(entity, "last_name", ""),
+                        ],
+                    )
                 ).strip()
                 return name or str(identifier)
             if hasattr(entity, "username") and entity.username:
@@ -1006,7 +1115,9 @@ class TelegramChatDownloader:
         # Return path with .part.jsonl extension
         return output_file.with_suffix(".part.jsonl")
 
-    def _save_partial_messages(self, messages: List[Dict[str, Any]], output_file: Path) -> None:
+    def _save_partial_messages(
+        self, messages: List[Dict[str, Any]], output_file: Path
+    ) -> None:
         """Save messages to a temporary file for partial downloads using JSONL format.
 
         Each line is a separate JSON object with two fields:
@@ -1030,7 +1141,9 @@ class TelegramChatDownloader:
                 with open(temp_file, "r", encoding="utf-8") as f:
                     # Read all lines first, then take only the last 10k
                     all_lines = f.readlines()
-                    last_10k_lines = all_lines[-10000:] if len(all_lines) > 10000 else all_lines
+                    last_10k_lines = (
+                        all_lines[-10000:] if len(all_lines) > 10000 else all_lines
+                    )
 
                     for line in last_10k_lines:
                         line = line.strip()
@@ -1054,22 +1167,32 @@ class TelegramChatDownloader:
                     msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
                     serialized = self.make_serializable(msg_dict)
                     # Get message ID, defaulting to 0 if not found
-                    msg_id = msg_dict.get("id") if hasattr(msg_dict, "get") else getattr(msg_dict, "id", 0)
+                    msg_id = (
+                        msg_dict.get("id")
+                        if hasattr(msg_dict, "get")
+                        else getattr(msg_dict, "id", 0)
+                    )
 
                     # Only append if this message ID is not already in the file
                     if msg_id not in existing_ids:
                         # Write as a single line
                         json.dump({"m": serialized, "i": msg_id}, f, ensure_ascii=False)
                         f.write("\n")  # Add newline for JSONL format
-                        existing_ids.add(msg_id)  # Track this ID to avoid duplicates in this batch
+                        existing_ids.add(
+                            msg_id
+                        )  # Track this ID to avoid duplicates in this batch
                         new_saved_count += 1
                 except Exception as e:
                     self.logger.warning(f"Failed to serialize message: {e}")
 
         save_time = time.time() - start_time
-        self.logger.info(f"Saved {new_saved_count} new messages to partial file in {save_time:.2f}s")
+        self.logger.info(
+            f"Saved {new_saved_count} new messages to partial file in {save_time:.2f}s"
+        )
 
-    def _load_partial_messages(self, output_file: Path) -> tuple[list[Dict[str, Any]], int]:
+    def _load_partial_messages(
+        self, output_file: Path
+    ) -> tuple[list[Dict[str, Any]], int]:
         """Load messages from a temporary JSONL file if it exists.
 
         Returns:
@@ -1096,7 +1219,9 @@ class TelegramChatDownloader:
                         data = json.loads(line)
                         if isinstance(data, dict) and "m" in data:
                             messages.append(data["m"])
-                            last_id = data.get("i", last_id)  # Update last_id if present
+                            last_id = data.get(
+                                "i", last_id
+                            )  # Update last_id if present
                     except json.JSONDecodeError as e:
                         logging.warning(f"Skipping invalid JSON line: {e}")
                         continue

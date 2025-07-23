@@ -6,4 +6,4 @@ This package contains the main window and other window classes for the applicati
 
 from .main_window import MainWindow
 
-__all__ = ['MainWindow']
+__all__ = ["MainWindow"]

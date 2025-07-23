@@ -1,12 +1,13 @@
 """Setup script for telegram-download-chat package."""
 
-from pathlib import Path
-from setuptools import setup, find_packages
 import os
 import sys
+from pathlib import Path
+
+from setuptools import find_packages, setup
 
 # Add src to path so we can import __version__
-sys.path.insert(0, os.path.abspath('src'))
+sys.path.insert(0, os.path.abspath("src"))
 from telegram_download_chat import __version__
 
 # Read the contents of README.md

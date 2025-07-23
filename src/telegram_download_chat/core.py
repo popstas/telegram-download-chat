@@ -1134,3 +1134,19 @@ class TelegramChatDownloader:
                 self._stop_file.unlink()
             except Exception:
                 pass
+
+    async def list_folders(self):
+        """Return the list of user-defined chat folders."""
+        from telethon import functions, types
+
+        if not self.client or not self.client.is_connected():
+            await self.connect()
+
+        result = await self.client(functions.messages.GetDialogFiltersRequest())
+
+        folders = []
+        for f in result.filters:
+            if isinstance(f, types.DialogFilter):
+                folders.append(f)
+
+        return folders

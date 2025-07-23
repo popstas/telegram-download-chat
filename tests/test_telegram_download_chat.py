@@ -778,3 +778,38 @@ def test_prepare_messages_for_txt_ordering_desc():
         340525,
         340522,
     ]
+
+
+@pytest.mark.asyncio
+async def test_folder_download(tmp_path):
+    """Test downloading all chats from a folder."""
+    from telethon.tl.types import DialogFilter, InputPeerChannel
+
+    folder_name = "Work"
+    peer = InputPeerChannel(channel_id=123, access_hash=456)
+
+    mock_downloader = AsyncMock()
+    mock_downloader.logger = MagicMock()
+    mock_downloader.connect = AsyncMock()
+    mock_downloader.close = AsyncMock()
+    mock_downloader.cleanup_stop_file = MagicMock()
+    mock_downloader.config = {"settings": {"save_path": str(tmp_path)}}
+
+    mock_downloader.list_folders.return_value = [
+        DialogFilter(id=1, title=folder_name, pinned_peers=[peer], include_peers=[], exclude_peers=[])
+    ]
+    mock_downloader.get_entity_name = AsyncMock(return_value="Chat1")
+    mock_downloader.download_chat = AsyncMock(return_value=[{"id": 1}])
+    mock_downloader.save_messages = AsyncMock()
+
+    with patch("sys.argv", ["script", f"folder:{folder_name}"]), patch(
+        "telegram_download_chat.cli.TelegramChatDownloader", return_value=mock_downloader
+    ):
+        result = await async_main()
+
+    assert result == 0
+    mock_downloader.list_folders.assert_awaited_once()
+    mock_downloader.download_chat.assert_awaited_once()
+    expected = tmp_path / folder_name / "Chat1.json"
+    args, kwargs = mock_downloader.download_chat.call_args
+    assert kwargs.get("output_file") == str(expected)

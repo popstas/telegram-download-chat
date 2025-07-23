@@ -663,8 +663,8 @@ class TelegramChatDownloader:
 
         When ``sort_order`` is ``"asc"`` messages are ordered from oldest to
         newest with each replied-to message followed by its replies. When
-        ``sort_order`` is ``"desc"`` the order is reversed but replied-to
-        messages still appear before their replies.
+        ``sort_order`` is ``"desc"`` the order is reversed and replies come
+        before the messages they reference.
         """
 
         from datetime import datetime
@@ -697,10 +697,13 @@ class TelegramChatDownloader:
             return sorted(msgs, key=parse_dt, reverse=(sort_order == "desc"))
 
         def traverse(msg: Dict[str, Any]) -> List[Dict[str, Any]]:
-            ordered = [msg]
+            child_msgs = []
             for child in sort_msgs(children.get(msg.get("id"), [])):
-                ordered.extend(traverse(child))
-            return ordered
+                child_msgs.extend(traverse(child))
+
+            if sort_order == "desc":
+                return child_msgs + [msg]
+            return [msg] + child_msgs
 
         ordered_messages: List[Dict[str, Any]] = []
         for root in sort_msgs(roots):

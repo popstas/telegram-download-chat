@@ -158,6 +158,9 @@ telegram-download-chat folder:folder_name
 # Download messages until a specific date (YYYY-MM-DD)
 telegram-download-chat username --until 2025-05-01
 
+# Download last N days of messages from a specific date
+telegram-download-chat username --from 2025-06-05 --last-days 1
+
 # Filter messages by specific user
 telegram-download-chat group_username --user 123456
 
@@ -177,7 +180,8 @@ telegram-download-chat --show-config
 ### Command Line Options
 
 ```
-usage: telegram-download-chat [-h] [-o OUTPUT] [--limit LIMIT] [--until DATE] [--subchat SUBCHAT]
+usage: telegram-download-chat [-h] [-o OUTPUT] [--limit LIMIT] [--from DATE] [--last-days DAYS]
+                            [--until DATE] [--subchat SUBCHAT]
                             [--subchat-name NAME] [--user USER] [--config CONFIG] [--debug]
                             [--sort {asc,desc}] [--show-config] [-v]
                             [chat]
@@ -191,6 +195,8 @@ options:
   -h, --help            show this help message and exit
   -o, --output OUTPUT    Output file path (default: chat_<chat_id>.json)
   -l, --limit LIMIT     Maximum number of messages to download (default: 0 - no limit)
+  --from DATE           Base date for --last-days (format: YYYY-MM-DD)
+  --last-days DAYS      Number of days back from --from (or today) to download
   --until DATE          Only download messages until this date (format: YYYY-MM-DD)
   --subchat SUBCHAT     Filter messages by thread/reply chain (message ID or URL)
   --subchat-name NAME   Custom name for subchat directory
@@ -223,7 +229,7 @@ This feature is particularly useful for:
 - Processing your full Telegram data export
 - Extracting specific conversations from the export
 - Converting the export to a more readable format
-- Filtering messages by user or date range (using `--until`)
+- Filtering messages by user or date range (using `--until` or `--last-days`)
 
 The tool will process the archive and generate both JSON and TXT files with the exported messages.
 

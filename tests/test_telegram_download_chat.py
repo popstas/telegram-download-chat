@@ -738,3 +738,23 @@ def test_prepare_messages_for_txt_ordering():
 
     ordered = downloader.prepare_messages_for_txt(messages, "desc")
     assert [m["id"] for m in ordered] == [1, 3, 2]
+
+
+def test_prepare_messages_for_txt_ordering_asc():
+    downloader = TelegramChatDownloader()
+    with open("tests/fixtures/replies.json", "r", encoding="utf-8") as f:
+        messages = json.load(f)
+
+    ordered = downloader.prepare_messages_for_txt(messages, "asc")
+    assert [m["id"] for m in ordered] == [
+        340522,
+        340525,
+        340527,
+        340529,
+        340523,
+        340532,
+        340526,
+        340528,
+        340530,
+        340531,
+    ]

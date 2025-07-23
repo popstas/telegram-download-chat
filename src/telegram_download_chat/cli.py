@@ -191,6 +191,76 @@ async def save_txt_with_status(
     return await _run_with_status(downloader.save_messages_as_txt(messages, txt_file, sort_order), downloader.logger)
 
 
+async def process_chat_download(
+    downloader: TelegramChatDownloader,
+    chat_identifier: Any,
+    args: argparse.Namespace,
+    output_dir: Path,
+) -> int:
+    """Download a single chat and save messages with options."""
+
+    safe_chat_name = await downloader.get_entity_name(chat_identifier)
+    if not safe_chat_name:
+        downloader.logger.error(f"Failed to get entity name for chat: {chat_identifier}")
+        return 1
+
+    output_file = args.output
+    if not output_file or output_dir != Path(output_file).parent:
+        output_file = str(output_dir / f"{safe_chat_name}.json")
+        if args.subchat:
+            output_file = str(Path(output_file).with_stem(f"{Path(output_file).stem}_subchat_{args.subchat}"))
+
+    download_kwargs = {
+        "chat_id": chat_identifier,
+        "request_limit": args.limit if args.limit > 0 else 100,
+        "total_limit": args.limit if args.limit > 0 else 0,
+        "output_file": output_file,
+        "silent": False,
+    }
+
+    if args.until:
+        download_kwargs["until_date"] = args.until
+
+    messages = await downloader.download_chat(**download_kwargs)
+
+    downloader.logger.debug(f"Downloaded {len(messages)} messages")
+
+    if args.subchat:
+        messages = filter_messages_by_subchat(messages, args.subchat)
+        downloader.logger.info(f"Filtered to {len(messages)} messages in subchat {args.subchat}")
+
+    if not messages:
+        downloader.logger.warning("No messages to save")
+        return 0
+
+    try:
+        if args.split:
+            split_messages = split_messages_by_date(messages, args.split)
+
+            if not split_messages:
+                downloader.logger.warning("No messages with valid dates found for splitting")
+                await save_messages_with_status(downloader, messages, output_file, args.sort)
+            else:
+                output_path = Path(output_file)
+                base_name = output_path.stem
+                ext = output_path.suffix
+
+                for date_key, msgs in split_messages.items():
+                    split_file = output_path.with_name(f"{base_name}_{date_key}{ext}")
+                    await save_messages_with_status(downloader, msgs, str(split_file), args.sort)
+                    downloader.logger.info(f"Saved {len(msgs)} messages to {split_file}")
+
+                downloader.logger.info(f"Saved {len(split_messages)} split files in {output_path.parent}")
+        else:
+            await save_messages_with_status(downloader, messages, output_file, args.sort)
+
+    except Exception as e:
+        downloader.logger.error(f"Failed to save messages: {e}", exc_info=args.debug)
+        return 1
+
+    return 0
+
+
 async def async_main():
     """Main async function."""
     global _downloader_instance
@@ -313,84 +383,37 @@ async def async_main():
             downloader.logger.debug("Conversion completed successfully")
             return 0
 
+        # Folder download mode
+        if args.chat.startswith("folder:"):
+            folder_name = args.chat.split(":", 1)[1]
+            folders = await downloader.list_folders()
+            target = None
+            for f in folders:
+                if getattr(f, "title", "") == folder_name:
+                    target = f
+                    break
+            if not target:
+                downloader.logger.error(f"Folder not found: {folder_name}")
+                return 1
+
+            folder_dir = downloads_dir / folder_name
+            folder_dir.mkdir(parents=True, exist_ok=True)
+
+            peers = []
+            peers.extend(getattr(target, "pinned_peers", []) or [])
+            peers.extend(getattr(target, "include_peers", []) or [])
+
+            for peer in peers:
+                await process_chat_download(downloader, peer, args, folder_dir)
+
+            return 0
+
         # Normal chat download mode
         downloader.logger.debug("Connecting to Telegram...")
         await downloader.connect()
 
-        safe_chat_name = await downloader.get_entity_name(args.chat)
-        if not safe_chat_name:
-            downloader.logger.error(f"Failed to get entity name for chat: {args.chat}")
-            return 1
-
-        # Get downloads directory from config
-        downloads_dir = Path(downloader.config.get("settings", {}).get("save_path", get_downloads_dir()))
-        downloads_dir.mkdir(parents=True, exist_ok=True)
-
-        # Determine output file
-        output_file = args.output
-        if not output_file:
-            # Get safe filename from entity name
-            try:
-                downloader.logger.debug(f"Using entity name for output: {safe_chat_name}")
-            except Exception as e:
-                downloader.logger.warning(f"Could not get entity name: {e}, using basic sanitization")
-                safe_chat_name = "".join(c if c.isalnum() else "_" for c in args.chat)
-
-            output_file = str(downloads_dir / f"{safe_chat_name}.json")
-
-            if args.subchat:
-                output_file = str(Path(output_file).with_stem(f"{Path(output_file).stem}_subchat_{args.subchat}"))
-
-        # Download messages
-        download_kwargs = {
-            "chat_id": args.chat,
-            "request_limit": args.limit if args.limit > 0 else 100,
-            "total_limit": args.limit if args.limit > 0 else 0,
-            "output_file": output_file,
-            "silent": False,
-        }
-        if args.until:
-            download_kwargs["until_date"] = args.until
-
-        messages = await downloader.download_chat(**download_kwargs)
-
-        downloader.logger.debug(f"Downloaded {len(messages)} messages")
-
-        # Apply subchat filter if specified
-        if args.subchat:
-            messages = filter_messages_by_subchat(messages, args.subchat)
-            downloader.logger.info(f"Filtered to {len(messages)} messages in subchat {args.subchat}")
-
-        if not messages:
-            downloader.logger.warning("No messages to save")
-            return 0
-
-        try:
-            if args.split:
-                # Split messages by date
-                split_messages = split_messages_by_date(messages, args.split)
-
-                if not split_messages:
-                    downloader.logger.warning("No messages with valid dates found for splitting")
-                    await save_messages_with_status(downloader, messages, output_file, args.sort)
-                else:
-                    # Save each group to a separate file
-                    output_path = Path(output_file)
-                    base_name = output_path.stem
-                    ext = output_path.suffix
-
-                    for date_key, msgs in split_messages.items():
-                        split_file = output_path.with_name(f"{base_name}_{date_key}{ext}")
-                        await save_messages_with_status(downloader, msgs, str(split_file), args.sort)
-                        downloader.logger.info(f"Saved {len(msgs)} messages to {split_file}")
-
-                    downloader.logger.info(f"Saved {len(split_messages)} split files in {output_path.parent}")
-            else:
-                await save_messages_with_status(downloader, messages, output_file, args.sort)
-
-        except Exception as e:
-            downloader.logger.error(f"Failed to save messages: {e}", exc_info=args.debug)
-            return 1
+        result = await process_chat_download(downloader, args.chat, args, downloads_dir)
+        return result
 
     except Exception as e:
         downloader.logger.error(f"An error occurred: {e}", exc_info=args.debug)

@@ -9,6 +9,7 @@ A powerful command-line utility to download and analyze Telegram chat history in
 ## Features
 
 - Download complete chat history from any Telegram chat, group, channel or Telegram export archive
+- Download chats folder
 - Save messages in JSON format with full message metadata
 - Generate human and LLM readable TXT exports with user-friendly display names
 - Filter messages by date range and specific users
@@ -150,6 +151,9 @@ telegram-download-chat +1234567890
 ```bash
 # Download with a limit on number of messages
 telegram-download-chat username --limit 1000
+
+# Download all chats from folder 
+telegram-download-chat folder:folder_name
 
 # Download messages until a specific date (YYYY-MM-DD)
 telegram-download-chat username --until 2025-05-01

@@ -389,7 +389,9 @@ async def async_main():
             folders = await downloader.list_folders()
             target = None
             for f in folders:
-                if getattr(getattr(f, "title"), "text", "") == folder_name:
+                title = getattr(f, "title", "")
+                title_text = getattr(title, "text", title if isinstance(title, str) else "")
+                if title_text == folder_name:
                     target = f
                     break
             if not target:

@@ -102,14 +102,20 @@ class WorkerThread(QThread):
             self.log.emit(f"Executing: {' '.join(cmd)}")
             
             # Start the process
+            env = os.environ.copy()
+            env.setdefault("PYTHONIOENCODING", "utf-8")
+
             self.process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
                 bufsize=1,  # Line buffered
-                universal_newlines=True
+                universal_newlines=True,
+                env=env,
             )
             
             # Read output in real-time

@@ -409,6 +409,9 @@ class SettingsTab(QWidget):
             # Try to connect and validate the session
             try:
                 await self.telegram_auth.initialize()
+                if not self.telegram_auth.client:
+                    self._set_logged_in(False, show_login=True)
+                    return
                 is_valid = await self.telegram_auth.client.is_user_authorized()
 
                 # Update UI based on validation result
@@ -1018,8 +1021,15 @@ class SettingsTab(QWidget):
                         try:
                             logging.debug("Attempting graceful logout...")
                             if hasattr(self.telegram_auth, "log_out"):
-                                await self.telegram_auth.log_out()
-                                logging.info("Successfully logged out from Telegram.")
+                                logged_out = await self.telegram_auth.log_out()
+                                if logged_out:
+                                    logging.info(
+                                        "Successfully logged out from Telegram."
+                                    )
+                                else:
+                                    logging.debug(
+                                        "Client already disconnected; skipping logout."
+                                    )
                         except Exception as e:
                             logging.warning(
                                 f"Error during graceful logout (non-critical): {e}"

@@ -182,6 +182,10 @@ class TelegramAuth:
         if not self.client:
             return False
 
+        if not self.client.is_connected():
+            # Nothing to do if the client is already disconnected
+            return False
+
         try:
             await self.client.log_out()
             self._is_authenticated = False

@@ -8,7 +8,6 @@ import logging
 import signal
 import sys
 import tempfile
-import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -154,8 +153,7 @@ async def async_main() -> int:
         return await download_chat(ctx, downloader, args, downloads_dir)
 
     except Exception as e:  # pragma: no cover - just logging
-        downloader.logger.error(f"An error occurred: {e}", exc_info=args.debug)
-        downloader.logger.error(traceback.format_exc())
+        downloader.logger.exception(f"An error occurred: {e}")
         return 1
     finally:
         _downloader_ctx = None

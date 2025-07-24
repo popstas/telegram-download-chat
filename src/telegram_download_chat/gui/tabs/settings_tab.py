@@ -395,6 +395,10 @@ class SettingsTab(QWidget):
     async def _validate_session_async(self):
         """Asynchronously validate the Telegram session."""
         try:
+            # Skip on logout process
+            if not self.logout_btn.isEnabled():
+                return
+
             # First ensure we have valid API credentials
             if not (self.api_id_edit.text() and self.api_hash_edit.text()):
                 self._set_logged_in(False, show_login=True)
@@ -987,10 +991,6 @@ class SettingsTab(QWidget):
     async def _do_logout_async(self):
         """Log out from Telegram (async)."""
         try:
-            # Disable UI during logout
-            self.logout_btn.setEnabled(False)
-            self.logout_btn.setText("Logging out...")
-
             # Get session path before we close the client
             session_path = Path(
                 self.config.get("session_path", get_app_dir() / "session.session")
@@ -1109,6 +1109,8 @@ class SettingsTab(QWidget):
     def _do_logout(self):
         """Log out from Telegram by starting the async logout process."""
         try:
+            self.logout_btn.setEnabled(False)
+            self.logout_btn.setText("Logging out...")
             # Get the current event loop or create a new one if none exists
             loop = asyncio.get_event_loop()
             if loop.is_running():

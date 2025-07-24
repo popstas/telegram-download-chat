@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import signal
 import sys
 import traceback
 from pathlib import Path
 
-from telegram_download_chat.core import TelegramChatDownloader
+from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
 from telegram_download_chat.paths import (
     get_default_config_path,
     get_downloads_dir,
@@ -20,14 +21,17 @@ from . import commands
 from .arguments import CLIOptions, parse_args
 from .commands import filter_messages_by_subchat
 
-_downloader_instance: TelegramChatDownloader | None = None
+_downloader_ctx: DownloaderContext | None = None
 
 
 def _signal_handler(sig, frame):
-    global _downloader_instance
-    if _downloader_instance:
-        print("\nReceived termination signal, stopping download gracefully...")
-        _downloader_instance.stop()
+    global _downloader_ctx
+    if _downloader_ctx:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon_threadsafe(_downloader_ctx.stop)
+        except RuntimeError:
+            _downloader_ctx.stop()
     else:
         sys.exit(0)
 
@@ -38,10 +42,11 @@ signal.signal(signal.SIGTERM, _signal_handler)
 
 async def async_main() -> int:
     """Entry point for asynchronous CLI operations."""
-    global _downloader_instance
+    global _downloader_ctx
     args = parse_args()
     downloader = TelegramChatDownloader(config_path=args.config)
-    _downloader_instance = downloader
+    ctx = DownloaderContext(downloader)
+    _downloader_ctx = ctx
 
     try:
         if args.show_config:
@@ -86,7 +91,10 @@ async def async_main() -> int:
         import tempfile
 
         stop_file = Path(tempfile.gettempdir()) / "telegram_download_stop.tmp"
-        downloader.set_stop_file(str(stop_file))
+        if inspect.iscoroutinefunction(downloader.set_stop_file):
+            await downloader.set_stop_file(str(stop_file))
+        else:
+            downloader.set_stop_file(str(stop_file))
 
         downloads_dir = Path(
             downloader.config.get("settings", {}).get("save_path", get_downloads_dir())
@@ -98,25 +106,22 @@ async def async_main() -> int:
             return 1
 
         if args.chat.endswith(".json"):
-            return await commands.convert(downloader, args, downloads_dir)
+            async with ctx:
+                return await commands.convert(downloader, args, downloads_dir)
 
         if args.chat.startswith("folder:"):
-            return await commands.folder(downloader, args, downloads_dir)
+            async with ctx:
+                return await commands.folder(downloader, args, downloads_dir)
 
-        await downloader.connect()
-        return await commands.download(downloader, args, downloads_dir)
+        async with ctx:
+            return await commands.download(downloader, args, downloads_dir)
 
     except Exception as e:  # pragma: no cover - just logging
         downloader.logger.error(f"An error occurred: {e}", exc_info=args.debug)
         downloader.logger.error(traceback.format_exc())
         return 1
     finally:
-        await downloader.close()
-        downloader.cleanup_stop_file()
-        try:
-            stop_file.unlink()
-        except Exception:
-            pass
+        _downloader_ctx = None
 
 
 def main() -> int:

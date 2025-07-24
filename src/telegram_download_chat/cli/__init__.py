@@ -48,6 +48,57 @@ signal.signal(signal.SIGINT, _signal_handler)
 signal.signal(signal.SIGTERM, _signal_handler)
 
 
+def show_config(downloader: TelegramChatDownloader, config: str | None) -> int:
+    """Display configuration file path and contents."""
+    config_path = Path(config) if config else get_default_config_path()
+    downloader.logger.info(f"Configuration file: {config_path}")
+    if config_path.exists():
+        downloader.logger.info("\nCurrent configuration:")
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                downloader.logger.info(f.read())
+        except Exception as e:  # pragma: no cover - just logging
+            downloader.logger.error(f"\nError reading config file: {e}")
+    else:
+        downloader.logger.info(
+            "\nConfiguration file does not exist yet. It will be created on first run."
+        )
+    return 0
+
+
+async def convert_json_to_txt(
+    ctx: DownloaderContext,
+    downloader: TelegramChatDownloader,
+    args: CLIOptions,
+    downloads_dir: Path,
+) -> int:
+    """Convert JSON file to TXT using :mod:`commands`."""
+    async with ctx:
+        return await commands.convert(downloader, args, downloads_dir)
+
+
+async def download_folder(
+    ctx: DownloaderContext,
+    downloader: TelegramChatDownloader,
+    args: CLIOptions,
+    downloads_dir: Path,
+) -> int:
+    """Download all chats from a folder."""
+    async with ctx:
+        return await commands.folder(downloader, args, downloads_dir)
+
+
+async def download_chat(
+    ctx: DownloaderContext,
+    downloader: TelegramChatDownloader,
+    args: CLIOptions,
+    downloads_dir: Path,
+) -> int:
+    """Download a single chat."""
+    async with ctx:
+        return await commands.download(downloader, args, downloads_dir)
+
+
 async def async_main() -> int:
     """Entry point for asynchronous CLI operations."""
     global _downloader_ctx
@@ -58,22 +109,7 @@ async def async_main() -> int:
 
     try:
         if args.show_config:
-            config_path = (
-                Path(args.config) if args.config else get_default_config_path()
-            )
-            downloader.logger.info(f"Configuration file: {config_path}")
-            if config_path.exists():
-                downloader.logger.info("\nCurrent configuration:")
-                try:
-                    with open(config_path, "r", encoding="utf-8") as f:
-                        downloader.logger.info(f.read())
-                except Exception as e:  # pragma: no cover - just logging
-                    downloader.logger.error(f"\nError reading config file: {e}")
-            else:
-                downloader.logger.info(
-                    "\nConfiguration file does not exist yet. It will be created on first run."
-                )
-            return 0
+            return show_config(downloader, args.config)
 
         if args.debug:
             downloader.logger.setLevel(logging.DEBUG)
@@ -110,15 +146,12 @@ async def async_main() -> int:
             return 1
 
         if args.chat.endswith(".json"):
-            async with ctx:
-                return await commands.convert(downloader, args, downloads_dir)
+            return await convert_json_to_txt(ctx, downloader, args, downloads_dir)
 
         if args.chat.startswith("folder:"):
-            async with ctx:
-                return await commands.folder(downloader, args, downloads_dir)
+            return await download_folder(ctx, downloader, args, downloads_dir)
 
-        async with ctx:
-            return await commands.download(downloader, args, downloads_dir)
+        return await download_chat(ctx, downloader, args, downloads_dir)
 
     except Exception as e:  # pragma: no cover - just logging
         downloader.logger.error(f"An error occurred: {e}", exc_info=args.debug)
@@ -162,5 +195,9 @@ __all__ = [
     "CLIOptions",
     "commands",
     "filter_messages_by_subchat",
+    "show_config",
+    "convert_json_to_txt",
+    "download_folder",
+    "download_chat",
     "get_relative_to_downloads_dir",  # used in tests via commands
 ]

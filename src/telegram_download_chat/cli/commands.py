@@ -185,7 +185,7 @@ async def process_chat_download(
                 downloader, messages, output_file, args.sort
             )
     except Exception as e:
-        downloader.logger.error(f"Failed to save messages: {e}", exc_info=args.debug)
+        downloader.logger.exception(f"Failed to save messages: {e}")
         return 1
 
     return 0

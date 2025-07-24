@@ -1286,7 +1286,7 @@ class MainWindow(QMainWindow):
         self.session_status_group.setVisible(False)
 
     def start_download(self):
-        cmd = [sys.executable, "-m", "telegram_download_chat.cli"]
+        cmd = [sys.executable, "-m", "telegram_download_chat"]
         if self.debug_chk.isChecked():
             cmd.append("--debug")
         chat_id = self.chat_edit.text()
@@ -1310,7 +1310,7 @@ class MainWindow(QMainWindow):
         self._run_worker(cmd, out_dir)
 
     def start_convert(self):
-        cmd = [sys.executable, "-m", "telegram_download_chat.cli"]
+        cmd = [sys.executable, "-m", "telegram_download_chat"]
         if self.conv_debug.isChecked():
             cmd.append("--debug")
         input_file = self.export_edit.text()

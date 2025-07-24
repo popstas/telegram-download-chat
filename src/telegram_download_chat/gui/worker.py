@@ -101,7 +101,7 @@ class WorkerThread(QThread):
 
         try:
             # Build the command using the module path directly
-            cmd = [sys.executable, "-m", "telegram_download_chat.cli"] + self.cmd
+            cmd = [sys.executable, "-m", "telegram_download_chat"] + self.cmd
 
             self.log.emit(f"Executing: {' '.join(cmd)}")
 

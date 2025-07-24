@@ -380,6 +380,10 @@ Welcome to the group!
 4. **Progress bar**
    - progress show 1000 messages by default
    - when current > 1000, set max to 10000, then 50000, then 100000, etc.
+5. **Session file locked on Windows**
+   - Sometimes the `session.session` file cannot be deleted during logout
+   - Install optional `psutil` package to log which processes hold the file
+   - Check the debug log for "Processes using" messages
 ### Getting Help
 
 If you encounter any issues, please:

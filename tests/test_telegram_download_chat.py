@@ -14,11 +14,16 @@ from unittest.mock import AsyncMock, MagicMock, Mock, mock_open, patch
 import pytest
 
 from telegram_download_chat.cli import (
+    CLIOptions,
     async_main,
+    convert_json_to_txt,
+    download_chat,
+    download_folder,
     filter_messages_by_subchat,
     parse_args,
+    show_config,
 )
-from telegram_download_chat.core import TelegramChatDownloader
+from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
 
 
 @pytest.fixture
@@ -912,3 +917,77 @@ async def test_folder_download(tmp_path):
     expected = tmp_path / folder_name / "Chat1.json"
     args, kwargs = mock_downloader.download_chat.call_args
     assert kwargs.get("output_file") == str(expected)
+
+
+def test_show_config_function(tmp_path):
+    """Test the standalone show_config helper."""
+    cfg = tmp_path / "config.yml"
+    content = "test: value"
+    cfg.write_text(content)
+
+    downloader = MagicMock()
+    downloader.logger = MagicMock()
+
+    result = show_config(downloader, str(cfg))
+
+    assert result == 0
+    downloader.logger.info.assert_any_call(f"Configuration file: {cfg}")
+    downloader.logger.info.assert_any_call("\nCurrent configuration:")
+    downloader.logger.info.assert_any_call(content)
+
+
+@pytest.mark.asyncio
+async def test_convert_json_to_txt_function(tmp_path):
+    """Ensure convert_json_to_txt dispatches to commands.convert."""
+    args = CLIOptions(chat="data.json")
+    downloader = AsyncMock()
+    downloader.connect = AsyncMock()
+    downloader.close = AsyncMock()
+    downloader.cleanup_stop_file = MagicMock()
+    ctx = DownloaderContext(downloader)
+
+    with patch(
+        "telegram_download_chat.cli.commands.convert", new=AsyncMock(return_value=0)
+    ) as mock_convert:
+        result = await convert_json_to_txt(ctx, downloader, args, tmp_path)
+
+    assert result == 0
+    mock_convert.assert_awaited_once_with(downloader, args, tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_download_folder_function(tmp_path):
+    """Ensure download_folder dispatches to commands.folder."""
+    args = CLIOptions(chat="folder:Work")
+    downloader = AsyncMock()
+    downloader.connect = AsyncMock()
+    downloader.close = AsyncMock()
+    downloader.cleanup_stop_file = MagicMock()
+    ctx = DownloaderContext(downloader)
+
+    with patch(
+        "telegram_download_chat.cli.commands.folder", new=AsyncMock(return_value=0)
+    ) as mock_folder:
+        result = await download_folder(ctx, downloader, args, tmp_path)
+
+    assert result == 0
+    mock_folder.assert_awaited_once_with(downloader, args, tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_download_chat_function(tmp_path):
+    """Ensure download_chat dispatches to commands.download."""
+    args = CLIOptions(chat="chat")
+    downloader = AsyncMock()
+    downloader.connect = AsyncMock()
+    downloader.close = AsyncMock()
+    downloader.cleanup_stop_file = MagicMock()
+    ctx = DownloaderContext(downloader)
+
+    with patch(
+        "telegram_download_chat.cli.commands.download", new=AsyncMock(return_value=0)
+    ) as mock_download:
+        result = await download_chat(ctx, downloader, args, tmp_path)
+
+    assert result == 0
+    mock_download.assert_awaited_once_with(downloader, args, tmp_path)

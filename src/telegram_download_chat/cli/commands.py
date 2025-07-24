@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -18,7 +19,6 @@ def split_messages_by_date(
     messages: List[Dict[str, Any]], split_by: str
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Split messages by month or year based on message date."""
-    from datetime import datetime
 
     split_messages: Dict[str, List[Dict[str, Any]]] = {}
     for msg in messages:
@@ -88,6 +88,7 @@ async def save_messages_with_status(
     output_file: str,
     sort_order: str = "desc",
 ) -> None:
+    """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
         downloader.save_messages(messages, output_file, sort_order=sort_order),
         downloader.logger,
@@ -100,6 +101,7 @@ async def save_txt_with_status(
     txt_file: Path,
     sort_order: str = "desc",
 ) -> int:
+    """Save messages to a text file with progress output."""
     return await _run_with_status(
         downloader.save_messages_as_txt(messages, txt_file, sort_order),
         downloader.logger,

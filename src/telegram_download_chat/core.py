@@ -245,7 +245,8 @@ class TelegramChatDownloader:
                 flood_sleep_threshold=request_delay,
             )
 
-            # Telethon's `start` method handles connecting if needed
+            # Establish the connection once before any API calls
+            await self.client.connect()
             is_authorized = await self.client.is_user_authorized()
             self.logger.debug(
                 f"Connection status: is_authorized={is_authorized}, phone={phone}"
@@ -310,7 +311,6 @@ class TelegramChatDownloader:
             )
 
             self.logger.info(f"Successfully connected as {me.username or me.phone}")
-            await self.client.start()
             return True
 
         except ApiIdInvalidError as e:

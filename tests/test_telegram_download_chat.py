@@ -754,11 +754,11 @@ async def test_connect_and_disconnect():
         # Test connect
         await downloader.connect()
 
-        # Verify client was created and started only once
+        # Verify client was created and connected only once
         mock_client_class.assert_called_once()
-        mock_client.start.assert_awaited_once()
-        # start() handles connecting internally so connect() should not be called
-        mock_client.connect.assert_not_awaited()
+        mock_client.connect.assert_awaited_once()
+        # connect() performs the actual connection, so start() shouldn't be used
+        mock_client.start.assert_not_awaited()
         assert downloader.client is not None
 
         # Test disconnect

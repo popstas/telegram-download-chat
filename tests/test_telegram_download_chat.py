@@ -724,6 +724,8 @@ async def test_connect_and_disconnect():
     mock_client = AsyncMock()
     mock_client.start = AsyncMock()
     mock_client.disconnect = AsyncMock()
+    mock_client.connect = AsyncMock()
+    mock_client.is_user_authorized = AsyncMock(return_value=True)
     # is_connected is a method that returns a boolean
     mock_client.is_connected = MagicMock(return_value=True)
 
@@ -752,9 +754,11 @@ async def test_connect_and_disconnect():
         # Test connect
         await downloader.connect()
 
-        # Verify client was created and started
+        # Verify client was created and started only once
         mock_client_class.assert_called_once()
         mock_client.start.assert_awaited_once()
+        # start() handles connecting internally so connect() should not be called
+        mock_client.connect.assert_not_awaited()
         assert downloader.client is not None
 
         # Test disconnect

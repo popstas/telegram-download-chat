@@ -245,9 +245,7 @@ class TelegramChatDownloader:
                 flood_sleep_threshold=request_delay,
             )
 
-            # Connect to Telegram
-            await self.client.connect()
-
+            # Telethon's `start` method handles connecting if needed
             is_authorized = await self.client.is_user_authorized()
             self.logger.debug(
                 f"Connection status: is_authorized={is_authorized}, phone={phone}"

@@ -32,6 +32,10 @@ src/telegram_download_chat/
 │       └── telegram_auth.py  # Telegram authentication
 │
 └── gui_app_.py              # Old GUI implementation (renamed)
+├── cli/                     # Command line interface package
+│   ├── __init__.py          # CLI entry point
+│   ├── arguments.py         # Argument parsing helpers
+│   └── commands.py          # Download and conversion logic
 
 ## Key Components
 

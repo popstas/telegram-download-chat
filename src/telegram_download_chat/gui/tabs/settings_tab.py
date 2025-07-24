@@ -395,6 +395,10 @@ class SettingsTab(QWidget):
     async def _validate_session_async(self):
         """Asynchronously validate the Telegram session."""
         try:
+            # Skip on logout process
+            if not self.logout_btn.isEnabled():
+                return
+
             # First ensure we have valid API credentials
             if not (self.api_id_edit.text() and self.api_hash_edit.text()):
                 self._set_logged_in(False, show_login=True)
@@ -402,14 +406,18 @@ class SettingsTab(QWidget):
 
             # Initialize or update the Telegram auth instance
             self._update_telegram_auth()
-            if not self.telegram_auth:
+            telegram_auth = self.telegram_auth
+            if not telegram_auth:
                 self._set_logged_in(False, show_login=True)
                 return
 
             # Try to connect and validate the session
             try:
-                await self.telegram_auth.initialize()
-                is_valid = await self.telegram_auth.client.is_user_authorized()
+                await telegram_auth.initialize()
+                if not telegram_auth.client:
+                    self._set_logged_in(False, show_login=True)
+                    return
+                is_valid = await telegram_auth.client.is_user_authorized()
 
                 # Update UI based on validation result
                 if is_valid:
@@ -983,10 +991,6 @@ class SettingsTab(QWidget):
     async def _do_logout_async(self):
         """Log out from Telegram (async)."""
         try:
-            # Disable UI during logout
-            self.logout_btn.setEnabled(False)
-            self.logout_btn.setText("Logging out...")
-
             # Get session path before we close the client
             session_path = Path(
                 self.config.get("session_path", get_app_dir() / "session.session")
@@ -1018,27 +1022,21 @@ class SettingsTab(QWidget):
                         try:
                             logging.debug("Attempting graceful logout...")
                             if hasattr(self.telegram_auth, "log_out"):
-                                await self.telegram_auth.log_out()
-                                logging.info("Successfully logged out from Telegram.")
+                                logged_out = await self.telegram_auth.log_out()
+                                if logged_out:
+                                    logging.info(
+                                        "Successfully logged out from Telegram."
+                                    )
+                                else:
+                                    logging.debug(
+                                        "Client already disconnected; skipping logout."
+                                    )
                         except Exception as e:
                             logging.warning(
                                 f"Error during graceful logout (non-critical): {e}"
                             )
 
-                        # 3. Disconnect the client
-                        try:
-                            logging.debug("Disconnecting client...")
-                            if hasattr(client, "disconnect") and callable(
-                                client.disconnect
-                            ):
-                                await client.disconnect()
-                                logging.info("Successfully disconnected from Telegram.")
-                        except Exception as e:
-                            logging.warning(
-                                f"Error disconnecting client (non-critical): {e}"
-                            )
-
-                    # 4. Close the telegram_auth instance
+                    # 3. Close the telegram_auth instance (also disconnects)
                     try:
                         if hasattr(self.telegram_auth, "close") and callable(
                             self.telegram_auth.close
@@ -1110,6 +1108,8 @@ class SettingsTab(QWidget):
     def _do_logout(self):
         """Log out from Telegram by starting the async logout process."""
         try:
+            self.logout_btn.setEnabled(False)
+            self.logout_btn.setText("Logging out...")
             # Get the current event loop or create a new one if none exists
             loop = asyncio.get_event_loop()
             if loop.is_running():

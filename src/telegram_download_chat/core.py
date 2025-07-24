@@ -26,6 +26,7 @@ from telethon.tl.types import (
     User,
 )
 
+from telegram_download_chat.partial import PartialDownloadManager
 from telegram_download_chat.paths import (
     ensure_app_dirs,
     get_app_dir,
@@ -44,6 +45,8 @@ class TelegramChatDownloader:
         self.config_path = config_path
         self.config = self._load_config()
         self._setup_logging()
+        logger = getattr(self, "logger", logging.getLogger(__name__))
+        self.partial_manager = PartialDownloadManager(self.make_serializable, logger)
         self.client = None
         self.phone_code_hash = None  # Store phone code hash for authentication
         self._stop_requested = False  # Flag for graceful shutdown
@@ -1110,133 +1113,20 @@ class TelegramChatDownloader:
             self.client = None
 
     def get_temp_file_path(self, output_file: Path) -> Path:
-        """Get path for temporary file to store partial downloads.
-
-        Args:
-            output_file: The target output file path
-
-        Returns:
-            Path: Temporary file path with .part.jsonl extension
-        """
-        # Return path with .part.jsonl extension
-        return output_file.with_suffix(".part.jsonl")
+        """Return path for temporary file to store partial downloads."""
+        return self.partial_manager.get_temp_file_path(output_file)
 
     def _save_partial_messages(
         self, messages: List[Dict[str, Any]], output_file: Path
     ) -> None:
-        """Save messages to a temporary file for partial downloads using JSONL format.
-
-        Each line is a separate JSON object with two fields:
-        - 'm': message data
-        - 'i': message ID (for resuming)
-
-        Only new messages (not already in the file) are appended.
-        Check only last 10000 messages.
-        """
-        import json
-        import time
-
-        start_time = time.time()
-        temp_file = self.get_temp_file_path(output_file)
-        temp_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Load existing message IDs to avoid duplicates (only last 10k lines for performance)
-        existing_ids = set()
-        if temp_file.exists():
-            try:
-                with open(temp_file, "r", encoding="utf-8") as f:
-                    # Read all lines first, then take only the last 10k
-                    all_lines = f.readlines()
-                    last_10k_lines = (
-                        all_lines[-10000:] if len(all_lines) > 10000 else all_lines
-                    )
-
-                    for line in last_10k_lines:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            data = json.loads(line)
-                            if isinstance(data, dict) and "i" in data:
-                                existing_ids.add(data["i"])
-                        except json.JSONDecodeError:
-                            continue
-            except IOError:
-                pass
-
-        # Append only new messages in JSONL format
-        new_saved_count = 0
-        with open(temp_file, "a", encoding="utf-8") as f:
-            for msg in messages[-10000:]:
-                try:
-                    # Convert message to serializable format
-                    msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
-                    serialized = self.make_serializable(msg_dict)
-                    # Get message ID, defaulting to 0 if not found
-                    msg_id = (
-                        msg_dict.get("id")
-                        if hasattr(msg_dict, "get")
-                        else getattr(msg_dict, "id", 0)
-                    )
-
-                    # Only append if this message ID is not already in the file
-                    if msg_id not in existing_ids:
-                        # Write as a single line
-                        json.dump({"m": serialized, "i": msg_id}, f, ensure_ascii=False)
-                        f.write("\n")  # Add newline for JSONL format
-                        existing_ids.add(
-                            msg_id
-                        )  # Track this ID to avoid duplicates in this batch
-                        new_saved_count += 1
-                except Exception as e:
-                    self.logger.warning(f"Failed to serialize message: {e}")
-
-        save_time = time.time() - start_time
-        self.logger.info(
-            f"Saved {new_saved_count} new messages to partial file in {save_time:.2f}s"
-        )
+        """Delegate partial message saving to :class:`PartialDownloadManager`."""
+        self.partial_manager.save_messages(messages, output_file)
 
     def _load_partial_messages(
         self, output_file: Path
     ) -> tuple[list[Dict[str, Any]], int]:
-        """Load messages from a temporary JSONL file if it exists.
-
-        Returns:
-            tuple: (list of messages, last message ID)
-        """
-        import json
-
-        temp_file = self.get_temp_file_path(output_file)
-
-        if not temp_file.exists():
-            return [], 0
-
-        messages = []
-        last_id = 0
-
-        try:
-            with open(temp_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    try:
-                        data = json.loads(line)
-                        if isinstance(data, dict) and "m" in data:
-                            messages.append(data["m"])
-                            last_id = data.get(
-                                "i", last_id
-                            )  # Update last_id if present
-                    except json.JSONDecodeError as e:
-                        logging.warning(f"Skipping invalid JSON line: {e}")
-                        continue
-
-            return messages, last_id
-
-        except (IOError, json.JSONDecodeError) as e:
-            logging.warning(f"Error loading partial messages: {e}")
-            return [], 0
+        """Delegate partial message loading to :class:`PartialDownloadManager`."""
+        return self.partial_manager.load_messages(output_file)
 
     def stop(self) -> None:
         """Set the stop flag for graceful shutdown."""

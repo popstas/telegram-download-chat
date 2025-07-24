@@ -1025,20 +1025,7 @@ class SettingsTab(QWidget):
                                 f"Error during graceful logout (non-critical): {e}"
                             )
 
-                        # 3. Disconnect the client
-                        try:
-                            logging.debug("Disconnecting client...")
-                            if hasattr(client, "disconnect") and callable(
-                                client.disconnect
-                            ):
-                                await client.disconnect()
-                                logging.info("Successfully disconnected from Telegram.")
-                        except Exception as e:
-                            logging.warning(
-                                f"Error disconnecting client (non-critical): {e}"
-                            )
-
-                    # 4. Close the telegram_auth instance
+                    # 3. Close the telegram_auth instance (also disconnects)
                     try:
                         if hasattr(self.telegram_auth, "close") and callable(
                             self.telegram_auth.close

@@ -201,7 +201,8 @@ class TelegramAuth:
     async def close(self) -> None:
         """Close the Telegram client connection."""
         if self.client:
-            await self.client.disconnect()
+            if self.client.is_connected():
+                await self.client.disconnect()
             self.client = None
             self._is_authenticated = False
 

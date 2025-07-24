@@ -5,4 +5,4 @@ This package contains the graphical user interface for the Telegram Download Cha
 """
 
 __version__ = "1.0.0"
-__all__ = ["main", "widgets", "tabs", "windows", "utils"]
+__all__ = ["main", "widgets", "tabs", "windows", "utils", "auth"]

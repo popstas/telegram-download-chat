@@ -28,6 +28,7 @@ from telethon.errors import (
 
 from ...core import TelegramChatDownloader
 from ...paths import get_app_dir
+from ..auth import SessionManager
 from ..utils.config import ConfigManager
 from ..utils.telegram_auth import TelegramAuth, TelegramAuthError
 
@@ -78,6 +79,7 @@ class SettingsTab(QWidget):
         """
         super().__init__(parent)
         self.config = ConfigManager()
+        self.session_manager = SessionManager(self)
         self.telegram_auth = None
         self._setup_ui()
         self._connect_signals()
@@ -263,7 +265,7 @@ class SettingsTab(QWidget):
         self.password_edit.setPlaceholderText("Enter your cloud password (if any)")
         self.password_edit.setEchoMode(QLineEdit.Password)
         self.password_edit.returnPressed.connect(
-            self._do_login
+            self.session_manager.login
         )  # Add Enter key support
         login_form.addRow("Password:", self.password_edit)
 
@@ -317,10 +319,10 @@ class SettingsTab(QWidget):
         self.phone_edit.textChanged.connect(self._update_login_button_state)
         self.code_edit.textChanged.connect(self._update_login_button_state)
         self.get_code_btn.clicked.connect(self._request_code)
-        self.login_btn.clicked.connect(self._do_login)
+        self.login_btn.clicked.connect(self.session_manager.login)
 
         # Logout
-        self.logout_btn.clicked.connect(self._do_logout)
+        self.logout_btn.clicked.connect(self.session_manager.logout)
 
     def _load_settings(self):
         """Load settings from config and check session status."""
@@ -797,332 +799,6 @@ class SettingsTab(QWidget):
             logging.error(f"Error in async task: {e}")
             # Show error in the UI
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
-
-    def _set_ui_enabled(self, enabled: bool):
-        """Enable or disable UI elements during operations.
-
-        Args:
-            enabled: Whether to enable the UI elements
-        """
-        self.phone_edit.setEnabled(enabled)
-        self.code_edit.setEnabled(enabled)
-        self.password_edit.setEnabled(enabled)
-        self.get_code_btn.setEnabled(enabled)
-        self.login_btn.setEnabled(enabled)
-        self.logout_btn.setEnabled(enabled)
-
-    async def _do_login_async(self):
-        """Handle the login process asynchronously using TelegramChatDownloader."""
-        logging.debug("Starting login process...")
-        self._set_ui_enabled(False)
-        self.login_btn.setText("Logging in...")
-
-        try:
-            # Get credentials from UI
-            phone = self.phone_edit.text().strip()
-            code = self.code_edit.text().strip()
-            password = self.password_edit.text().strip()
-
-            if not phone or not code:
-                error_msg = "Please enter both phone number and verification code."
-                logging.error(error_msg)
-                QMessageBox.critical(self, "Error", error_msg)
-                return
-
-            logging.info(f"Attempting login with phone: {phone}")
-
-            # Ensure we have a downloader instance
-            if not hasattr(self, "downloader") or not self.downloader:
-                error_msg = "Please request a verification code first."
-                logging.error(error_msg)
-                QMessageBox.critical(self, "Error", error_msg)
-                return
-
-            try:
-                # Update the Telegram auth instance with current credentials
-                self._update_telegram_auth()
-
-                # Get the Telegram auth instance
-                if not hasattr(self, "telegram_auth") or not self.telegram_auth:
-                    raise TelegramAuthError("Telegram auth not initialized")
-
-                # Complete the login with the code and phone_code_hash
-                try:
-                    sign_in_kwargs = {
-                        "phone": phone,
-                        "code": code,
-                        "password": password,
-                    }
-
-                    # If we have a phone_code_hash, use it
-                    if hasattr(self, "phone_code_hash") and self.phone_code_hash:
-                        sign_in_kwargs["phone_code_hash"] = self.phone_code_hash
-                        logging.info(f"Using phone_code_hash: {self.phone_code_hash}")
-                    else:
-                        logging.warning(
-                            "No phone_code_hash found, attempting direct sign in"
-                        )
-
-                    # Call sign_in with the appropriate arguments
-                    await self.telegram_auth.sign_in(**sign_in_kwargs)
-
-                except Exception as e:
-                    logging.error(f"Error during sign in: {e}", exc_info=True)
-                    raise
-
-                # If we get here, login was successful
-                logging.info("Login successful")
-
-                # Get user info
-                me = await self.telegram_auth.client.get_me()
-                name = (
-                    f"{me.first_name or ''} {me.last_name or ''}".strip()
-                    or me.username
-                    or "Unknown"
-                )
-                username = getattr(me, "username", "no_username")
-
-                # Update UI
-                self._set_logged_in(True)
-
-                # Show success message
-                QMessageBox.information(
-                    self,
-                    "Login Successful",
-                    f"Successfully logged in as {name} (@{username})",
-                )
-
-                # Save phone number in settings
-                self.config.set("settings.phone", phone)
-                self.config.save()
-
-                await self.telegram_auth.client.disconnect()
-
-                # Notify parent
-                self.auth_state_changed.emit(True)
-
-            except SessionPasswordNeededError:
-                # Ask for 2FA password if not provided
-                if not password:
-                    password, ok = QInputDialog.getText(
-                        self,
-                        "2FA Required",
-                        "Please enter your 2FA password:",
-                        QLineEdit.Password,
-                    )
-                    if ok and password:
-                        # Retry with password
-                        await self.telegram_auth.sign_in(phone, code, password)
-                        self._set_logged_in(True)
-                        self.auth_state_changed.emit(True)
-                    else:
-                        raise TelegramAuthError("2FA password is required")
-                else:
-                    raise
-
-            except (
-                PhoneCodeInvalidError,
-                PhoneCodeExpiredError,
-                PhoneCodeEmptyError,
-            ) as e:
-                QMessageBox.warning(
-                    self,
-                    "Error",
-                    "Invalid or expired verification code. Please try again.",
-                )
-                self.code_edit.clear()
-                self.code_edit.setFocus()
-                return
-
-            except TelegramAuthError as e:
-                raise
-
-            except Exception as e:
-                logging.error(f"Login error: {e}", exc_info=True)
-                raise TelegramAuthError(f"Login failed: {str(e)}")
-
-        except TelegramAuthError as e:
-            logging.error(f"Authentication error: {e}")
-            QMessageBox.critical(self, "Login Error", f"Failed to login: {str(e)}")
-
-        except Exception as e:
-            logging.error(f"Unexpected error during login: {e}", exc_info=True)
-            QMessageBox.critical(
-                self, "Error", f"An unexpected error occurred: {str(e)}"
-            )
-
-        finally:
-            # Always re-enable UI
-            logging.debug("Login process completed, resetting UI")
-            self._set_ui_enabled(True)
-            self.login_btn.setText("Login")
-
-    def _do_login(self):
-        """Perform the login by starting an async task."""
-        logging.debug("Login button clicked")
-
-        # Check if we have a running event loop
-        try:
-            loop = asyncio.get_event_loop()
-            logging.debug(f"Got existing event loop: {loop}")
-
-            # If the loop is not running, we need to run it
-            if not loop.is_running():
-                logging.debug("Event loop is not running, creating a new one")
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                logging.debug(f"Created new event loop: {loop}")
-
-                # Run the loop with our task
-                try:
-                    logging.debug("Running event loop with login task")
-                    task = loop.create_task(self._do_login_async())
-                    task.add_done_callback(self._handle_async_exception)
-                    loop.run_until_complete(task)
-                except Exception as e:
-                    logging.error(f"Error in login task: {e}", exc_info=True)
-                    QMessageBox.critical(self, "Error", f"Login failed: {str(e)}")
-            QMessageBox.critical(self, "Error", f"Login failed: {str(e)}")
-        finally:
-            # Ensure UI is in a consistent state
-            self.login_btn.setEnabled(True)
-            self.login_btn.setText("Login")
-
-    async def _do_logout_async(self):
-        """Log out from Telegram (async)."""
-        try:
-            # Get session path before we close the client
-            session_path = Path(
-                self.config.get("session_path", get_app_dir() / "session.session")
-            )
-
-            # If we have an active Telegram client, log out and close it
-            if hasattr(self, "telegram_auth") and self.telegram_auth:
-                try:
-                    logging.debug("Starting Telegram client cleanup...")
-
-                    # Get the client instance if it exists
-                    client = getattr(self.telegram_auth, "client", None)
-
-                    if client:
-                        # 1. First try to stop any ongoing operations
-                        try:
-                            if hasattr(client, "_sender") and client._sender:
-                                # Stop the sender's receive loop
-                                if hasattr(client._sender, "_send_loop_task"):
-                                    client._sender._send_loop_task.cancel()
-                                if hasattr(client._sender, "_recv_loop_task"):
-                                    client._sender._recv_loop_task.cancel()
-                        except Exception as e:
-                            logging.warning(
-                                f"Error stopping client tasks (non-critical): {e}"
-                            )
-
-                        # 2. Try to log out gracefully
-                        try:
-                            logging.debug("Attempting graceful logout...")
-                            if hasattr(self.telegram_auth, "log_out"):
-                                logged_out = await self.telegram_auth.log_out()
-                                if logged_out:
-                                    logging.info(
-                                        "Successfully logged out from Telegram."
-                                    )
-                                else:
-                                    logging.debug(
-                                        "Client already disconnected; skipping logout."
-                                    )
-                        except Exception as e:
-                            logging.warning(
-                                f"Error during graceful logout (non-critical): {e}"
-                            )
-
-                    # 3. Close the telegram_auth instance (also disconnects)
-                    try:
-                        if hasattr(self.telegram_auth, "close") and callable(
-                            self.telegram_auth.close
-                        ):
-                            logging.debug("Closing Telegram auth instance...")
-                            await self.telegram_auth.close()
-                            logging.info("Telegram auth instance closed successfully.")
-                    except Exception as e:
-                        logging.warning(
-                            f"Error closing Telegram auth instance (non-critical): {e}"
-                        )
-
-                except Exception as e:
-                    logging.error(
-                        f"Error during Telegram client cleanup: {e}", exc_info=True
-                    )
-                finally:
-                    # Clear the reference in any case
-                    self.telegram_auth = None
-
-            # Give the system some time to release file handles
-            await asyncio.sleep(1.0)
-
-            # Try to delete the session file with multiple attempts
-            if session_path.exists():
-                max_attempts = 5
-                for attempt in range(max_attempts):
-                    try:
-                        session_path.unlink()
-                        logging.info(
-                            f"Successfully deleted session file: {session_path}"
-                        )
-                        break
-                    except (PermissionError, OSError) as e:
-                        if attempt == max_attempts - 1:  # Last attempt
-                            logging.error(
-                                f"Failed to delete session file after {max_attempts} attempts: {e}"
-                            )
-                            # Don't raise, just continue with logout
-                            break
-                        else:
-                            # Wait longer between each attempt
-                            wait_time = 0.5 * (attempt + 1)
-                            logging.debug(
-                                f"Retrying session file deletion in {wait_time} seconds (attempt {attempt + 1}/{max_attempts})..."
-                            )
-                            await asyncio.sleep(wait_time)
-
-            # Update UI to show login form
-            self._set_logged_in(False, show_login=True)
-
-            QMessageBox.information(
-                self, "Logged Out", "You have been logged out successfully."
-            )
-        except Exception as e:
-            logging.error(f"Error during logout: {e}")
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to log out: {e}\n\n"
-                "You may need to manually delete the session file.",
-            )
-            # Still try to show login form even if logout failed
-            self._set_logged_in(False, show_login=True)
-        finally:
-            # Ensure UI is in a consistent state
-            self.logout_btn.setText("Logout")
-
-    def _do_logout(self):
-        """Log out from Telegram by starting the async logout process."""
-        try:
-            self.logout_btn.setEnabled(False)
-            self.logout_btn.setText("Logging out...")
-            # Get the current event loop or create a new one if none exists
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If loop is running, create a task
-                loop.create_task(self._do_logout_async())
-            else:
-                # If loop is not running, run it until complete
-                loop.run_until_complete(self._do_logout_async())
-        except RuntimeError:
-            # If no event loop exists, create one and run it
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self._do_logout_async())
 
     def _set_logged_in(
         self, logged_in: bool, skip_validation: bool = False, show_login: bool = False

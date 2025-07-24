@@ -775,6 +775,71 @@ async def test_connect_and_disconnect():
 
 
 @pytest.mark.asyncio
+async def test_request_code():
+    downloader = TelegramChatDownloader()
+    downloader.client = AsyncMock()
+    downloader.logger = MagicMock()
+    downloader.client.send_code_request.return_value = MagicMock(phone_code_hash="hash")
+
+    await downloader._request_code("123")
+
+    downloader.client.send_code_request.assert_awaited_once_with("123")
+    assert downloader.phone_code_hash == "hash"
+
+
+@pytest.mark.asyncio
+async def test_perform_login_success():
+    downloader = TelegramChatDownloader()
+    downloader.client = AsyncMock()
+    downloader.phone_code_hash = "hash"
+    downloader.logger = MagicMock()
+
+    await downloader._perform_login("123", "111", "pwd")
+
+    downloader.client.sign_in.assert_awaited_once_with(
+        phone="123", code="111", phone_code_hash="hash", password="pwd"
+    )
+
+
+@pytest.mark.asyncio
+async def test_perform_login_with_password_needed():
+    from telethon.errors import SessionPasswordNeededError
+
+    downloader = TelegramChatDownloader()
+    downloader.client = AsyncMock()
+    downloader.phone_code_hash = "hash"
+    downloader.logger = MagicMock()
+    downloader.client.sign_in = AsyncMock(
+        side_effect=[SessionPasswordNeededError(None), None]
+    )
+
+    await downloader._perform_login("123", "111", "pwd")
+
+    assert downloader.client.sign_in.await_count == 2
+    downloader.client.sign_in.assert_any_await(
+        phone="123", code="111", phone_code_hash="hash", password="pwd"
+    )
+    downloader.client.sign_in.assert_any_await(password="pwd")
+
+
+@pytest.mark.asyncio
+async def test_fetch_self_info():
+    downloader = TelegramChatDownloader()
+    downloader.client = AsyncMock()
+    downloader.logger = MagicMock()
+    user = MagicMock(
+        id=5, first_name="John", last_name="Doe", username="jdoe", phone="123"
+    )
+    downloader.client.get_me.return_value = user
+
+    await downloader._fetch_self_info()
+
+    downloader.client.get_me.assert_awaited_once()
+    assert downloader._self_id == 5
+    assert downloader._self_name == "John Doe"
+
+
+@pytest.mark.asyncio
 async def test_download_chat_error_handling():
     """Test that download_chat properly propagates errors from get_entity."""
     from unittest.mock import AsyncMock, MagicMock, patch

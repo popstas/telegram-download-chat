@@ -26,6 +26,9 @@ src/telegram_download_chat/
 │   │   ├── convert_tab.py    # Convert tab
 │   │   └── settings_tab.py   # Settings tab
 │   │
+│   ├── auth/                 # Authentication workflows
+│   │   └── session_manager.py# Login/logout logic
+│   │
 │   └── utils/                # Utility modules
 │       ├── config.py         # Configuration management
 │       ├── file_utils.py     # File operations

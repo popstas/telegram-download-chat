@@ -7,10 +7,17 @@ import inspect
 import logging
 import signal
 import sys
+import tempfile
 import traceback
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
+
+try:  # GUI is optional
+    from telegram_download_chat.gui.main import main as gui_main
+except ImportError:  # pragma: no cover - GUI optional
+    gui_main = None
 from telegram_download_chat.paths import (
     get_default_config_path,
     get_downloads_dir,
@@ -25,6 +32,7 @@ _downloader_ctx: DownloaderContext | None = None
 
 
 def _signal_handler(sig, frame):
+    """Handle termination signals and stop active downloads."""
     global _downloader_ctx
     if _downloader_ctx:
         try:
@@ -72,8 +80,6 @@ async def async_main() -> int:
             downloader.logger.debug("Debug logging enabled")
 
         if args.last_days is not None:
-            from datetime import datetime, timedelta
-
             base_str = args.from_date or datetime.utcnow().strftime("%Y-%m-%d")
             try:
                 base_date = datetime.strptime(base_str, "%Y-%m-%d")
@@ -87,8 +93,6 @@ async def async_main() -> int:
         if not args.chat:
             downloader.logger.error("Chat identifier is required")
             return 1
-
-        import tempfile
 
         stop_file = Path(tempfile.gettempdir()) / "telegram_download_stop.tmp"
         if inspect.iscoroutinefunction(downloader.set_stop_file):
@@ -127,20 +131,18 @@ async def async_main() -> int:
 def main() -> int:
     """Synchronous entry point for the CLI."""
     if (len(sys.argv) >= 2 and sys.argv[1] == "gui") or len(sys.argv) == 1:
-        try:
-            from telegram_download_chat.gui.main import main as gui_main
-
-            gui_main()
-            return 0
-        except ImportError as e:  # pragma: no cover - GUI optional
+        if gui_main is not None:
+            try:
+                gui_main()
+                return 0
+            except Exception as e:  # pragma: no cover - GUI optional
+                print(f"Error starting GUI: {e}")
+                print(e)
+                return 1
+        else:
             print(
                 "GUI dependencies not installed. Please install with: pip install 'telegram-download-chat[gui]'"
             )
-            print(e)
-            return 1
-        except Exception as e:  # pragma: no cover - GUI optional
-            print(f"Error starting GUI: {e}")
-            print(e)
             return 1
 
     try:

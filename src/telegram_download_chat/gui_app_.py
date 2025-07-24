@@ -4,29 +4,16 @@
 GUI for telegram-download-chat
 """
 import asyncio
-import json
 import logging
 import os
 import subprocess
 import sys
-import time
-from datetime import datetime
-from functools import partial
 from pathlib import Path
 from urllib.parse import urlparse
 
 import qasync
 import yaml
-from PySide6.QtCore import (
-    QAbstractItemModel,
-    QDate,
-    QModelIndex,
-    QSettings,
-    QSize,
-    Qt,
-    QThread,
-    Signal,
-)
+from PySide6.QtCore import QDate, Qt, QThread, Signal
 from PySide6.QtGui import (
     QIcon,
     QKeySequence,
@@ -43,7 +30,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -61,17 +47,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from telethon.errors import (
-    FloodWaitError,
-    PhoneCodeEmptyError,
-    PhoneCodeExpiredError,
-    PhoneCodeInvalidError,
-    PhoneNumberBannedError,
-    PhoneNumberInvalidError,
-    PhoneNumberUnoccupiedError,
-    RPCError,
-    SessionPasswordNeededError,
-)
+from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError
 
 from telegram_download_chat.cli import parse_args
 from telegram_download_chat.core import TelegramChatDownloader

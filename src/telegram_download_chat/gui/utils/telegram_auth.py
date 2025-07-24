@@ -1,8 +1,7 @@
 """Telegram authentication utilities."""
-import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Optional
 
 from telethon import TelegramClient
 from telethon.errors import (

@@ -1,8 +1,7 @@
 """File utility functions for the Telegram Download Chat GUI."""
 import os
-import shutil
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Union
 
 
 def ensure_dir_exists(directory: Union[str, Path]) -> Path:

@@ -1,10 +1,8 @@
 """Convert tab for the Telegram Download Chat GUI."""
 from pathlib import Path
-from typing import Any, Dict, List
 
-from PySide6.QtCore import QSettings, QSize, Qt, Signal
+from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -15,13 +13,12 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from telegram_download_chat.gui.utils.file_utils import ensure_dir_exists
-from telegram_download_chat.paths import get_app_dir, get_downloads_dir
+from telegram_download_chat.paths import get_downloads_dir
 
 
 class ConvertTab(QWidget):

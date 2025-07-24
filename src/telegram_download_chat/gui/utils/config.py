@@ -2,7 +2,7 @@
 import base64
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, TypeVar, Union, cast
+from typing import Any, Dict, Optional, TypeVar
 
 import yaml
 

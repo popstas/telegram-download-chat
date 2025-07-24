@@ -4,20 +4,16 @@ import asyncio
 import inspect
 import json
 import logging
-import os
 import re
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from telethon import TelegramClient
 from telethon.errors import ChatIdInvalidError
 from telethon.tl.custom import Message
-from telethon.tl.functions.channels import GetFullChannelRequest
-from telethon.tl.functions.messages import GetFullChatRequest
 from telethon.tl.types import (
     Channel,
     Chat,

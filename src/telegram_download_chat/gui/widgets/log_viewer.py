@@ -1,12 +1,10 @@
 """Log viewer widget for the Telegram Download Chat GUI."""
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication, QIcon, QTextCursor
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import (
-    QApplication,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,

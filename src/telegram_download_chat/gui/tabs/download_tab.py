@@ -1,37 +1,15 @@
 """Download tab for the Telegram Download Chat GUI."""
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
-from PySide6.QtCore import (
-    QDate,
-    QModelIndex,
-    QPoint,
-    QPointF,
-    QPropertyAnimation,
-    QRectF,
-    QSize,
-    Qt,
-    QTimer,
-    Signal,
-)
-from PySide6.QtGui import (
-    QIcon,
-    QMovie,
-    QPainter,
-    QPainterPath,
-    QPixmap,
-    QStandardItem,
-    QStandardItemModel,
-    QTransform,
-)
+from PySide6.QtCore import QDate, QModelIndex, QPropertyAnimation, Qt, QTimer, Signal
+from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
     QFileDialog,
     QFormLayout,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,

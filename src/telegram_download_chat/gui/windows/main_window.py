@@ -2,18 +2,13 @@
 import logging
 import os
 import sys
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
-    QFileDialog,
-    QHBoxLayout,
     QMainWindow,
-    QMenu,
-    QMenuBar,
     QMessageBox,
     QStatusBar,
     QTabWidget,

@@ -1075,7 +1075,6 @@ class SettingsTab(QWidget):
                             logging.error(
                                 f"Failed to delete session file after {max_attempts} attempts: {e}"
                             )
-                            self._log_file_holders(session_path)
                             # Don't raise, just continue with logout
                             break
                         else:
@@ -1124,27 +1123,6 @@ class SettingsTab(QWidget):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(self._do_logout_async())
-
-    def _log_file_holders(self, file_path: Path) -> None:
-        """Log information about processes using the given file."""
-        try:
-            import psutil
-        except Exception as e:  # pragma: no cover - optional dependency
-            logging.debug(f"psutil not available for file handle logging: {e}")
-            return
-
-        holders = []
-        for proc in psutil.process_iter(["pid", "name", "open_files"]):
-            try:
-                if any(f.path == str(file_path) for f in proc.open_files()):
-                    holders.append(f"PID {proc.pid} ({proc.name()})")
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-
-        if holders:
-            logging.debug(f"Processes using {file_path}: {', '.join(holders)}")
-        else:
-            logging.debug(f"No processes with open handles to {file_path} found")
 
     def _set_logged_in(
         self, logged_in: bool, skip_validation: bool = False, show_login: bool = False

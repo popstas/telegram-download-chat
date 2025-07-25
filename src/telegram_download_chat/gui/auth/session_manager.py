@@ -11,8 +11,8 @@ from telethon.errors import (
 )
 
 from ...core import TelegramChatDownloader
+from ...core.auth_utils import TelegramAuthError
 from ...paths import get_app_dir
-from ..utils.telegram_auth import TelegramAuthError
 
 
 class SessionManager:

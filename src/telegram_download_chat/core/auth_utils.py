@@ -41,6 +41,7 @@ class TelegramAuth:
         self.session_path = str(session_path)
         self.client: Optional[TelegramClient] = None
         self._is_authenticated = False
+        self.phone_code_hash: Optional[str] = None
 
     async def initialize(self) -> None:
         """Initialize the Telegram client."""
@@ -58,7 +59,7 @@ class TelegramAuth:
             await self.client.connect()
             self._is_authenticated = await self.client.is_user_authorized()
 
-    async def request_code(self, phone: str) -> None:
+    async def request_code(self, phone: str) -> Optional[str]:
         """Request a login code from Telegram.
 
         Args:
@@ -81,7 +82,9 @@ class TelegramAuth:
 
             logger.debug("Sending code request...")
             result = await self.client.send_code_request(phone)
+            self.phone_code_hash = getattr(result, "phone_code_hash", None)
             logger.debug(f"Code request sent successfully: {result}")
+            return self.phone_code_hash
 
         except (
             PhoneNumberInvalidError,

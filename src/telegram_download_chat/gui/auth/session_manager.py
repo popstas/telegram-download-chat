@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
 
-from ...core import TelegramChatDownloader
+from ...core import TelegramAuth, TelegramChatDownloader
 from ...core.auth_utils import TelegramAuthError
 from ...paths import get_app_dir
 
@@ -174,9 +174,28 @@ class SessionManager:
             session_path = Path(
                 tab.config.get("session_path", get_app_dir() / "session.session")
             )
-            if hasattr(tab, "telegram_auth") and tab.telegram_auth:
-                await tab.telegram_auth.logout_and_cleanup(session_path)
-                tab.telegram_auth = None
+            telegram_auth = getattr(tab, "telegram_auth", None)
+
+            if telegram_auth is None:
+                api_id = tab.config.get("settings.api_id")
+                api_hash = tab.config.get("settings.api_hash")
+                if api_id and api_hash:
+                    telegram_auth = TelegramAuth(
+                        api_id=int(api_id),
+                        api_hash=api_hash,
+                        session_path=session_path,
+                    )
+                    try:
+                        await telegram_auth.initialize()
+                    except Exception:
+                        telegram_auth = None
+
+            if telegram_auth:
+                await telegram_auth.logout_and_cleanup(session_path)
+                if telegram_auth is tab.telegram_auth:
+                    tab.telegram_auth = None
+            elif session_path.exists():
+                session_path.unlink()
             tab._set_logged_in(False, show_login=True)
             QMessageBox.information(
                 tab, "Logged Out", "You have been logged out successfully."

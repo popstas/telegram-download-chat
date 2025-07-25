@@ -27,6 +27,7 @@ class CLIOptions:
     until: Optional[str] = None
     split: Optional[str] = None
     sort: str = "desc"
+    results_json: bool = False
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -106,6 +107,11 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
     )
     parser.add_argument(
         "-v", "--version", action="version", version=f"%(prog)s {__version__}"
+    )
+    parser.add_argument(
+        "--results-json",
+        action="store_true",
+        help="Output results summary as JSON to stdout",
     )
 
     args = parser.parse_args(argv)

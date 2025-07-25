@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import logging
 import signal
 import sys
@@ -70,7 +71,7 @@ async def convert_json_to_txt(
     downloader: TelegramChatDownloader,
     args: CLIOptions,
     downloads_dir: Path,
-) -> int:
+) -> Dict[str, Any]:
     """Convert JSON file to TXT using :mod:`commands`."""
     async with ctx:
         return await commands.convert(downloader, args, downloads_dir)
@@ -81,7 +82,7 @@ async def download_folder(
     downloader: TelegramChatDownloader,
     args: CLIOptions,
     downloads_dir: Path,
-) -> int:
+) -> List[Dict[str, Any]]:
     """Download all chats from a folder."""
     async with ctx:
         return await commands.folder(downloader, args, downloads_dir)
@@ -92,7 +93,7 @@ async def download_chat(
     downloader: TelegramChatDownloader,
     args: CLIOptions,
     downloads_dir: Path,
-) -> int:
+) -> Dict[str, Any]:
     """Download a single chat."""
     async with ctx:
         return await commands.download(downloader, args, downloads_dir)
@@ -145,12 +146,19 @@ async def async_main() -> int:
             return 1
 
         if args.chat.endswith(".json"):
-            return await convert_json_to_txt(ctx, downloader, args, downloads_dir)
+            result = await convert_json_to_txt(ctx, downloader, args, downloads_dir)
+        elif args.chat.startswith("folder:"):
+            result = await download_folder(ctx, downloader, args, downloads_dir)
+        else:
+            result = await download_chat(ctx, downloader, args, downloads_dir)
 
-        if args.chat.startswith("folder:"):
-            return await download_folder(ctx, downloader, args, downloads_dir)
+        if args.results_json:
+            results = result if isinstance(result, list) else [result]
+            print(json.dumps({"results": results}, ensure_ascii=False))
 
-        return await download_chat(ctx, downloader, args, downloads_dir)
+        if isinstance(result, list):
+            return 0 if all("error" not in r for r in result) else 1
+        return 0 if "error" not in result else 1
 
     except Exception as e:  # pragma: no cover - just logging
         downloader.logger.exception(f"An error occurred: {e}")
@@ -167,22 +175,23 @@ def main() -> int:
                 gui_main()
                 return 0
             except Exception as e:  # pragma: no cover - GUI optional
-                print(f"Error starting GUI: {e}")
-                print(e)
+                print(f"Error starting GUI: {e}", file=sys.stderr)
+                print(e, file=sys.stderr)
                 return 1
         else:
             print(
-                "GUI dependencies not installed. Please install with: pip install 'telegram-download-chat[gui]'"
+                "GUI dependencies not installed. Please install with: pip install 'telegram-download-chat[gui]'",
+                file=sys.stderr,
             )
             return 1
 
     try:
         return asyncio.run(async_main())
     except KeyboardInterrupt:
-        print("Operation cancelled by user")
+        print("Operation cancelled by user", file=sys.stderr)
         return 1
     except Exception as e:  # pragma: no cover - just logging
-        print(f"Unhandled exception: {e}")
+        print(f"Unhandled exception: {e}", file=sys.stderr)
         return 1
 
 

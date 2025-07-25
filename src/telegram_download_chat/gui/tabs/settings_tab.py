@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -31,35 +31,6 @@ from ...core.auth_utils import TelegramAuth, TelegramAuthError
 from ...paths import get_app_dir
 from ..auth import SessionManager
 from ..utils.config import ConfigManager
-
-
-class CodeRequestWorker(QObject):
-    """Worker for handling code requests in a separate thread."""
-
-    finished = Signal()
-    error = Signal(str)
-    code_sent = Signal(str)
-
-    def __init__(self, telegram_auth, phone):
-        super().__init__()
-        self.telegram_auth = telegram_auth
-        self.phone = phone
-
-    def run(self):
-        """Run the code request in a separate thread."""
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            async def request():
-                return await self.telegram_auth.request_code(self.phone)
-
-            loop.run_until_complete(request())
-            self.code_sent.emit(self.phone)
-        except Exception as e:
-            self.error.emit(str(e))
-        finally:
-            self.finished.emit()
 
 
 class SettingsTab(QWidget):
@@ -377,22 +348,18 @@ class SettingsTab(QWidget):
             return
 
         # If we got here, we have credentials and a session file
-        # Try to validate the session asynchronously
+        # Validate the session immediately
         try:
-            # Get or create the event loop
             loop = asyncio.get_event_loop()
-            # Schedule the validation task
-            loop.create_task(self._validate_session_async())
-        except RuntimeError as e:
-            if "no running event loop" in str(e):
-                # If no event loop is running, create a new one and run the task
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+            if loop.is_running():
                 loop.create_task(self._validate_session_async())
             else:
-                # For other errors, log and show error
-                logging.error(f"Error scheduling session validation: {e}")
-                self._set_logged_in(False, show_login=True)
+                loop.run_until_complete(self._validate_session_async())
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._validate_session_async())
+            loop.close()
 
     async def _validate_session_async(self):
         """Asynchronously validate the Telegram session."""
@@ -442,18 +409,6 @@ class SettingsTab(QWidget):
             logging.error(f"Unexpected error during session validation: {e}")
             # On any unexpected error, show login form
             self._set_logged_in(False, show_login=True)
-
-    def _validate_session(self):
-        """Start session validation in a background task."""
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        task = loop.create_task(self._validate_session_async())
-        loop.run_until_complete(task)
-        task.add_done_callback(self._handle_async_exception)
 
     def _save_api_credentials(self):
         """Save API credentials to config."""
@@ -640,53 +595,14 @@ class SettingsTab(QWidget):
 
             # Create a new task in the default executor to run the async code
             def run_async():
-                loop = None
                 try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-
-                    # Create a future to track the task
-                    future = loop.create_future()
-
-                    # Create and run the task
-                    async def run_task():
-                        try:
-                            result = await self._request_code_async(phone)
-                            future.set_result(result)
-                        except Exception as e:
-                            future.set_exception(e)
-
-                    task = loop.create_task(run_task())
-
-                    # Set up a timeout
-                    def handle_timeout():
-                        if not future.done():
-                            future.set_exception(
-                                TimeoutError("Request timed out after 60 seconds")
-                            )
-
-                    loop.call_later(60, handle_timeout)
-
-                    # Run the loop until the future is done
-                    loop.run_until_complete(future)
-
-                    # Get the result or exception
-                    try:
-                        result = future.result()
-                        # Schedule the callback on the main thread
-                        QTimer.singleShot(
-                            0, lambda: self._on_code_request_done(future, phone)
-                        )
-                    except Exception as e:
-                        logging.error(f"Error in async task: {e}", exc_info=True)
-                        QTimer.singleShot(0, lambda: self._on_code_error(str(e)))
-
+                    asyncio.run(
+                        asyncio.wait_for(self._request_code_async(phone), timeout=60)
+                    )
+                    QTimer.singleShot(0, lambda: self._on_code_request_done(phone))
                 except Exception as e:
                     logging.error(f"Error in run_async: {e}", exc_info=True)
                     QTimer.singleShot(0, lambda: self._on_code_error(str(e)))
-                finally:
-                    if loop is not None:
-                        loop.close()
 
             # Start the async task in a separate thread
             import threading
@@ -724,11 +640,10 @@ class SettingsTab(QWidget):
             self, "Error", f"Failed to request verification code: {error_msg}"
         )
 
-    def _on_code_request_done(self, future, phone):
+    def _on_code_request_done(self, phone: str) -> None:
         """Handle completion of the code request.
 
         Args:
-            future: The future that completed
             phone: The phone number the code was sent to
         """
         try:
@@ -775,21 +690,6 @@ class SettingsTab(QWidget):
             self.phone_edit.setEnabled(True)
             self.get_code_btn.setEnabled(True)
             self.get_code_btn.setText("Get Code")
-
-    def _on_code_sent(self, phone):
-        """Handle successful code sending (legacy)."""
-        self.log_view.append(f"Verification code sent to {phone}")
-        self.get_code_btn.setEnabled(True)
-        self.get_code_btn.setText("Resend Code")
-        self._update_login_button_state()
-
-    def _on_code_error(self, error_msg):
-        """Handle errors during code request."""
-        QMessageBox.critical(self, "Error", f"Failed to request code: {error_msg}")
-
-        # Re-enable the button
-        self.get_code_btn.setEnabled(True)
-        self.get_code_btn.setText("Get Code")
 
     def _handle_async_exception(self, task):
         """Handle exceptions from async tasks."""

@@ -3,12 +3,6 @@ import logging
 from pathlib import Path
 
 from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
-from telethon.errors import (
-    PhoneCodeEmptyError,
-    PhoneCodeExpiredError,
-    PhoneCodeInvalidError,
-    SessionPasswordNeededError,
-)
 
 from ...core import TelegramChatDownloader
 from ...core.auth_utils import TelegramAuthError
@@ -65,7 +59,7 @@ class SessionManager:
                 sign_in_kwargs = {
                     "phone": phone,
                     "code": code,
-                    "password": password,
+                    "password": password or None,
                 }
 
                 if hasattr(tab, "phone_code_hash") and tab.phone_code_hash:
@@ -76,7 +70,27 @@ class SessionManager:
                         "No phone_code_hash found, attempting direct sign in"
                     )
 
-                await tab.telegram_auth.sign_in(**sign_in_kwargs)
+                try:
+                    await tab.telegram_auth.sign_in(**sign_in_kwargs)
+                except TelegramAuthError as e:
+                    if "password" in str(e).lower() and not password:
+                        password, ok = QInputDialog.getText(
+                            tab,
+                            "2FA Required",
+                            "Please enter your 2FA password:",
+                            QLineEdit.Password,
+                        )
+                        if ok and password:
+                            await tab.telegram_auth.sign_in(
+                                phone,
+                                code,
+                                password,
+                                phone_code_hash=sign_in_kwargs.get("phone_code_hash"),
+                            )
+                        else:
+                            raise TelegramAuthError("2FA password is required")
+                    else:
+                        raise
 
                 logging.info("Login successful")
 
@@ -102,37 +116,6 @@ class SessionManager:
                 await tab.telegram_auth.client.disconnect()
 
                 tab.auth_state_changed.emit(True)
-
-            except SessionPasswordNeededError:
-                if not password:
-                    password, ok = QInputDialog.getText(
-                        tab,
-                        "2FA Required",
-                        "Please enter your 2FA password:",
-                        QLineEdit.Password,
-                    )
-                    if ok and password:
-                        await tab.telegram_auth.sign_in(phone, code, password)
-                        tab._set_logged_in(True)
-                        tab.auth_state_changed.emit(True)
-                    else:
-                        raise TelegramAuthError("2FA password is required")
-                else:
-                    raise
-
-            except (
-                PhoneCodeInvalidError,
-                PhoneCodeExpiredError,
-                PhoneCodeEmptyError,
-            ):
-                QMessageBox.warning(
-                    tab,
-                    "Error",
-                    "Invalid or expired verification code. Please try again.",
-                )
-                tab.code_edit.clear()
-                tab.code_edit.setFocus()
-                return
 
             except TelegramAuthError as e:
                 raise
@@ -192,75 +175,8 @@ class SessionManager:
                 tab.config.get("session_path", get_app_dir() / "session.session")
             )
             if hasattr(tab, "telegram_auth") and tab.telegram_auth:
-                try:
-                    logging.debug("Starting Telegram client cleanup...")
-                    client = getattr(tab.telegram_auth, "client", None)
-                    if client:
-                        try:
-                            if hasattr(client, "_sender") and client._sender:
-                                if hasattr(client._sender, "_send_loop_task"):
-                                    client._sender._send_loop_task.cancel()
-                                if hasattr(client._sender, "_recv_loop_task"):
-                                    client._sender._recv_loop_task.cancel()
-                        except Exception as e:
-                            logging.warning(
-                                f"Error stopping client tasks (non-critical): {e}"
-                            )
-                        try:
-                            logging.debug("Attempting graceful logout...")
-                            if hasattr(tab.telegram_auth, "log_out"):
-                                logged_out = await tab.telegram_auth.log_out()
-                                if logged_out:
-                                    logging.info(
-                                        "Successfully logged out from Telegram."
-                                    )
-                                else:
-                                    logging.debug(
-                                        "Client already disconnected; skipping logout."
-                                    )
-                        except Exception as e:
-                            logging.warning(
-                                f"Error during graceful logout (non-critical): {e}"
-                            )
-                    try:
-                        if hasattr(tab.telegram_auth, "close") and callable(
-                            tab.telegram_auth.close
-                        ):
-                            logging.debug("Closing Telegram auth instance...")
-                            await tab.telegram_auth.close()
-                            logging.info("Telegram auth instance closed successfully.")
-                    except Exception as e:
-                        logging.warning(
-                            f"Error closing Telegram auth instance (non-critical): {e}"
-                        )
-                except Exception as e:
-                    logging.error(
-                        f"Error during Telegram client cleanup: {e}", exc_info=True
-                    )
-                finally:
-                    tab.telegram_auth = None
-            await asyncio.sleep(1.0)
-            if session_path.exists():
-                max_attempts = 5
-                for attempt in range(max_attempts):
-                    try:
-                        session_path.unlink()
-                        logging.info(
-                            f"Successfully deleted session file: {session_path}"
-                        )
-                        break
-                    except (PermissionError, OSError) as e:
-                        if attempt == max_attempts - 1:
-                            logging.error(
-                                f"Failed to delete session file after {max_attempts} attempts: {e}"
-                            )
-                            break
-                        else:
-                            wait_time = 0.5 * (attempt + 1)
-                            logging.debug(
-                                f"Retrying session file deletion in {wait_time} seconds (attempt {attempt + 1}/{max_attempts})..."
-                            )
-                            await asyncio.sleep(wait_time)
+                await tab.telegram_auth.logout_and_cleanup(session_path)
+                tab.telegram_auth = None
             tab._set_logged_in(False, show_login=True)
             QMessageBox.information(
                 tab, "Logged Out", "You have been logged out successfully."

@@ -16,6 +16,7 @@ A powerful command-line utility to download and analyze Telegram chat history in
 - Extract sub-conversations from message threads
 - Cross-platform support (Windows, macOS, Linux)
 - Optional graphical user interface (GUI) for easier interaction
+- Core functionality resides under the `telegram_download_chat.core` package for easier maintenance.
 
 
 ## Use Cases

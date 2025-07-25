@@ -10,6 +10,13 @@
 
 ## Project Structure
 src/telegram_download_chat/
+├── core/                     # Core downloader package with mixins
+│   ├── downloader.py         # TelegramChatDownloader
+│   ├── auth.py               # Authentication helpers
+│   ├── config.py             # Configuration helpers
+│   ├── download.py           # Chat downloading logic
+│   ├── entities.py           # Entity utilities
+│   └── messages.py           # Message formatting utilities
 ├── gui/                      # Main GUI package
 │   ├── __init__.py           # Package initialization
 │   ├── main.py               # Main application entry point

@@ -331,7 +331,6 @@ class SettingsTab(QWidget):
 
             session_file = get_app_dir() / "session.session"
             is_session_exists = session_file.exists()
-            self._set_logged_in(is_session_exists, skip_validation=True)
             if not self.config.get("session_path", ""):
                 self.config.set("session_path", str(session_file))
             # Safely load API credentials if widgets exist
@@ -348,6 +347,7 @@ class SettingsTab(QWidget):
                 phone = self.config.get("settings.phone", "")
                 self.phone_edit.setText(phone)
 
+            self._set_logged_in(is_session_exists, skip_validation=True)
             # Check if we have a valid session
             self._check_session_status()
 
@@ -452,6 +452,7 @@ class SettingsTab(QWidget):
             asyncio.set_event_loop(loop)
 
         task = loop.create_task(self._validate_session_async())
+        loop.run_until_complete(task)
         task.add_done_callback(self._handle_async_exception)
 
     def _save_api_credentials(self):
@@ -875,23 +876,3 @@ class SettingsTab(QWidget):
                 self.telegram_auth = None
             self.status_label.setText("Not logged in")
             self.logout_btn.setEnabled(False)
-
-    def save_settings(self, settings: Dict[str, Any]):
-        """Save tab settings to a dictionary.
-
-        Args:
-            settings: Dictionary to save settings to
-        """
-        settings["api_id"] = self.api_id_edit.text()
-        settings["api_hash"] = self.api_hash_edit.text()
-        settings["phone"] = self.phone_edit.text()
-
-    def load_settings(self, settings: Dict[str, Any]):
-        """Load tab settings from a dictionary.
-
-        Args:
-            settings: Dictionary containing settings
-        """
-        self.api_id_edit.setText(settings.get("api_id", ""))
-        self.api_hash_edit.setText(settings.get("api_hash", ""))
-        self.phone_edit.setText(settings.get("phone", ""))

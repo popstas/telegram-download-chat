@@ -27,10 +27,10 @@ from telethon.errors import (
 )
 
 from ...core import TelegramChatDownloader
+from ...core.auth_utils import TelegramAuth, TelegramAuthError
 from ...paths import get_app_dir
 from ..auth import SessionManager
 from ..utils.config import ConfigManager
-from ..utils.telegram_auth import TelegramAuth, TelegramAuthError
 
 
 class CodeRequestWorker(QObject):

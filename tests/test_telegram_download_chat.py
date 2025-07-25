@@ -725,30 +725,24 @@ async def test_connect_and_disconnect():
 
     from telegram_download_chat.core import TelegramChatDownloader
 
-    # Create a mock client with proper async methods
-    mock_client = AsyncMock()
-    mock_client.start = AsyncMock()
-    mock_client.disconnect = AsyncMock()
-    mock_client.connect = AsyncMock()
-    mock_client.is_user_authorized = AsyncMock(return_value=True)
-    # is_connected is a method that returns a boolean
-    mock_client.is_connected = MagicMock(return_value=True)
+    mock_auth = MagicMock()
+    mock_auth.initialize = AsyncMock()
+    mock_auth.is_authenticated.return_value = True
+    mock_auth.client = AsyncMock()
+    mock_auth.client.is_connected = MagicMock(return_value=True)
+    mock_auth.client.disconnect = AsyncMock()
 
-    # Create a mock client class that returns our mock client
-    mock_client_class = MagicMock(return_value=mock_client)
+    mock_auth_class = MagicMock(return_value=mock_auth)
 
-    # Patch the environment variables and TelegramClient
     with patch.dict(
         os.environ,
         {"TELEGRAM_API_ID": "test_api_id", "TELEGRAM_API_HASH": "test_api_hash"},
-    ), patch("telegram_download_chat.core.TelegramClient", new=mock_client_class):
-        # Create downloader
+    ), patch("telegram_download_chat.core.auth.TelegramAuth", new=mock_auth_class):
         downloader = TelegramChatDownloader()
 
-        # Mock the config to avoid file operations
         downloader.config = {
             "settings": {
-                "api_id": "test_api_id",
+                "api_id": 123,
                 "api_hash": "test_api_hash",
                 "session_name": "test_session",
                 "request_retries": 3,
@@ -756,70 +750,72 @@ async def test_connect_and_disconnect():
             }
         }
 
-        # Test connect
         await downloader.connect()
 
-        # Verify client was created and connected only once
-        mock_client_class.assert_called_once()
-        mock_client.connect.assert_awaited_once()
-        # connect() performs the actual connection, so start() shouldn't be used
-        mock_client.start.assert_not_awaited()
-        assert downloader.client is not None
+        mock_auth_class.assert_called_once()
+        mock_auth.initialize.assert_awaited_once()
+        assert downloader.client is mock_auth.client
 
-        # Test disconnect
         await downloader.close()
 
-        # Verify client was disconnected
-        mock_client.disconnect.assert_awaited_once()
+        mock_auth.client.disconnect.assert_awaited_once()
         assert downloader.client is None
 
 
 @pytest.mark.asyncio
-async def test_request_code():
-    downloader = TelegramChatDownloader()
-    downloader.client = AsyncMock()
-    downloader.logger = MagicMock()
-    downloader.client.send_code_request.return_value = MagicMock(phone_code_hash="hash")
+async def test_telegram_auth_request_code():
+    from telegram_download_chat.core.auth_utils import TelegramAuth
 
-    await downloader._request_code("123")
+    auth = TelegramAuth(api_id=1, api_hash="hash", session_path=Path("sess"))
+    auth.client = AsyncMock()
+    auth.client.loop = asyncio.get_event_loop()
+    auth.client.send_code_request.return_value = MagicMock(phone_code_hash="hash")
 
-    downloader.client.send_code_request.assert_awaited_once_with("123")
-    assert downloader.phone_code_hash == "hash"
+    result = await auth.request_code("123")
+
+    auth.client.send_code_request.assert_awaited_once_with("123")
+    assert result == "hash"
+    assert auth.phone_code_hash == "hash"
+    await auth.close()
 
 
 @pytest.mark.asyncio
-async def test_perform_login_success():
-    downloader = TelegramChatDownloader()
-    downloader.client = AsyncMock()
-    downloader.phone_code_hash = "hash"
-    downloader.logger = MagicMock()
+async def test_telegram_auth_sign_in_success():
+    from telegram_download_chat.core.auth_utils import TelegramAuth
 
-    await downloader._perform_login("123", "111", "pwd")
+    auth = TelegramAuth(api_id=1, api_hash="hash", session_path=Path("sess"))
+    auth.client = AsyncMock()
+    auth.client.loop = asyncio.get_event_loop()
 
-    downloader.client.sign_in.assert_awaited_once_with(
-        phone="123", code="111", phone_code_hash="hash", password="pwd"
+    await auth.sign_in("123", "111", "pwd", phone_code_hash="hash")
+
+    auth.client.sign_in.assert_awaited_once_with(
+        phone="123", code="111", phone_code_hash="hash"
     )
+    await auth.close()
 
 
 @pytest.mark.asyncio
-async def test_perform_login_with_password_needed():
+async def test_telegram_auth_sign_in_with_password_needed():
     from telethon.errors import SessionPasswordNeededError
 
-    downloader = TelegramChatDownloader()
-    downloader.client = AsyncMock()
-    downloader.phone_code_hash = "hash"
-    downloader.logger = MagicMock()
-    downloader.client.sign_in = AsyncMock(
+    from telegram_download_chat.core.auth_utils import TelegramAuth
+
+    auth = TelegramAuth(api_id=1, api_hash="hash", session_path=Path("sess"))
+    auth.client = AsyncMock()
+    auth.client.loop = asyncio.get_event_loop()
+    auth.client.sign_in = AsyncMock(
         side_effect=[SessionPasswordNeededError(None), None]
     )
 
-    await downloader._perform_login("123", "111", "pwd")
+    await auth.sign_in("123", "111", "pwd", phone_code_hash="hash")
 
-    assert downloader.client.sign_in.await_count == 2
-    downloader.client.sign_in.assert_any_await(
-        phone="123", code="111", phone_code_hash="hash", password="pwd"
+    assert auth.client.sign_in.await_count == 2
+    auth.client.sign_in.assert_any_await(
+        phone="123", code="111", phone_code_hash="hash"
     )
-    downloader.client.sign_in.assert_any_await(password="pwd")
+    auth.client.sign_in.assert_any_await(password="pwd")
+    await auth.close()
 
 
 @pytest.mark.asyncio

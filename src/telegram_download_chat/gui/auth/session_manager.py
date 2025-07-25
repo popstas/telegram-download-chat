@@ -115,6 +115,8 @@ class SessionManager:
 
                 await tab.telegram_auth.client.disconnect()
 
+                await tab._validate_session_async()
+
                 tab.auth_state_changed.emit(True)
 
             except TelegramAuthError as e:

@@ -9,10 +9,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
+from telethon.tl.types import Channel, Chat, User
+
 from telegram_download_chat.core import TelegramChatDownloader
 from telegram_download_chat.paths import get_relative_to_downloads_dir
 
 from .arguments import CLIOptions
+
+
+def _parse_date(value: Any) -> datetime | None:
+    """Parse date from various formats to datetime."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
 
 
 def split_messages_by_date(
@@ -113,14 +127,14 @@ async def process_chat_download(
     chat_identifier: Any,
     args: CLIOptions,
     output_dir: Path,
-) -> int:
+) -> Dict[str, Any]:
     """Download a single chat and save messages with options."""
     safe_chat_name = await downloader.get_entity_name(chat_identifier)
     if not safe_chat_name:
         downloader.logger.error(
             f"Failed to get entity name for chat: {chat_identifier}"
         )
-        return 1
+        return {"chat_id": chat_identifier, "error": "failed to resolve chat"}
 
     output_file = args.output
     if not output_file or output_dir != Path(output_file).parent:
@@ -151,9 +165,39 @@ async def process_chat_download(
             f"Filtered to {len(messages)} messages in subchat {args.subchat}"
         )
 
+    msg_dates = [
+        _parse_date(
+            getattr(m, "date", None) if not isinstance(m, dict) else m.get("date")
+        )
+        for m in messages
+    ]
+    msg_dates = [d for d in msg_dates if d]
+    first_date = min(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
+    last_date = max(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
+
     if not messages:
         downloader.logger.warning("No messages to save")
-        return 0
+        entity = await downloader.get_entity(chat_identifier)
+        chat_type = "unknown"
+        if isinstance(entity, User):
+            chat_type = "private"
+        elif isinstance(entity, Chat):
+            chat_type = "group"
+        elif isinstance(entity, Channel):
+            chat_type = (
+                "channel" if getattr(entity, "broadcast", False) else "supergroup"
+            )
+        return {
+            "chat_id": getattr(entity, "id", chat_identifier),
+            "chat_title": await downloader.get_entity_full_name(chat_identifier),
+            "chat_type": chat_type,
+            "args": {"limit": args.limit} if args.limit else {},
+            "messages": 0,
+            "from": None,
+            "to": None,
+            "result_json": None,
+            "result_txt": None,
+        }
 
     try:
         if args.split:
@@ -186,14 +230,33 @@ async def process_chat_download(
             )
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")
-        return 1
+        return {"chat_id": chat_identifier, "error": str(e)}
 
-    return 0
+    entity = await downloader.get_entity(chat_identifier)
+    chat_type = "unknown"
+    if isinstance(entity, User):
+        chat_type = "private"
+    elif isinstance(entity, Chat):
+        chat_type = "group"
+    elif isinstance(entity, Channel):
+        chat_type = "channel" if getattr(entity, "broadcast", False) else "supergroup"
+
+    return {
+        "chat_id": getattr(entity, "id", chat_identifier),
+        "chat_title": await downloader.get_entity_full_name(chat_identifier),
+        "chat_type": chat_type,
+        "args": {"limit": args.limit} if args.limit else {},
+        "messages": len(messages),
+        "from": first_date,
+        "to": last_date,
+        "result_json": output_file,
+        "result_txt": str(Path(output_file).with_suffix(".txt")),
+    }
 
 
 async def convert(
     downloader: TelegramChatDownloader, args: CLIOptions, downloads_dir: Path
-) -> int:
+) -> Dict[str, Any]:
     """Handle JSON to TXT conversion."""
     json_path = Path(args.chat)
     if not json_path.exists() and not json_path.is_absolute():
@@ -228,6 +291,11 @@ async def convert(
             f"Filtered to {len(messages)} messages in subchat {args.subchat}"
         )
 
+    msg_dates = [_parse_date(m.get("date")) for m in messages]
+    msg_dates = [d for d in msg_dates if d]
+    first_date = min(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
+    last_date = max(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
+
     if args.split:
         split_messages = split_messages_by_date(messages, args.split)
         if not split_messages:
@@ -258,12 +326,22 @@ async def convert(
         downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
 
     downloader.logger.debug("Conversion completed successfully")
-    return 0
+    return {
+        "chat_id": None,
+        "chat_title": json_path.stem,
+        "chat_type": "json",
+        "args": {},
+        "messages": len(messages),
+        "from": first_date,
+        "to": last_date,
+        "result_json": str(json_path),
+        "result_txt": str(txt_path),
+    }
 
 
 async def folder(
     downloader: TelegramChatDownloader, args: CLIOptions, downloads_dir: Path
-) -> int:
+) -> List[Dict[str, Any]]:
     """Handle folder download mode."""
     folder_name = args.chat.split(":", 1)[1]
     folders = await downloader.list_folders()
@@ -277,7 +355,7 @@ async def folder(
             break
     if not target:
         downloader.logger.error(f"Folder not found: {folder_name}")
-        return 1
+        return []
 
     folder_dir = downloads_dir / folder_name
     folder_dir.mkdir(parents=True, exist_ok=True)
@@ -286,15 +364,16 @@ async def folder(
     peers.extend(getattr(target, "pinned_peers", []) or [])
     peers.extend(getattr(target, "include_peers", []) or [])
 
+    results = []
     for peer in peers:
-        await process_chat_download(downloader, peer, args, folder_dir)
+        results.append(await process_chat_download(downloader, peer, args, folder_dir))
 
-    return 0
+    return results
 
 
 async def download(
     downloader: TelegramChatDownloader, args: CLIOptions, downloads_dir: Path
-) -> int:
+) -> Dict[str, Any]:
     """Handle normal chat download."""
     return await process_chat_download(downloader, args.chat, args, downloads_dir)
 

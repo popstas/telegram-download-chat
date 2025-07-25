@@ -56,6 +56,12 @@ class TestCLIArgumentParsing:
             assert args.output is None
             assert args.sort == "desc"
 
+    def test_results_json_argument(self):
+        """Test parsing of --results-json option."""
+        with patch("sys.argv", ["script_name", "chat", "--results-json"]):
+            args = parse_args()
+            assert args.results_json is True
+
 
 class TestFilterMessagesBySubchat:
     """Tests for filter_messages_by_subchat function."""
@@ -376,6 +382,44 @@ class TestCLIExecution:
             assert call_args[0] == test_messages
             assert str(call_args[1]) == str(expected_output)
             assert call_args[2] == "desc"
+
+    @pytest.mark.asyncio
+    async def test_results_json_output(self, tmp_path):
+        """Test that --results-json outputs result summary to stdout."""
+        mock_downloader = AsyncMock()
+        mock_downloader.config = {"settings": {"save_path": str(tmp_path)}}
+        mock_downloader.logger = MagicMock()
+        mock_downloader.get_entity_name = AsyncMock(return_value="chat")
+        mock_downloader.get_entity_full_name = AsyncMock(return_value="Chat")
+        mock_entity = MagicMock(id=123)
+        mock_downloader.get_entity = AsyncMock(return_value=mock_entity)
+        from datetime import datetime
+
+        msg = MagicMock()
+        msg.id = 1
+        msg.date = datetime(2025, 7, 10, 12, 0, 0)
+        mock_downloader.download_chat = AsyncMock(return_value=[msg])
+        mock_downloader.save_messages = AsyncMock()
+
+        with patch("sys.argv", ["script_name", "chat", "--results-json"]), patch(
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
+        ), patch(
+            "telegram_download_chat.paths.get_app_dir", return_value=tmp_path
+        ), patch(
+            "sys.stdout", new_callable=StringIO
+        ) as mock_stdout:
+            result = await async_main()
+            output = mock_stdout.getvalue()
+
+        assert result == 0
+        data = json.loads(output)
+        assert "results" in data
+        result_info = data["results"][0]
+        assert result_info["chat_id"] == 123
+        assert result_info["messages"] == 1
+        assert result_info["from"] == "2025-07-10"
+        assert result_info["to"] == "2025-07-10"
 
     @pytest.mark.skip(
         reason="Skipping test_download_flow due to complexity of mocking."

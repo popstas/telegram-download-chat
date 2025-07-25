@@ -26,7 +26,7 @@ from telegram_download_chat.paths import (
 
 from . import commands
 from .arguments import CLIOptions, parse_args
-from .commands import filter_messages_by_subchat
+from .commands import analyze_keywords, filter_messages_by_subchat
 
 _downloader_ctx: DownloaderContext | None = None
 
@@ -202,6 +202,7 @@ __all__ = [
     "CLIOptions",
     "commands",
     "filter_messages_by_subchat",
+    "analyze_keywords",
     "show_config",
     "convert_json_to_txt",
     "download_folder",

@@ -1,4 +1,5 @@
 """Telegram authentication utilities."""
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
@@ -193,6 +194,64 @@ class TelegramAuth:
         except Exception as e:
             logger.error(f"Error logging out: {e}")
             return False
+
+    async def logout_and_cleanup(self, session_path: Path) -> None:
+        """Log out and remove the session file.
+
+        This handles graceful logout and ensures that the underlying session
+        file is removed even if the client has already been disconnected.
+
+        Args:
+            session_path: Path to the session file to remove.
+        """
+        try:
+            logger.debug("Starting Telegram client cleanup...")
+            client = getattr(self, "client", None)
+            if client:
+                try:
+                    if hasattr(client, "_sender") and client._sender:
+                        if hasattr(client._sender, "_send_loop_task"):
+                            client._sender._send_loop_task.cancel()
+                        if hasattr(client._sender, "_recv_loop_task"):
+                            client._sender._recv_loop_task.cancel()
+                except Exception as e:  # pragma: no cover - best effort cleanup
+                    logger.warning(f"Error stopping client tasks (non-critical): {e}")
+                try:
+                    if await self.log_out():
+                        logger.info("Successfully logged out from Telegram.")
+                    else:
+                        logger.debug("Client already disconnected; skipping logout.")
+                except Exception as e:  # pragma: no cover - best effort cleanup
+                    logger.warning(f"Error during graceful logout (non-critical): {e}")
+            try:
+                await self.close()
+                logger.info("Telegram auth instance closed successfully.")
+            except Exception as e:  # pragma: no cover - best effort cleanup
+                logger.warning(
+                    f"Error closing Telegram auth instance (non-critical): {e}"
+                )
+        finally:
+            await asyncio.sleep(1.0)
+            if session_path.exists():
+                max_attempts = 5
+                for attempt in range(max_attempts):
+                    try:
+                        session_path.unlink()
+                        logger.info(
+                            f"Successfully deleted session file: {session_path}"
+                        )
+                        break
+                    except (PermissionError, OSError) as e:
+                        if attempt == max_attempts - 1:
+                            logger.error(
+                                f"Failed to delete session file after {max_attempts} attempts: {e}"
+                            )
+                            break
+                        wait_time = 0.5 * (attempt + 1)
+                        logger.debug(
+                            f"Retrying session file deletion in {wait_time} seconds (attempt {attempt + 1}/{max_attempts})..."
+                        )
+                        await asyncio.sleep(wait_time)
 
     def is_authenticated(self) -> bool:
         """Check if the user is authenticated.

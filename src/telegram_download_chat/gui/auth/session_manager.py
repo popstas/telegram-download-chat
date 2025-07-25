@@ -4,8 +4,8 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
 
+from ...core.auth_utils import TelegramAuthError
 from ...paths import get_app_dir
-from ..utils.telegram_auth import TelegramAuthError
 
 
 class SessionManager:

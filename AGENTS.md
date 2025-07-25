@@ -13,6 +13,7 @@ src/telegram_download_chat/
 ├── core/                     # Core downloader package with mixins
 │   ├── downloader.py         # TelegramChatDownloader
 │   ├── auth.py               # Authentication helpers
+│   ├── auth_utils.py         # TelegramAuth utilities
 │   ├── config.py             # Configuration helpers
 │   ├── download.py           # Chat downloading logic
 │   ├── entities.py           # Entity utilities
@@ -39,7 +40,6 @@ src/telegram_download_chat/
 │   └── utils/                # Utility modules
 │       ├── config.py         # Configuration management
 │       ├── file_utils.py     # File operations
-│       └── telegram_auth.py  # Telegram authentication
 │
 └── gui_app_.py              # Old GUI implementation (renamed)
 ├── cli/                     # Command line interface package

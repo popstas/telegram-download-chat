@@ -1,11 +1,13 @@
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from telethon.errors import ChatIdInvalidError
 from telethon.tl.types import Channel, Chat, User
 
 from ..paths import get_app_dir
+from .auth_utils import TelegramAuth
 
 
 class AuthMixin:
@@ -35,29 +37,32 @@ class AuthMixin:
 
         self.logger.debug(f"Connecting to Telegram with API ID: {api_id}")
         self.logger.debug(f"Session file: {session_file}")
-        from telegram_download_chat.core import TelegramClient
 
         try:
-            self.client = TelegramClient(
-                session=session_file,
-                api_id=api_id,
+            self.telegram_auth = TelegramAuth(
+                api_id=int(api_id),
                 api_hash=api_hash,
-                request_retries=request_retries,
-                flood_sleep_threshold=request_delay,
+                session_path=Path(session_file),
             )
 
-            await self.client.connect()
-            is_authorized = await self.client.is_user_authorized()
+            await self.telegram_auth.initialize()
+            self.client = self.telegram_auth.client
+            is_authorized = self.telegram_auth.is_authenticated()
             self.logger.debug(
                 f"Connection status: is_authorized={is_authorized}, phone={phone}"
             )
 
             if phone and not code and not is_authorized:
-                await self._request_code(phone)
+                self.phone_code_hash = await self.telegram_auth.request_code(phone)
                 return
 
             if phone and code and not is_authorized:
-                await self._perform_login(phone, code, password)
+                await self.telegram_auth.sign_in(
+                    phone,
+                    code,
+                    password,
+                    phone_code_hash=getattr(self, "phone_code_hash", None),
+                )
             else:
                 self.logger.debug("Using existing session")
 
@@ -80,48 +85,6 @@ class AuthMixin:
             if hasattr(self, "client") and self.client:
                 await self.client.disconnect()
             raise RuntimeError(error_msg) from e
-
-    async def _request_code(self, phone: str) -> None:
-        self.logger.info(f"Starting authentication for phone: {phone}")
-        sent_code = await self.client.send_code_request(phone)
-        self.phone_code_hash = sent_code.phone_code_hash
-        self.logger.info("Verification code sent to your Telegram account")
-
-    async def _perform_login(
-        self, phone: str, code: str, password: Optional[str]
-    ) -> None:
-        from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError
-
-        if not hasattr(self, "phone_code_hash"):
-            error_msg = "Please request a verification code first"
-            self.logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        try:
-            await self.client.sign_in(
-                phone=phone,
-                code=code,
-                phone_code_hash=self.phone_code_hash,
-                password=password,
-            )
-            self.logger.info("Successfully authenticated with code")
-        except SessionPasswordNeededError:
-            if not password:
-                error_msg = (
-                    "2FA is enabled but no password provided. Set password parameter."
-                )
-                self.logger.error(error_msg)
-                raise ValueError(error_msg) from None
-
-            self.logger.info("2FA password required")
-            await self.client.sign_in(password=password)
-            self.logger.info("Successfully authenticated with 2FA password")
-        except PhoneCodeInvalidError as e:
-            error_msg = (
-                "Invalid verification code. Please check your code and try again."
-            )
-            self.logger.error(error_msg)
-            raise ValueError(error_msg) from e
 
     async def _fetch_self_info(self) -> None:
         self.logger.debug("Retrieving current user via get_me()")

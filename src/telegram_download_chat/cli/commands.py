@@ -17,6 +17,18 @@ from telegram_download_chat.paths import get_relative_to_downloads_dir
 from .arguments import CLIOptions
 
 
+def _parse_date(value: Any) -> datetime | None:
+    """Parse date from various formats to datetime."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
 def split_messages_by_date(
     messages: List[Dict[str, Any]], split_by: str
 ) -> Dict[str, List[Dict[str, Any]]]:
@@ -153,6 +165,16 @@ async def process_chat_download(
             f"Filtered to {len(messages)} messages in subchat {args.subchat}"
         )
 
+    msg_dates = [
+        _parse_date(
+            getattr(m, "date", None) if not isinstance(m, dict) else m.get("date")
+        )
+        for m in messages
+    ]
+    msg_dates = [d for d in msg_dates if d]
+    first_date = min(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
+    last_date = max(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
+
     if not messages:
         downloader.logger.warning("No messages to save")
         entity = await downloader.get_entity(chat_identifier)
@@ -170,6 +192,9 @@ async def process_chat_download(
             "chat_title": await downloader.get_entity_full_name(chat_identifier),
             "chat_type": chat_type,
             "args": {"limit": args.limit} if args.limit else {},
+            "messages": 0,
+            "from": None,
+            "to": None,
             "result_json": None,
             "result_txt": None,
         }
@@ -221,6 +246,9 @@ async def process_chat_download(
         "chat_title": await downloader.get_entity_full_name(chat_identifier),
         "chat_type": chat_type,
         "args": {"limit": args.limit} if args.limit else {},
+        "messages": len(messages),
+        "from": first_date,
+        "to": last_date,
         "result_json": output_file,
         "result_txt": str(Path(output_file).with_suffix(".txt")),
     }
@@ -263,6 +291,11 @@ async def convert(
             f"Filtered to {len(messages)} messages in subchat {args.subchat}"
         )
 
+    msg_dates = [_parse_date(m.get("date")) for m in messages]
+    msg_dates = [d for d in msg_dates if d]
+    first_date = min(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
+    last_date = max(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
+
     if args.split:
         split_messages = split_messages_by_date(messages, args.split)
         if not split_messages:
@@ -298,6 +331,9 @@ async def convert(
         "chat_title": json_path.stem,
         "chat_type": "json",
         "args": {},
+        "messages": len(messages),
+        "from": first_date,
+        "to": last_date,
         "result_json": str(json_path),
         "result_txt": str(txt_path),
     }

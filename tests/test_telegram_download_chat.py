@@ -393,7 +393,12 @@ class TestCLIExecution:
         mock_downloader.get_entity_full_name = AsyncMock(return_value="Chat")
         mock_entity = MagicMock(id=123)
         mock_downloader.get_entity = AsyncMock(return_value=mock_entity)
-        mock_downloader.download_chat = AsyncMock(return_value=[{"id": 1}])
+        from datetime import datetime
+
+        msg = MagicMock()
+        msg.id = 1
+        msg.date = datetime(2025, 7, 10, 12, 0, 0)
+        mock_downloader.download_chat = AsyncMock(return_value=[msg])
         mock_downloader.save_messages = AsyncMock()
 
         with patch("sys.argv", ["script_name", "chat", "--results-json"]), patch(
@@ -410,7 +415,11 @@ class TestCLIExecution:
         assert result == 0
         data = json.loads(output)
         assert "results" in data
-        assert data["results"][0]["chat_id"] == 123
+        result_info = data["results"][0]
+        assert result_info["chat_id"] == 123
+        assert result_info["messages"] == 1
+        assert result_info["from"] == "2025-07-10"
+        assert result_info["to"] == "2025-07-10"
 
     @pytest.mark.skip(
         reason="Skipping test_download_flow due to complexity of mocking."

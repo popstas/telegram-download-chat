@@ -8,7 +8,7 @@ Telegram Download Chat is a Python CLI utility that downloads and analyzes Teleg
 
 ### Key Components
 
-- **Core Engine** (`core/` package): Main `TelegramChatDownloader` class using Telethon library for Telegram API communication
+- **Core Engine** (`core/` package): Contains `TelegramChatDownloader` plus helper modules (`auth`, `config`, `download`, `entities`, `messages`, `context`) built on Telethon
 - **CLI Interface** (`cli.py`): Command-line interface with argument parsing and async message processing
 - **GUI Interface** (`gui_app.py`): PySide6-based graphical interface with threading for async operations
 - **Configuration** (`paths.py`): Handles config file management and application directories

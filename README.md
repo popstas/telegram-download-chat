@@ -18,6 +18,25 @@ A powerful command-line utility to download and analyze Telegram chat history in
 - Optional graphical user interface (GUI) for easier interaction
 - Core functionality resides under the `telegram_download_chat.core` package for easier maintenance.
 
+## Project Structure
+
+The codebase follows a source layout with dedicated subpackages:
+
+```
+src/telegram_download_chat/
+├── core/           # Download engine and helpers
+│   ├── downloader.py   # `TelegramChatDownloader` class
+│   ├── auth.py         # login utilities
+│   ├── config.py       # configuration loading helpers
+│   ├── download.py     # chat download routines
+│   ├── entities.py     # user and chat name helpers
+│   ├── messages.py     # message formatting utilities
+│   └── context.py      # async context manager
+├── cli/            # Command line interface
+├── gui/            # GUI application
+```
+
+
 
 ## Use Cases
 

@@ -42,6 +42,10 @@ src/telegram_download_chat/
 │       ├── file_utils.py     # File operations
 │
 └── gui_app_.py              # Old GUI implementation (renamed)
+├── web/                     # NiceGUI web interface
+│   ├── __init__.py          # Package initialization
+│   └── main.py              # Web server entry point
+
 ├── cli/                     # Command line interface package
 │   ├── __init__.py          # CLI entry point
 │   ├── arguments.py         # Argument parsing helpers
@@ -73,7 +77,7 @@ src/telegram_download_chat/
 - Uses signals/slots for inter-component communication
 - Config stored in YAML format
 - Session management for Telegram authentication
-
 ## Running the Application
 - Use `python -m telegram_download_chat.gui.main` to start the GUI
+- Use `python -m telegram_download_chat.web.main` to start the web interface
 - Or use the launcher: `python launcher.py`

@@ -18,6 +18,7 @@ A powerful command-line utility to download and analyze Telegram chat history in
 - Search messages for specific keywords
 - Cross-platform support (Windows, macOS, Linux)
 - Optional graphical user interface (GUI) for easier interaction
+- Simple web interface built with NiceGUI
 - Core functionality resides under the `telegram_download_chat.core` package for easier maintenance.
 
 ## Project Structure
@@ -94,6 +95,20 @@ The GUI provides an easy-to-use interface with the following features:
 - Real-time log viewing
 - File preview functionality
 - Browse and open downloaded files
+
+### Web Interface (Optional)
+
+A lightweight web interface is also available using [NiceGUI](https://nicegui.io).
+
+1. Install with web dependencies:
+   ```bash
+   pip install "telegram-download-chat[web]"
+   ```
+
+2. Launch the web server:
+   ```bash
+   telegram-download-chat-web
+   ```
 
 ### Install from PyPI (recommended)
 

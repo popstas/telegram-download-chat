@@ -54,7 +54,7 @@ class TestCLIArgumentParsing:
             assert args.chat == test_chat
             assert args.limit == 0  # Default value from cli.py
             assert args.output is None
-            assert args.sort == "desc"
+            assert args.sort == "asc"
 
     def test_results_json_argument(self):
         """Test parsing of --results-json option."""
@@ -381,7 +381,7 @@ class TestCLIExecution:
             call_args = mock_downloader.save_messages_as_txt.call_args[0]
             assert call_args[0] == test_messages
             assert str(call_args[1]) == str(expected_output)
-            assert call_args[2] == "desc"
+            assert call_args[2] == "asc"
 
     @pytest.mark.asyncio
     async def test_results_json_output(self, tmp_path):

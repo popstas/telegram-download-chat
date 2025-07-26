@@ -19,6 +19,10 @@ try:  # GUI is optional
     from telegram_download_chat.gui.main import main as gui_main
 except ImportError:  # pragma: no cover - GUI optional
     gui_main = None
+try:  # Web interface is optional
+    from telegram_download_chat.web.main import main as web_main
+except ImportError:  # pragma: no cover - web optional
+    web_main = None
 from telegram_download_chat.paths import (
     get_default_config_path,
     get_downloads_dir,
@@ -202,6 +206,22 @@ def main() -> int:
         else:
             print(
                 "GUI dependencies not installed. Please install with: pip install 'telegram-download-chat[gui]'",
+                file=sys.stderr,
+            )
+            return 1
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "web":
+        if web_main is not None:
+            try:
+                web_main()
+                return 0
+            except Exception as e:  # pragma: no cover - web optional
+                print(f"Error starting web interface: {e}", file=sys.stderr)
+                print(e, file=sys.stderr)
+                return 1
+        else:
+            print(
+                "Web dependencies not installed. Please install with: pip install 'telegram-download-chat[web]'",
                 file=sys.stderr,
             )
             return 1

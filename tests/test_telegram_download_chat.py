@@ -1173,3 +1173,16 @@ async def test_download_chat_function(tmp_path):
 
     assert result == 0
     mock_download.assert_awaited_once_with(downloader, args, tmp_path)
+
+
+def test_cli_web_entrypoint():
+    """Ensure CLI starts web interface when 'web' argument is used."""
+    with patch("sys.argv", ["script", "web"]), patch(
+        "telegram_download_chat.cli.web_main"
+    ) as web_main:
+        from telegram_download_chat.cli import main
+
+        result = main()
+
+    web_main.assert_called_once()
+    assert result == 0

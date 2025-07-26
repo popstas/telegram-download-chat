@@ -4,6 +4,7 @@
 
 ### Exciting New Features
 - feat: download any chat with --limit and --until
+- feat: support downloading multiple chats at once
 - feat: download chat by any type chat identifier, add --subchat-name
 - feat: --user filter, convert archive to messages
 - feat: --split

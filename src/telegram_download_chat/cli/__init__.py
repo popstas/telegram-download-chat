@@ -154,7 +154,7 @@ async def async_main() -> int:
 
         if args.results_json:
             results = result if isinstance(result, list) else [result]
-            print(json.dumps({"results": results}, ensure_ascii=False))
+            print(json.dumps({"results": results}, ensure_ascii=False, indent=2))
 
         if isinstance(result, list):
             return 0 if all("error" not in r for r in result) else 1

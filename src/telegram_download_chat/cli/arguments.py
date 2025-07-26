@@ -26,7 +26,7 @@ class CLIOptions:
     last_days: Optional[int] = None
     until: Optional[str] = None
     split: Optional[str] = None
-    sort: str = "desc"
+    sort: str = "asc"
     results_json: bool = False
 
 
@@ -102,8 +102,8 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
     parser.add_argument(
         "--sort",
         choices=["asc", "desc"],
-        default="desc",
-        help="Sort messages by date (default: desc)",
+        default="asc",
+        help="Sort messages by date (default: asc)",
     )
     parser.add_argument(
         "-v", "--version", action="version", version=f"%(prog)s {__version__}"

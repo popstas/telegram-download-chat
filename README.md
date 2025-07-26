@@ -227,7 +227,7 @@ options:
   --user USER           Filter messages by sender ID
   -c, --config CONFIG   Path to config file
   --debug               Enable debug logging
-  --sort {asc,desc}     Sort messages by date (default: desc)
+  --sort {asc,desc}     Sort messages by date (default: asc)
   --show-config         Show config file location and exit
   --results-json        Output results summary as JSON to stdout
   -v, --version         Show program's version number and exit

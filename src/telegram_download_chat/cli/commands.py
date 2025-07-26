@@ -100,7 +100,7 @@ async def save_messages_with_status(
     downloader: TelegramChatDownloader,
     messages: List[Any],
     output_file: str,
-    sort_order: str = "desc",
+    sort_order: str = "asc",
 ) -> None:
     """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
@@ -113,7 +113,7 @@ async def save_txt_with_status(
     downloader: TelegramChatDownloader,
     messages: List[Any],
     txt_file: Path,
-    sort_order: str = "desc",
+    sort_order: str = "asc",
 ) -> int:
     """Save messages to a text file with progress output."""
     return await _run_with_status(

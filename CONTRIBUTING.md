@@ -83,6 +83,13 @@ bumpversion minor
 bumpversion major
 ```
 
+Alternatively, you can run the deploy script with the desired level to bump the
+version and publish in one step:
+
+```bash
+python deploy.py patch  # or minor/major
+```
+
 This will:
 - Update version in all tracked files
 - Create a git commit with the version bump
@@ -93,7 +100,10 @@ This will:
 1. Ensure all changes for the release are merged to the main branch
 2. Make sure all tests are passing
 3. Update the CHANGELOG.md with the changes in this release
-4. Bump the version using bumpversion (see Version Management section above)
+4. Run the deploy script with the desired bump level, e.g.:
+   ```bash
+   python deploy.py patch
+   ```
 5. Push the version bump commit and tag:
    ```bash
    git push
@@ -129,10 +139,11 @@ git push --tags
 
 ### 4. Build and Publish
 
-Build and publish the package to PyPI using the deploy script:
+Build and publish the package to PyPI using the deploy script. Pass the bump
+level if you didn't bump it earlier:
 
 ```bash
-python deploy.py
+python deploy.py patch  # or minor/major
 ```
 
 This will:

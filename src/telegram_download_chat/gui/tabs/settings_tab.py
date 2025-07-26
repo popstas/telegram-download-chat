@@ -404,6 +404,9 @@ class SettingsTab(QWidget):
                     f"Error validating session: {str(auth_error)}\n"
                     "Please check your connection and try again."
                 )
+            finally:
+                # Always close the Telegram client to unlock the session file
+                await telegram_auth.close()
 
         except Exception as e:
             logging.error(f"Unexpected error during session validation: {e}")
@@ -563,6 +566,12 @@ class SettingsTab(QWidget):
             logging.error(f"Error in _request_code_async: {str(e)}", exc_info=True)
             # Re-raise the exception to be handled by the done callback
             raise
+        finally:
+            if self.downloader:
+                try:
+                    await self.downloader.close()
+                finally:
+                    self.downloader = None
 
     def _request_code(self):
         """Request a login code from Telegram."""

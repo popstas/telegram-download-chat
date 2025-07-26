@@ -166,6 +166,9 @@ telegram-download-chat https://t.me/+invite_code
 
 # Download chat by phone number (must be in your contacts)
 telegram-download-chat +1234567890
+
+# Download multiple chats at once
+telegram-download-chat chat1,chat2,chat3
 ```
 
 ### Advanced Usage

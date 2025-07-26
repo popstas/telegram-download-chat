@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 from telegram_download_chat import __version__
 
@@ -14,6 +14,7 @@ class CLIOptions:
     """Parsed command line options."""
 
     chat: Optional[str] = None
+    chats: List[str] = field(default_factory=list)
     output: Optional[str] = None
     limit: int = 0
     config: Optional[str] = None
@@ -121,7 +122,15 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
     )
 
     args = parser.parse_args(argv)
-    return CLIOptions(**vars(args))
+
+    chat_list: List[str] = []
+    if args.chat:
+        chat_list = [c.strip() for c in args.chat.split(",") if c.strip()]
+        args.chat = chat_list[0]
+
+    args_dict = vars(args)
+    args_dict["chats"] = chat_list
+    return CLIOptions(**args_dict)
 
 
 __all__ = ["CLIOptions", "parse_args"]

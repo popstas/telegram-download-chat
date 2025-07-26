@@ -9,6 +9,7 @@ import logging
 import signal
 import sys
 import tempfile
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -126,7 +127,8 @@ async def async_main() -> int:
                 "%Y-%m-%d"
             )
 
-        if not args.chat:
+        chats = args.chats or ([args.chat] if args.chat else [])
+        if not chats:
             downloader.logger.error("Chat identifier is required")
             return 1
 
@@ -141,24 +143,43 @@ async def async_main() -> int:
         )
         downloads_dir.mkdir(parents=True, exist_ok=True)
 
-        if args.subchat and not args.output and not args.chat.endswith(".json"):
-            downloader.logger.error("--subchat requires an existing JSON file as input")
-            return 1
+        results = []
+        for chat_id in chats:
+            chat_args = replace(args, chat=chat_id, chats=[chat_id])
 
-        if args.chat.endswith(".json"):
-            result = await convert_json_to_txt(ctx, downloader, args, downloads_dir)
-        elif args.chat.startswith("folder:"):
-            result = await download_folder(ctx, downloader, args, downloads_dir)
-        else:
-            result = await download_chat(ctx, downloader, args, downloads_dir)
+            if (
+                chat_args.subchat
+                and not chat_args.output
+                and not chat_id.endswith(".json")
+            ):
+                downloader.logger.error(
+                    "--subchat requires an existing JSON file as input"
+                )
+                return 1
+
+            if chat_id.endswith(".json"):
+                result = await convert_json_to_txt(
+                    ctx, downloader, chat_args, downloads_dir
+                )
+            elif chat_id.startswith("folder:"):
+                result = await download_folder(
+                    ctx, downloader, chat_args, downloads_dir
+                )
+            else:
+                result = await download_chat(ctx, downloader, chat_args, downloads_dir)
+
+            results.append(result)
+
+        flat_results = [i for r in results for i in (r if isinstance(r, list) else [r])]
 
         if args.results_json:
-            results = result if isinstance(result, list) else [result]
-            print(json.dumps({"results": results}, ensure_ascii=False, indent=2))
+            print(json.dumps({"results": flat_results}, ensure_ascii=False, indent=2))
 
-        if isinstance(result, list):
-            return 0 if all("error" not in r for r in result) else 1
-        return 0 if "error" not in result else 1
+        return (
+            0
+            if all(isinstance(r, dict) and "error" not in r for r in flat_results)
+            else 1
+        )
 
     except Exception as e:  # pragma: no cover - just logging
         downloader.logger.exception(f"An error occurred: {e}")

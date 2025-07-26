@@ -19,6 +19,11 @@ try:  # GUI is optional
     from telegram_download_chat.gui.main import main as gui_main
 except ImportError:  # pragma: no cover - GUI optional
     gui_main = None
+
+try:  # Web UI is optional
+    from telegram_download_chat.web.main import main as web_main
+except ImportError:  # pragma: no cover - web optional
+    web_main = None
 from telegram_download_chat.paths import (
     get_default_config_path,
     get_downloads_dir,
@@ -190,7 +195,39 @@ async def async_main() -> int:
 
 def main() -> int:
     """Synchronous entry point for the CLI."""
-    if (len(sys.argv) >= 2 and sys.argv[1] == "gui") or len(sys.argv) == 1:
+    if len(sys.argv) >= 2 and sys.argv[1] in {"gui", "web"}:
+        mode = sys.argv[1]
+        if mode == "gui":
+            if gui_main is not None:
+                try:
+                    gui_main()
+                    return 0
+                except Exception as e:  # pragma: no cover - GUI optional
+                    print(f"Error starting GUI: {e}", file=sys.stderr)
+                    print(e, file=sys.stderr)
+                    return 1
+            else:
+                print(
+                    "GUI dependencies not installed. Please install with: pip install 'telegram-download-chat[gui]'",
+                    file=sys.stderr,
+                )
+                return 1
+        else:  # web
+            if web_main is not None:
+                try:
+                    web_main()
+                    return 0
+                except Exception as e:  # pragma: no cover - web optional
+                    print(f"Error starting web UI: {e}", file=sys.stderr)
+                    print(e, file=sys.stderr)
+                    return 1
+            else:
+                print(
+                    "Web UI dependencies not installed. Please install with: pip install 'telegram-download-chat[web]'",
+                    file=sys.stderr,
+                )
+                return 1
+    elif len(sys.argv) == 1:
         if gui_main is not None:
             try:
                 gui_main()

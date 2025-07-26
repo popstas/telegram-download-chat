@@ -31,12 +31,14 @@ setup(
         "PyYAML>=6.0.0",
     ],
     extras_require={
+        "gui": ["PySide6>=6.5.0"],
+        "web": ["nicegui>=2.0.0"],
         "dev": [
             "pytest>=6.0",
             "black>=22.0",
             "isort>=5.0",
             "mypy>=0.900",
-        ]
+        ],
     },
     entry_points={
         "console_scripts": [

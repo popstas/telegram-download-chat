@@ -35,6 +35,9 @@ dependencies = [
 gui = [
     "PySide6>=6.5.0"
 ]
+web = [
+    "nicegui>=2.0.0"
+]
 dev = [
     "pytest>=6.0",
     "pytest-asyncio>=0.21",

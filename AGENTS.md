@@ -42,6 +42,9 @@ src/telegram_download_chat/
 │       ├── file_utils.py     # File operations
 │
 └── gui_app_.py              # Old GUI implementation (renamed)
+├── web/                     # Streamlit web interface
+│   ├── __init__.py
+│   └── main.py              # Streamlit entry point
 ├── cli/                     # Command line interface package
 │   ├── __init__.py          # CLI entry point
 │   ├── arguments.py         # Argument parsing helpers

@@ -95,6 +95,20 @@ The GUI provides an easy-to-use interface with the following features:
 - File preview functionality
 - Browse and open downloaded files
 
+### Web Version (Optional)
+
+A simple web interface built with Streamlit is also available.
+
+1. Install with web dependencies:
+   ```bash
+   pip install "telegram-download-chat[web]"
+   ```
+
+2. Launch the web UI:
+   ```bash
+   telegram-download-chat web
+   ```
+
 ### Install from PyPI (recommended)
 
 ```bash
@@ -358,6 +372,16 @@ This feature is particularly useful for:
 | Configuration | Visual forms | Manual config editing |
 | Batch operations | One chat at a time | Scriptable |
 | Automation | Interactive only | Fully scriptable |
+
+## Web Interface (Streamlit)
+
+You can also run a simple Streamlit-based interface:
+
+```bash
+telegram-download-chat web
+```
+
+This provides a minimal web UI for downloading chats from your browser.
 
 ## Output Formats
 

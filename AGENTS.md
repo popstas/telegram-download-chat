@@ -40,6 +40,9 @@ src/telegram_download_chat/
 │   └── utils/                # Utility modules
 │       ├── config.py         # Configuration management
 │       ├── file_utils.py     # File operations
+├── web/                      # Streamlit web interface
+│   ├── __init__.py           # Entry point to launch Streamlit
+│   └── streamlit_app.py      # Streamlit application code
 │
 └── gui_app_.py              # Old GUI implementation (renamed)
 ├── cli/                     # Command line interface package

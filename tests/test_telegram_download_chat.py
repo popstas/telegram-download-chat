@@ -15,6 +15,7 @@ import pytest
 
 from telegram_download_chat.cli import (
     CLIOptions,
+    analyze_keywords,
     async_main,
     convert_json_to_txt,
     download_chat,
@@ -55,7 +56,7 @@ class TestCLIArgumentParsing:
             assert args.chats == [test_chat]
             assert args.limit == 0  # Default value from cli.py
             assert args.output is None
-            assert args.sort == "desc"
+            assert args.sort == "asc"
 
     def test_multiple_chats_argument(self):
         """Test parsing multiple chats separated by commas."""
@@ -70,6 +71,15 @@ class TestCLIArgumentParsing:
             args = parse_args()
             assert args.results_json is True
             assert args.chats == ["chat"]
+
+    def test_keywords_argument(self):
+        """Test parsing of --keywords option."""
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--keywords", "@user,hello"],
+        ):
+            args = parse_args()
+            assert args.keywords == "@user,hello"
 
 
 class TestFilterMessagesBySubchat:
@@ -274,6 +284,24 @@ class TestFilterMessagesBySubchat:
         assert kwargs.get("until_date") == "2025-06-04"
 
 
+class TestAnalyzeKeywords:
+    """Tests for analyze_keywords helper."""
+
+    def test_basic_keyword_search(self):
+        messages = [
+            {"id": 1, "peer_id": {"channel_id": 100}, "message": "hello there"},
+            {
+                "id": 2,
+                "peer_id": {"channel_id": 100},
+                "message": "@user mentioned",
+                "from_id": {"user_id": 42},
+            },
+        ]
+        result = analyze_keywords(["@user", "hello"], messages)
+        assert result[0]["count"] == 1
+        assert result[1]["count"] == 1
+
+
 class TestCLIExecution:
     """Tests for CLI execution flow."""
 
@@ -393,7 +421,7 @@ class TestCLIExecution:
             call_args = mock_downloader.save_messages_as_txt.call_args[0]
             assert call_args[0] == test_messages
             assert str(call_args[1]) == str(expected_output)
-            assert call_args[2] == "desc"
+            assert call_args[2] == "asc"
 
     @pytest.mark.asyncio
     async def test_results_json_output(self, tmp_path):

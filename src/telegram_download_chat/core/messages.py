@@ -84,7 +84,7 @@ class MessagesMixin:
         return messages
 
     def prepare_messages_for_txt(
-        self, messages: List[Dict[str, Any]], sort_order: str = "desc"
+        self, messages: List[Dict[str, Any]], sort_order: str = "asc"
     ) -> List[Dict[str, Any]]:
         def parse_dt(msg: Dict[str, Any]) -> datetime:
             date_str = msg.get("date")
@@ -128,7 +128,7 @@ class MessagesMixin:
         return ordered_messages
 
     async def save_messages_as_txt(
-        self, messages: List[Dict[str, Any]], txt_path: Path, sort_order: str = "desc"
+        self, messages: List[Dict[str, Any]], txt_path: Path, sort_order: str = "asc"
     ) -> int:
         saved = 0
         txt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -200,7 +200,7 @@ class MessagesMixin:
         messages,
         output_file: str,
         save_txt: bool = True,
-        sort_order: str = "desc",
+        sort_order: str = "asc",
     ) -> None:
         output_path = Path(output_file)
 

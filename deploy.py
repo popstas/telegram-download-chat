@@ -1,3 +1,4 @@
+import argparse
 import os
 import shutil
 import subprocess
@@ -50,7 +51,20 @@ def upload_package():
     subprocess.run(["python", "-m", "twine", "upload", "dist/*"], check=True)
 
 
-def main():
+def main() -> None:
+    """Run deployment steps with optional version bump."""
+    parser = argparse.ArgumentParser(description="Build and upload the package")
+    parser.add_argument(
+        "bump",
+        nargs="?",
+        choices=["patch", "minor", "major"],
+        help="Run bumpversion before deployment",
+    )
+    args = parser.parse_args()
+
+    if args.bump:
+        subprocess.run(["bumpversion", args.bump], check=True)
+
     # Run tests first
     if not run_tests():
         sys.exit(1)

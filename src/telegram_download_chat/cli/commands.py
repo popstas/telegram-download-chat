@@ -78,6 +78,54 @@ def filter_messages_by_subchat(
     return filtered
 
 
+def analyze_keywords(
+    keywords: List[str], messages: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Analyze messages for occurrences of keywords."""
+    results: List[Dict[str, Any]] = []
+    for kw in keywords:
+        kw = kw.strip()
+        if not kw:
+            continue
+        kw_lower = kw.lower()
+        matches = []
+        count = 0
+        for msg in messages:
+            text = msg.get("message") or msg.get("text") or ""
+            if isinstance(text, list):
+                text = "".join(
+                    part if isinstance(part, str) else part.get("text", "")
+                    for part in text
+                )
+            text_str = str(text)
+            if kw_lower in text_str.lower():
+                count += 1
+                sender = msg.get("from_id") or msg.get("sender_id") or {}
+                if isinstance(sender, dict):
+                    sender = (
+                        sender.get("user_id")
+                        or sender.get("channel_id")
+                        or sender.get("chat_id")
+                    )
+                username = f"@{sender}" if sender else None
+                peer = msg.get("peer_id") or msg.get("to_id") or {}
+                if isinstance(peer, dict):
+                    chat_id = (
+                        peer.get("channel_id")
+                        or peer.get("chat_id")
+                        or peer.get("user_id")
+                    )
+                else:
+                    chat_id = peer
+                msg_id = msg.get("id")
+                url = (
+                    f"https://t.me/c/{chat_id}/{msg_id}" if chat_id and msg_id else None
+                )
+                matches.append({"username": username, "text": text_str, "url": url})
+        results.append({"text": kw, "count": count, "messages": matches})
+    return results
+
+
 async def _run_with_status(
     task_coro: Any, logger: logging.Logger, message: str | None = None
 ):
@@ -100,7 +148,7 @@ async def save_messages_with_status(
     downloader: TelegramChatDownloader,
     messages: List[Any],
     output_file: str,
-    sort_order: str = "desc",
+    sort_order: str = "asc",
 ) -> None:
     """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
@@ -113,7 +161,7 @@ async def save_txt_with_status(
     downloader: TelegramChatDownloader,
     messages: List[Any],
     txt_file: Path,
-    sort_order: str = "desc",
+    sort_order: str = "asc",
 ) -> int:
     """Save messages to a text file with progress output."""
     return await _run_with_status(
@@ -175,6 +223,15 @@ async def process_chat_download(
     first_date = min(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
     last_date = max(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
 
+    keywords_data: List[Dict[str, Any]] = []
+    if args.keywords:
+        kw_list = [k.strip() for k in args.keywords.split(",") if k.strip()]
+        serializable = [
+            downloader.make_serializable(m.to_dict() if hasattr(m, "to_dict") else m)
+            for m in messages
+        ]
+        keywords_data = analyze_keywords(kw_list, serializable)
+
     if not messages:
         downloader.logger.warning("No messages to save")
         entity = await downloader.get_entity(chat_identifier)
@@ -197,6 +254,7 @@ async def process_chat_download(
             "to": None,
             "result_json": None,
             "result_txt": None,
+            "keywords": [],
         }
 
     try:
@@ -251,6 +309,7 @@ async def process_chat_download(
         "to": last_date,
         "result_json": output_file,
         "result_txt": str(Path(output_file).with_suffix(".txt")),
+        "keywords": keywords_data,
     }
 
 
@@ -296,6 +355,11 @@ async def convert(
     first_date = min(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
     last_date = max(msg_dates).strftime("%Y-%m-%d") if msg_dates else None
 
+    keywords_data: List[Dict[str, Any]] = []
+    if args.keywords:
+        kw_list = [k.strip() for k in args.keywords.split(",") if k.strip()]
+        keywords_data = analyze_keywords(kw_list, messages)
+
     if args.split:
         split_messages = split_messages_by_date(messages, args.split)
         if not split_messages:
@@ -336,6 +400,7 @@ async def convert(
         "to": last_date,
         "result_json": str(json_path),
         "result_txt": str(txt_path),
+        "keywords": keywords_data,
     }
 
 
@@ -381,6 +446,7 @@ async def download(
 __all__ = [
     "split_messages_by_date",
     "filter_messages_by_subchat",
+    "analyze_keywords",
     "save_messages_with_status",
     "save_txt_with_status",
     "process_chat_download",

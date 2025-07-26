@@ -418,6 +418,12 @@ If you encounter any issues, please:
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
+For releasing a new version to PyPI, run the deploy script with a bump level:
+
+```bash
+python deploy.py patch  # or minor/major
+```
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

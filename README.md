@@ -98,6 +98,8 @@ The GUI provides an easy-to-use interface with the following features:
 ### Streamlit Web Interface (Optional)
 
 A lightweight web interface built with Streamlit is also available.
+It mirrors all command line options and shows progress while
+downloading.
 
 1. Install with web dependencies:
    ```bash
@@ -376,7 +378,9 @@ This feature is particularly useful for:
 ## Streamlit Web Interface
 
 In addition to the desktop GUI, a basic web interface built with
-Streamlit is available for quick access from the browser.
+Streamlit is available for quick access from the browser. The web UI
+provides controls for all CLI arguments, displays download progress and
+lets you download the resulting TXT file with a small preview.
 
 ```bash
 telegram-download-chat-web

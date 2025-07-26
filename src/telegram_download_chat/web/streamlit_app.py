@@ -1,44 +1,171 @@
-"""Simple Streamlit interface for Telegram Chat Downloader."""
+"""Streamlit based web interface for telegram-download-chat."""
 
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
+from pathlib import Path
+from typing import Optional
 
 import streamlit as st
 
+from telegram_download_chat.cli.arguments import CLIOptions
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
+from telegram_download_chat.paths import get_default_config_path, get_downloads_dir
 
 
-async def download_chat(chat: str, limit: int) -> list[dict]:
-    """Download messages from a chat and return them as serializable dicts."""
-    downloader = TelegramChatDownloader()
+class ProgressHandler(logging.Handler):
+    """Update a Streamlit progress bar from downloader logs."""
+
+    PROGRESS_RE = re.compile(r"Fetched: (\d+)")
+
+    def __init__(self, bar, status, total: int):
+        super().__init__()
+        self.bar = bar
+        self.status = status
+        self.total = total
+
+    def emit(self, record: logging.LogRecord) -> None:  # pragma: no cover - UI
+        msg = record.getMessage()
+        match = self.PROGRESS_RE.search(msg)
+        if match:
+            current = int(match.group(1))
+            if self.total > 0:
+                percent = min(current / self.total, 1.0)
+                self.bar.progress(percent)
+            self.status.text(msg)
+
+
+async def run_download(options: CLIOptions) -> Path:
+    """Download a chat and save messages to disk."""
+
+    downloader = TelegramChatDownloader(config_path=options.config)
+    if options.debug:
+        downloader.logger.setLevel(logging.DEBUG)
+    progress_placeholder = st.empty()
+    status_placeholder = st.empty()
+    handler = ProgressHandler(
+        progress_placeholder.progress(0), status_placeholder, options.limit
+    )
+    downloader.logger.addHandler(handler)
+
     ctx = DownloaderContext(downloader)
+    downloads_dir = Path(
+        downloader.config.get("settings", {}).get("save_path", get_downloads_dir())
+    )
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
     async with ctx:
-        messages = await downloader.download_chat(
-            chat_id=chat,
-            request_limit=limit or 100,
-            total_limit=limit or 0,
-            output_file=None,
-            silent=True,
+        chat_name = await downloader.get_entity_name(options.chat)
+        output_file = (
+            Path(options.output)
+            if options.output
+            else downloads_dir / f"{chat_name}.json"
         )
-        serializable = [
-            downloader.make_serializable(m.to_dict() if hasattr(m, "to_dict") else m)
-            for m in messages
-        ]
-        return serializable
+        messages = await downloader.download_chat(
+            chat_id=options.chat,
+            request_limit=min(100, options.limit or 100),
+            total_limit=options.limit or 0,
+            output_file=None,
+            silent=False,
+            until_date=options.until,
+        )
+        await downloader.save_messages(
+            messages, str(output_file), sort_order=options.sort
+        )
+
+    downloader.logger.removeHandler(handler)
+    progress_placeholder.progress(1.0)
+    status_placeholder.text("Download complete")
+    return output_file.with_suffix(".txt")
 
 
-def main() -> None:
+def show_config_file(config: Optional[str]) -> None:
+    """Display configuration file path and contents."""
+
+    cfg_path = Path(config) if config else get_default_config_path()
+    st.info(f"Configuration file: {cfg_path}")
+    if cfg_path.exists():
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            st.code(f.read())
+    else:
+        st.warning("Config file does not exist yet. It will be created on first run.")
+
+
+def build_options() -> CLIOptions | None:
+    """Render the input form and return CLIOptions if submitted."""
+
+    with st.form("download_form"):
+        chat = st.text_input("Chat ID or username")
+        output = st.text_input("Output file path")
+        limit = int(
+            st.number_input("Message limit (0 = no limit)", min_value=0, value=0)
+        )
+        config = st.text_input("Config path")
+        debug = st.checkbox("Debug logging")
+        show_cfg = st.checkbox("Show config and exit")
+        subchat = st.text_input("Subchat ID/URL")
+        subchat_name = st.text_input("Subchat name")
+        user = st.text_input("Filter by sender")
+        from_date = st.text_input("Base date for --last-days (YYYY-MM-DD)")
+        last_days = st.number_input("Last days", min_value=0, value=0)
+        until = st.text_input("Until date (YYYY-MM-DD)")
+        split = st.selectbox("Split output", ["", "month", "year"]) or None
+        sort = st.selectbox("Sort order", ["asc", "desc"])
+        results_json = st.checkbox("Results JSON")
+        keywords = st.text_input("Keywords (comma separated)")
+        submitted = st.form_submit_button("Download")
+
+    if not submitted:
+        return None
+
+    if not chat and not show_cfg:
+        st.error("Chat ID is required")
+        return None
+
+    return CLIOptions(
+        chat=chat or None,
+        chats=[chat] if chat else [],
+        output=output or None,
+        limit=limit,
+        config=config or None,
+        debug=debug,
+        show_config=show_cfg,
+        subchat=subchat or None,
+        subchat_name=subchat_name or None,
+        user=user or None,
+        from_date=from_date or None,
+        last_days=int(last_days) if last_days else None,
+        until=until or None,
+        split=split,
+        sort=sort,
+        results_json=results_json,
+        keywords=keywords or None,
+    )
+
+
+def main() -> None:  # pragma: no cover - UI
     st.title("Telegram Download Chat")
-    chat = st.text_input("Chat ID or username")
-    limit = st.number_input("Message limit", min_value=0, value=100)
+    options = build_options()
+    if not options:
+        return
 
-    if st.button("Download") and chat:
-        with st.spinner("Downloading..."):
-            messages = asyncio.run(download_chat(chat, int(limit)))
-        st.success(f"Downloaded {len(messages)} messages")
-        if messages:
-            st.json(messages[:50])
+    if options.show_config:
+        show_config_file(options.config)
+        return
+
+    txt_path = asyncio.run(run_download(options))
+    if txt_path.exists():
+        st.download_button(
+            "Download TXT file",
+            data=txt_path.read_bytes(),
+            file_name=txt_path.name,
+            mime="text/plain",
+        )
+        with open(txt_path, "r", encoding="utf-8") as f:
+            preview = "".join([f.readline() for _ in range(100)])
+        st.text_area("Preview", preview, height=300)
 
 
 if __name__ == "__main__":

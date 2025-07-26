@@ -26,7 +26,7 @@ from telegram_download_chat.paths import (
 
 from . import commands
 from .arguments import CLIOptions, parse_args
-from .commands import filter_messages_by_subchat
+from .commands import analyze_keywords, filter_messages_by_subchat
 
 _downloader_ctx: DownloaderContext | None = None
 
@@ -154,7 +154,7 @@ async def async_main() -> int:
 
         if args.results_json:
             results = result if isinstance(result, list) else [result]
-            print(json.dumps({"results": results}, ensure_ascii=False))
+            print(json.dumps({"results": results}, ensure_ascii=False, indent=2))
 
         if isinstance(result, list):
             return 0 if all("error" not in r for r in result) else 1
@@ -202,6 +202,7 @@ __all__ = [
     "CLIOptions",
     "commands",
     "filter_messages_by_subchat",
+    "analyze_keywords",
     "show_config",
     "convert_json_to_txt",
     "download_folder",

@@ -28,6 +28,7 @@ class CLIOptions:
     split: Optional[str] = None
     sort: str = "asc"
     results_json: bool = False
+    keywords: Optional[str] = None
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -112,6 +113,11 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--results-json",
         action="store_true",
         help="Output results summary as JSON to stdout",
+    )
+    parser.add_argument(
+        "--keywords",
+        type=str,
+        help="Comma-separated keywords to search in messages",
     )
 
     args = parser.parse_args(argv)

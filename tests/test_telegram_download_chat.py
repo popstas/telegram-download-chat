@@ -15,6 +15,7 @@ import pytest
 
 from telegram_download_chat.cli import (
     CLIOptions,
+    analyze_keywords,
     async_main,
     convert_json_to_txt,
     download_chat,
@@ -61,6 +62,15 @@ class TestCLIArgumentParsing:
         with patch("sys.argv", ["script_name", "chat", "--results-json"]):
             args = parse_args()
             assert args.results_json is True
+
+    def test_keywords_argument(self):
+        """Test parsing of --keywords option."""
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--keywords", "@user,hello"],
+        ):
+            args = parse_args()
+            assert args.keywords == "@user,hello"
 
 
 class TestFilterMessagesBySubchat:
@@ -260,6 +270,24 @@ class TestFilterMessagesBySubchat:
 
         args, kwargs = mock_downloader.download_chat.call_args
         assert kwargs.get("until_date") == "2025-06-04"
+
+
+class TestAnalyzeKeywords:
+    """Tests for analyze_keywords helper."""
+
+    def test_basic_keyword_search(self):
+        messages = [
+            {"id": 1, "peer_id": {"channel_id": 100}, "message": "hello there"},
+            {
+                "id": 2,
+                "peer_id": {"channel_id": 100},
+                "message": "@user mentioned",
+                "from_id": {"user_id": 42},
+            },
+        ]
+        result = analyze_keywords(["@user", "hello"], messages)
+        assert result[0]["count"] == 1
+        assert result[1]["count"] == 1
 
 
 class TestCLIExecution:

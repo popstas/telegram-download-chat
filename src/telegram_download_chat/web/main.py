@@ -134,8 +134,6 @@ def build_options() -> CLIOptions | None:
             f"form_{name}", st.session_state["form"].get(name, val)
         )
 
-    st.write("DEBUG initial:", st.session_state["form"])
-
     with st.form("download_form", clear_on_submit=False):
         chat = st.text_input("Chat ID or username", key="form_chat")
         output = st.text_input("Output file path", key="form_output")
@@ -178,7 +176,6 @@ def build_options() -> CLIOptions | None:
         "keywords": keywords,
     }
     save_form_state(st.session_state["form"])
-    st.write("DEBUG saved:", st.session_state["form"])
 
     return CLIOptions(
         chat=chat or None,
@@ -203,6 +200,8 @@ def build_options() -> CLIOptions | None:
 
 def main() -> None:  # pragma: no cover - UI
     st.title("Telegram Download Chat")
+    st.set_page_config(page_title="Telegram Download Chat", page_icon="assets/icon.png")
+
     options = build_options()
     if not options:
         return

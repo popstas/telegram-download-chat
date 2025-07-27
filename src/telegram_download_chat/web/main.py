@@ -12,7 +12,26 @@ import streamlit as st
 
 from telegram_download_chat.cli.arguments import CLIOptions
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
+from telegram_download_chat.gui.utils import ConfigManager
 from telegram_download_chat.paths import get_default_config_path, get_downloads_dir
+
+
+def load_form_state() -> dict:
+    """Load persisted form state from config."""
+    cfg = ConfigManager()
+    cfg.load()
+    data = cfg.get("form_settings", {})
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def save_form_state(state: dict) -> None:
+    """Persist form state to config."""
+    cfg = ConfigManager()
+    cfg.load()
+    cfg.set("form_settings", state)
+    cfg.save()
 
 
 class ProgressHandler(logging.Handler):
@@ -96,18 +115,48 @@ def show_config_file(config: Optional[str]) -> None:
 def build_options() -> CLIOptions | None:
     """Render the input form and return CLIOptions if submitted."""
 
-    with st.form("download_form"):
-        chat = st.text_input("Chat ID or username")
-        output = st.text_input("Output file path")
-        limit = int(
-            st.number_input("Message limit (0 = no limit)", min_value=0, value=0)
+    defaults = {
+        "chat": "",
+        "output": "",
+        "limit": 0,
+        "from_date": "",
+        "last_days": 0,
+        "until": "",
+        "split": "",
+        "sort": "asc",
+        "keywords": "",
+    }
+    defaults.update(load_form_state())
+    if "form" not in st.session_state:
+        st.session_state["form"] = defaults.copy()
+    for name, val in defaults.items():
+        st.session_state.setdefault(
+            f"form_{name}", st.session_state["form"].get(name, val)
         )
-        from_date = st.text_input("Base date for --last-days (YYYY-MM-DD)")
-        last_days = st.number_input("Last days", min_value=0, value=0)
-        until = st.text_input("Until date (YYYY-MM-DD)")
-        split = st.selectbox("Split output", ["", "month", "year"]) or None
-        sort = st.selectbox("Sort order", ["asc", "desc"])
-        keywords = st.text_input("Keywords (comma separated)")
+
+    st.write("DEBUG initial:", st.session_state["form"])
+
+    with st.form("download_form", clear_on_submit=False):
+        chat = st.text_input("Chat ID or username", key="form_chat")
+        output = st.text_input("Output file path", key="form_output")
+        limit = int(
+            st.number_input(
+                "Message limit (0 = no limit)",
+                min_value=0,
+                key="form_limit",
+            )
+        )
+        from_date = st.text_input(
+            "Base date for --last-days (YYYY-MM-DD)", key="form_from_date"
+        )
+        last_days = st.number_input("Last days", min_value=0, key="form_last_days")
+        until = st.text_input("Until date (YYYY-MM-DD)", key="form_until")
+        split = (
+            st.selectbox("Split output", ["", "month", "year"], key="form_split")
+            or None
+        )
+        sort = st.selectbox("Sort order", ["asc", "desc"], key="form_sort")
+        keywords = st.text_input("Keywords (comma separated)", key="form_keywords")
         submitted = st.form_submit_button("Download")
 
     if not submitted:
@@ -116,6 +165,20 @@ def build_options() -> CLIOptions | None:
     if not chat:
         st.error("Chat ID is required")
         return None
+
+    st.session_state["form"] = {
+        "chat": chat,
+        "output": output,
+        "limit": limit,
+        "from_date": from_date,
+        "last_days": last_days,
+        "until": until,
+        "split": split or "",
+        "sort": sort,
+        "keywords": keywords,
+    }
+    save_form_state(st.session_state["form"])
+    st.write("DEBUG saved:", st.session_state["form"])
 
     return CLIOptions(
         chat=chat or None,

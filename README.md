@@ -100,8 +100,8 @@ The GUI provides an easy-to-use interface with the following features:
 ### Streamlit Web Interface (Optional)
 
 A lightweight web interface built with Streamlit is also available.
-It mirrors all command line options and shows progress while
-downloading.
+It provides a subset of common command line options and shows progress
+while downloading.
 
 1. Install with web dependencies:
    ```bash

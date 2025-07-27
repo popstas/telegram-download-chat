@@ -119,6 +119,7 @@ class ConfigMixin:
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
+        self.logger.propagate = False
 
         logging.getLogger("telethon").setLevel(logging.WARNING)
         logging.getLogger("asyncio").setLevel(logging.WARNING)

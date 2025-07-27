@@ -393,8 +393,9 @@ This feature is particularly useful for:
 
 In addition to the desktop GUI, a basic web interface built with
 Streamlit is available for quick access from the browser. The web UI
-provides controls for all CLI arguments, displays download progress and
-lets you download the resulting TXT file with a small preview.
+provides controls for all CLI arguments, displays download progress,
+allows you to stop a running download, and lets you download the resulting TXT
+file with a small preview.
 
 ```bash
 telegram-download-chat-web

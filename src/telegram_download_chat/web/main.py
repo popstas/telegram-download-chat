@@ -102,25 +102,18 @@ def build_options() -> CLIOptions | None:
         limit = int(
             st.number_input("Message limit (0 = no limit)", min_value=0, value=0)
         )
-        config = st.text_input("Config path")
-        debug = st.checkbox("Debug logging")
-        show_cfg = st.checkbox("Show config and exit")
-        subchat = st.text_input("Subchat ID/URL")
-        subchat_name = st.text_input("Subchat name")
-        user = st.text_input("Filter by sender")
         from_date = st.text_input("Base date for --last-days (YYYY-MM-DD)")
         last_days = st.number_input("Last days", min_value=0, value=0)
         until = st.text_input("Until date (YYYY-MM-DD)")
         split = st.selectbox("Split output", ["", "month", "year"]) or None
         sort = st.selectbox("Sort order", ["asc", "desc"])
-        results_json = st.checkbox("Results JSON")
         keywords = st.text_input("Keywords (comma separated)")
         submitted = st.form_submit_button("Download")
 
     if not submitted:
         return None
 
-    if not chat and not show_cfg:
+    if not chat:
         st.error("Chat ID is required")
         return None
 
@@ -129,18 +122,18 @@ def build_options() -> CLIOptions | None:
         chats=[chat] if chat else [],
         output=output or None,
         limit=limit,
-        config=config or None,
-        debug=debug,
-        show_config=show_cfg,
-        subchat=subchat or None,
-        subchat_name=subchat_name or None,
-        user=user or None,
+        config=None,
+        debug=False,
+        show_config=False,
+        subchat=None,
+        subchat_name=None,
+        user=None,
         from_date=from_date or None,
         last_days=int(last_days) if last_days else None,
         until=until or None,
         split=split,
         sort=sort,
-        results_json=results_json,
+        results_json=False,
         keywords=keywords or None,
     )
 

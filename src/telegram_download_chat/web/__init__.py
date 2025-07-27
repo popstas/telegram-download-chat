@@ -8,7 +8,7 @@ import streamlit.web.cli as stcli
 
 def main() -> int:
     """Run the Streamlit application."""
-    script_path = os.path.join(os.path.dirname(__file__), "streamlit_app.py")
+    script_path = os.path.join(os.path.dirname(__file__), "main.py")
     sys.argv = ["streamlit", "run", script_path]
     return stcli.main()
 

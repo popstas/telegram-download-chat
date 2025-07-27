@@ -52,6 +52,13 @@ class AuthMixin:
                 f"Connection status: is_authorized={is_authorized}, phone={phone}"
             )
 
+            if not is_authorized and not phone and not code:
+                if not Path(session_file).exists():
+                    self.logger.info("No session found, starting interactive login")
+                    await self.client.start()
+                    self.telegram_auth._is_authenticated = True
+                    is_authorized = True
+
             if phone and not code and not is_authorized:
                 self.phone_code_hash = await self.telegram_auth.request_code(phone)
                 return

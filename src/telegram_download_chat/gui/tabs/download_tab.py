@@ -377,7 +377,7 @@ class DownloadTab(QWidget):
             config.load()
 
             # Get download settings with defaults
-            settings = config.get("download_settings", {})
+            settings = config.get("form_settings", {})
 
             # Update UI elements with loaded settings
             if "output" in settings and settings["output"]:
@@ -431,7 +431,7 @@ class DownloadTab(QWidget):
             config.load()
 
             # Get current settings
-            settings = config.get("download_settings", {})
+            settings = config.get("form_settings", {})
 
             # Update settings with current UI values
             settings.update(
@@ -458,7 +458,7 @@ class DownloadTab(QWidget):
             )
 
             # Save settings to config
-            config.set("download_settings", settings)
+            config.set("form_settings", settings)
             config.save()
 
         except Exception as e:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 from pathlib import Path
@@ -13,36 +12,26 @@ import streamlit as st
 
 from telegram_download_chat.cli.arguments import CLIOptions
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
-from telegram_download_chat.paths import (
-    get_app_dir,
-    get_default_config_path,
-    get_downloads_dir,
-)
-
-FORM_STATE_FILE = get_app_dir() / "web_form.json"
+from telegram_download_chat.gui.utils import ConfigManager
+from telegram_download_chat.paths import get_default_config_path, get_downloads_dir
 
 
 def load_form_state() -> dict:
-    """Load persisted form state if available."""
-    if FORM_STATE_FILE.exists():
-        try:
-            with open(FORM_STATE_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-        except Exception as e:  # pragma: no cover - debug
-            logging.debug(f"Failed to load form state: {e}")
+    """Load persisted form state from config."""
+    cfg = ConfigManager()
+    cfg.load()
+    data = cfg.get("form_settings", {})
+    if isinstance(data, dict):
+        return data
     return {}
 
 
 def save_form_state(state: dict) -> None:
-    """Persist form state to disk."""
-    try:
-        FORM_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(FORM_STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(state, f)
-    except Exception as e:  # pragma: no cover - debug
-        logging.debug(f"Failed to save form state: {e}")
+    """Persist form state to config."""
+    cfg = ConfigManager()
+    cfg.load()
+    cfg.set("form_settings", state)
+    cfg.save()
 
 
 class ProgressHandler(logging.Handler):

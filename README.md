@@ -102,8 +102,8 @@ The GUI provides an easy-to-use interface with the following features:
 A lightweight web interface built with Streamlit is also available.
 It provides a subset of common command line options and shows progress
 while downloading.
-The form remembers your last values using a small JSON file in your app
-directory so you don't need to retype them each time.
+The form remembers your last values using the same `config.yml` as the
+GUI under `form_settings` so you don't need to retype them each time.
 
 1. Install with web dependencies:
    ```bash
@@ -401,8 +401,9 @@ telegram-download-chat-web
 ```
 
 The web interface provides a simple form to input chat identifiers and
-download a limited number of messages. It keeps your previous values in a
-local JSON file so you can easily tweak options.
+download a limited number of messages. It saves your previous values in
+the same `config.yml` under `form_settings` so you can easily tweak
+options.
 
 ## Output Formats
 

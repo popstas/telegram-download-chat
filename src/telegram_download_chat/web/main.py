@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from pathlib import Path
@@ -12,7 +13,36 @@ import streamlit as st
 
 from telegram_download_chat.cli.arguments import CLIOptions
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
-from telegram_download_chat.paths import get_default_config_path, get_downloads_dir
+from telegram_download_chat.paths import (
+    get_app_dir,
+    get_default_config_path,
+    get_downloads_dir,
+)
+
+FORM_STATE_FILE = get_app_dir() / "web_form.json"
+
+
+def load_form_state() -> dict:
+    """Load persisted form state if available."""
+    if FORM_STATE_FILE.exists():
+        try:
+            with open(FORM_STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception as e:  # pragma: no cover - debug
+            logging.debug(f"Failed to load form state: {e}")
+    return {}
+
+
+def save_form_state(state: dict) -> None:
+    """Persist form state to disk."""
+    try:
+        FORM_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(FORM_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+    except Exception as e:  # pragma: no cover - debug
+        logging.debug(f"Failed to save form state: {e}")
 
 
 class ProgressHandler(logging.Handler):
@@ -107,6 +137,7 @@ def build_options() -> CLIOptions | None:
         "sort": "asc",
         "keywords": "",
     }
+    defaults.update(load_form_state())
     if "form" not in st.session_state:
         st.session_state["form"] = defaults.copy()
     for name, val in defaults.items():
@@ -157,6 +188,7 @@ def build_options() -> CLIOptions | None:
         "sort": sort,
         "keywords": keywords,
     }
+    save_form_state(st.session_state["form"])
     st.write("DEBUG saved:", st.session_state["form"])
 
     return CLIOptions(

@@ -123,7 +123,7 @@ async def async_main() -> int:
         for key, value in preset_config.items():
             if hasattr(args, key):
                 setattr(args, key, value)
-    ctx = DownloaderContext(downloader)
+    ctx = DownloaderContext(downloader, cli=True)
     _downloader_ctx = ctx
 
     try:

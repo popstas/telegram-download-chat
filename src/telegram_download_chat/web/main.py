@@ -96,18 +96,44 @@ def show_config_file(config: Optional[str]) -> None:
 def build_options() -> CLIOptions | None:
     """Render the input form and return CLIOptions if submitted."""
 
+    if "form" not in st.session_state:
+        st.session_state["form"] = {}
+    data = st.session_state["form"]
+
     with st.form("download_form"):
-        chat = st.text_input("Chat ID or username")
-        output = st.text_input("Output file path")
+        chat = st.text_input("Chat ID or username", value=data.get("chat", ""))
+        output = st.text_input("Output file path", value=data.get("output", ""))
         limit = int(
-            st.number_input("Message limit (0 = no limit)", min_value=0, value=0)
+            st.number_input(
+                "Message limit (0 = no limit)",
+                min_value=0,
+                value=int(data.get("limit", 0)),
+            )
         )
-        from_date = st.text_input("Base date for --last-days (YYYY-MM-DD)")
-        last_days = st.number_input("Last days", min_value=0, value=0)
-        until = st.text_input("Until date (YYYY-MM-DD)")
-        split = st.selectbox("Split output", ["", "month", "year"]) or None
-        sort = st.selectbox("Sort order", ["asc", "desc"])
-        keywords = st.text_input("Keywords (comma separated)")
+        from_date = st.text_input(
+            "Base date for --last-days (YYYY-MM-DD)", value=data.get("from_date", "")
+        )
+        last_days = st.number_input(
+            "Last days", min_value=0, value=int(data.get("last_days", 0))
+        )
+        until = st.text_input("Until date (YYYY-MM-DD)", value=data.get("until", ""))
+        split_options = ["", "month", "year"]
+        split = (
+            st.selectbox(
+                "Split output",
+                split_options,
+                index=split_options.index(data.get("split", "")),
+            )
+            or None
+        )
+        sort = st.selectbox(
+            "Sort order",
+            ["asc", "desc"],
+            index=["asc", "desc"].index(data.get("sort", "asc")),
+        )
+        keywords = st.text_input(
+            "Keywords (comma separated)", value=data.get("keywords", "")
+        )
         submitted = st.form_submit_button("Download")
 
     if not submitted:
@@ -116,6 +142,18 @@ def build_options() -> CLIOptions | None:
     if not chat:
         st.error("Chat ID is required")
         return None
+
+    st.session_state["form"] = {
+        "chat": chat,
+        "output": output,
+        "limit": limit,
+        "from_date": from_date,
+        "last_days": last_days,
+        "until": until,
+        "split": split or "",
+        "sort": sort,
+        "keywords": keywords,
+    }
 
     return CLIOptions(
         chat=chat or None,

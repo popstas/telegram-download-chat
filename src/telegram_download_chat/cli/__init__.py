@@ -107,6 +107,22 @@ async def async_main() -> int:
     global _downloader_ctx
     args = parse_args()
     downloader = TelegramChatDownloader(config_path=args.config)
+    if args.preset:
+        presets = downloader.config.get("presets", [])
+        preset_config = None
+        if isinstance(presets, dict):
+            preset_config = presets.get(args.preset)
+        else:
+            for p in presets:
+                if p.get("name") == args.preset:
+                    preset_config = p.get("args")
+                    break
+        if not preset_config:
+            downloader.logger.error(f"Preset '{args.preset}' not found")
+            return 1
+        for key, value in preset_config.items():
+            if hasattr(args, key):
+                setattr(args, key, value)
     ctx = DownloaderContext(downloader)
     _downloader_ctx = ctx
 

@@ -81,6 +81,15 @@ class TestCLIArgumentParsing:
             args = parse_args()
             assert args.keywords == "@user,hello"
 
+    def test_preset_argument(self):
+        """Test parsing of --preset option."""
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--preset", "short"],
+        ):
+            args = parse_args()
+            assert args.preset == "short"
+
 
 class TestFilterMessagesBySubchat:
     """Tests for filter_messages_by_subchat function."""
@@ -282,6 +291,31 @@ class TestFilterMessagesBySubchat:
 
         args, kwargs = mock_downloader.download_chat.call_args
         assert kwargs.get("until_date") == "2025-06-04"
+
+    @pytest.mark.asyncio
+    async def test_preset_applied(self, mock_downloader, tmp_path):
+        """Test that preset from config overrides arguments."""
+        mock_downloader.connect = AsyncMock()
+        mock_downloader.close = AsyncMock()
+        mock_downloader.cleanup_stop_file = MagicMock()
+        mock_downloader.config = {
+            "settings": {"save_path": str(tmp_path)},
+            "presets": [{"name": "short", "args": {"limit": 5}}],
+        }
+        mock_downloader.get_entity_name = AsyncMock(return_value="chat")
+        mock_downloader.download_chat = AsyncMock(return_value=[])
+
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--preset", "short"],
+        ), patch(
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
+        ):
+            await async_main()
+
+        args, kwargs = mock_downloader.download_chat.call_args
+        assert kwargs.get("request_limit") == 5
 
 
 class TestAnalyzeKeywords:

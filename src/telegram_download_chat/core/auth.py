@@ -11,7 +11,14 @@ from .auth_utils import TelegramAuth
 
 
 class AuthMixin:
-    async def connect(self, phone: str = None, code: str = None, password: str = None):
+    async def connect(
+        self,
+        phone: str = None,
+        code: str = None,
+        password: str = None,
+        *,
+        cli: bool = False,
+    ):
         """Connect to Telegram using the configured API credentials."""
         from telethon.errors import ApiIdInvalidError, PhoneNumberInvalidError
 
@@ -51,6 +58,12 @@ class AuthMixin:
             self.logger.debug(
                 f"Connection status: is_authorized={is_authorized}, phone={phone}"
             )
+
+            if cli and not is_authorized:
+                self.logger.info("No session found, starting interactive login")
+                await self.client.start()
+                self.telegram_auth._is_authenticated = True
+                is_authorized = True
 
             if phone and not code and not is_authorized:
                 self.phone_code_hash = await self.telegram_auth.request_code(phone)

@@ -267,9 +267,21 @@ class TelegramAuth:
 
     def __del__(self):
         """Ensure the client is properly closed when the object is destroyed."""
-        if self.client and self.client.loop and self.client.loop.is_running():
-            self.client.loop.create_task(self.close())
-        elif self.client and not self.client.loop.is_running():
-            import asyncio
+        if not getattr(self, "client", None):
+            return
 
-            asyncio.run(self.close())
+        import asyncio
+
+        try:
+            loop = self.client.loop
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            loop.create_task(self.close())
+        else:
+            try:
+                asyncio.run(self.close())
+            except RuntimeError:
+                # Event loop is closed or already running; best-effort cleanup
+                pass

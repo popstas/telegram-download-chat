@@ -3,6 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/telegram-download-chat)](https://pypi.org/project/telegram-download-chat/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/pypi/pyversions/telegram-download-chat)](https://pypi.org/project/telegram-download-chat/)
+[![Coverage Status](https://coveralls.io/repos/github/popstas/telegram-download-chat/badge.svg?branch=main)](https://coveralls.io/github/popstas/telegram-download-chat?branch=main)
 
 A powerful command-line utility to download and analyze Telegram chat history in multiple formats.
 

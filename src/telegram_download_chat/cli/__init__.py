@@ -32,6 +32,12 @@ from .commands import analyze_keywords, filter_messages_by_subchat
 _downloader_ctx: DownloaderContext | None = None
 
 
+def setup_signal_handlers() -> None:
+    """Register signal handlers for graceful shutdown."""
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
+
 def _signal_handler(sig, frame):
     """Handle termination signals and stop active downloads."""
     global _downloader_ctx
@@ -43,10 +49,6 @@ def _signal_handler(sig, frame):
             _downloader_ctx.stop()
     else:
         sys.exit(0)
-
-
-signal.signal(signal.SIGINT, _signal_handler)
-signal.signal(signal.SIGTERM, _signal_handler)
 
 
 def show_config(downloader: TelegramChatDownloader, config: str | None) -> int:
@@ -190,6 +192,7 @@ async def async_main() -> int:
 
 def main() -> int:
     """Synchronous entry point for the CLI."""
+    setup_signal_handlers()
     if (len(sys.argv) >= 2 and sys.argv[1] == "gui") or len(sys.argv) == 1:
         if gui_main is not None:
             try:

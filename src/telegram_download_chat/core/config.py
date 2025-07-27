@@ -111,6 +111,10 @@ class ConfigMixin:
             "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
 
+        # Remove existing handlers to avoid duplicate output
+        for handler in list(self.logger.handlers):
+            self.logger.removeHandler(handler)
+
         if log_file:
             file_handler = logging.FileHandler(log_file, encoding="utf-8")
             file_handler.setFormatter(formatter)
@@ -119,6 +123,7 @@ class ConfigMixin:
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
+        self.logger.propagate = False
 
         logging.getLogger("telethon").setLevel(logging.WARNING)
         logging.getLogger("asyncio").setLevel(logging.WARNING)

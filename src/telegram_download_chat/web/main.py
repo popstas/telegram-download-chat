@@ -64,10 +64,13 @@ async def run_download(options: CLIOptions) -> Path:
         downloader.logger.setLevel(logging.DEBUG)
     progress_placeholder = st.empty()
     status_placeholder = st.empty()
+    stop_placeholder = st.empty()
     handler = ProgressHandler(
         progress_placeholder.progress(0), status_placeholder, options.limit
     )
     downloader.logger.addHandler(handler)
+    if stop_placeholder.button("Stop"):
+        downloader.stop()
 
     ctx = DownloaderContext(downloader)
     downloads_dir = Path(
@@ -97,6 +100,7 @@ async def run_download(options: CLIOptions) -> Path:
     downloader.logger.removeHandler(handler)
     progress_placeholder.progress(1.0)
     status_placeholder.text("Download complete")
+    stop_placeholder.empty()
     return output_file.with_suffix(".txt")
 
 

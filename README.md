@@ -16,6 +16,7 @@ A powerful command-line utility to download and analyze Telegram chat history in
 - Extract sub-conversations from message threads
 - Output results summary in JSON format
 - Search messages for specific keywords
+- Use presets for common option sets via `--preset`
 - Cross-platform support (Windows, macOS, Linux)
 - Optional graphical user interface (GUI) for easier interaction
 - Core functionality resides under the `telegram_download_chat.core` package for easier maintenance.
@@ -144,6 +145,12 @@ settings:
 users_map:
   123456: "Alice"
   789012: "Bob"
+
+# Presets for frequently used argument sets
+presets:
+  - name: short
+    args:
+      limit: 100
 ```
 
 You can also specify a custom config file location using the `--config` flag.
@@ -206,6 +213,9 @@ telegram-download-chat username --results-json
 
 # Search chat for keywords
 telegram-download-chat username --keywords "@user,hello"
+
+# Use predefined preset
+telegram-download-chat username --preset short
 ```
 
 ### Command Line Options
@@ -238,6 +248,7 @@ options:
   --show-config         Show config file location and exit
   --results-json        Output results summary as JSON to stdout
   --keywords KEYWORDS  Comma-separated keywords to search in messages
+  --preset PRESET     Use preset from config
   -v, --version         Show program's version number and exit
 ```
 

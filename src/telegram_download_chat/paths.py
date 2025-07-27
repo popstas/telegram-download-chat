@@ -42,6 +42,7 @@ def get_default_config() -> Dict[str, Any]:
     """
     return {
         "settings": {"api_id": "YOUR_API_ID", "api_hash": "YOUR_API_HASH"},
+        "presets": [],
     }
 
 

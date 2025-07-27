@@ -34,3 +34,12 @@ users_map:
 # Titles for groups and channels are fetched automatically
 chats_map:
   100123456: "MyGroup"
+
+# Optional presets for frequently used argument combinations
+presets:
+  - name: short
+    args:
+      limit: 100
+  - name: yearly
+    args:
+      split: year

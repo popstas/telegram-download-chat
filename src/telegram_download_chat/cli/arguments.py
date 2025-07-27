@@ -30,6 +30,7 @@ class CLIOptions:
     sort: str = "asc"
     results_json: bool = False
     keywords: Optional[str] = None
+    preset: Optional[str] = None
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -119,6 +120,11 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--keywords",
         type=str,
         help="Comma-separated keywords to search in messages",
+    )
+    parser.add_argument(
+        "--preset",
+        type=str,
+        help="Name of preset from config to use",
     )
 
     args = parser.parse_args(argv)

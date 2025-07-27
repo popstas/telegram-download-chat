@@ -44,7 +44,13 @@ class SessionManager:
 
             logging.info(f"Attempting login with phone: {phone}")
 
-            if not hasattr(tab, "downloader") or not tab.downloader:
+            # If the user hasn't requested a verification code yet, the
+            # `phone_code_hash` attribute will be empty. Earlier versions
+            # relied on the downloader instance being present, but the
+            # downloader is now closed right after sending the code to avoid
+            # database locks.  We only need the phone_code_hash for signing in,
+            # so check that instead of the downloader instance.
+            if not getattr(tab, "phone_code_hash", None):
                 error_msg = "Please request a verification code first."
                 logging.error(error_msg)
                 QMessageBox.critical(tab, "Error", error_msg)

@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -41,6 +41,10 @@ class SettingsTab(QWidget):
 
     # Signal emitted when the user logs in or out
     auth_state_changed = Signal(bool)  # is_authenticated
+
+    # Signals for code request completion
+    code_request_done = Signal(str)
+    code_request_error = Signal(str)
 
     def __init__(self, parent=None):
         """Initialize the settings tab.
@@ -292,6 +296,10 @@ class SettingsTab(QWidget):
         self.get_code_btn.clicked.connect(self._request_code)
         self.login_btn.clicked.connect(self.session_manager.login)
 
+        # Async results from background threads
+        self.code_request_done.connect(self._on_code_request_done)
+        self.code_request_error.connect(self._on_code_error)
+
         # Logout
         self.logout_btn.clicked.connect(self.session_manager.logout)
 
@@ -364,10 +372,6 @@ class SettingsTab(QWidget):
     async def _validate_session_async(self):
         """Asynchronously validate the Telegram session."""
         try:
-            # Skip on logout process
-            if not self.logout_btn.isEnabled():
-                return
-
             # First ensure we have valid API credentials
             if not (self.api_id_edit.text() and self.api_hash_edit.text()):
                 self._set_logged_in(False, show_login=True)
@@ -608,10 +612,10 @@ class SettingsTab(QWidget):
                     asyncio.run(
                         asyncio.wait_for(self._request_code_async(phone), timeout=60)
                     )
-                    QTimer.singleShot(0, lambda: self._on_code_request_done(phone))
+                    self.code_request_done.emit(phone)
                 except Exception as e:
                     logging.error(f"Error in run_async: {e}", exc_info=True)
-                    QTimer.singleShot(0, lambda: self._on_code_error(str(e)))
+                    self.code_request_error.emit(str(e))
 
             # Start the async task in a separate thread
             import threading

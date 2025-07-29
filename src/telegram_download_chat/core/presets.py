@@ -60,3 +60,17 @@ def apply_preset(preset: Dict[str, Any], args: Any) -> Any:
             args[key] = value
 
     return args
+
+
+def is_preset_modified(preset: Dict[str, Any], args: Any) -> bool:
+    """Return ``True`` if *args* differs from *preset* values."""
+
+    for key, value in preset.items():
+        current = None
+        if hasattr(args, key):
+            current = getattr(args, key)
+        elif isinstance(args, dict):
+            current = args.get(key)
+        if current != value:
+            return True
+    return False

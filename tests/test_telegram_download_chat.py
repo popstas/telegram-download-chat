@@ -331,6 +331,26 @@ class TestFilterMessagesBySubchat:
         assert obj.chat == "test"
         assert obj.limit == 10
 
+    def test_is_preset_modified(self):
+        """is_preset_modified detects differences between preset and args."""
+        from telegram_download_chat.core.presets import is_preset_modified
+
+        class Dummy:
+            chat = "foo"
+            limit = 5
+
+        preset = {"chat": "foo", "limit": 5}
+        obj = Dummy()
+
+        assert is_preset_modified(preset, obj) is False
+        obj.limit = 6
+        assert is_preset_modified(preset, obj) is True
+
+        data = {"chat": "foo", "limit": 5}
+        assert is_preset_modified(preset, data) is False
+        data["limit"] = 7
+        assert is_preset_modified(preset, data) is True
+
 
 class TestAnalyzeKeywords:
     """Tests for analyze_keywords helper."""

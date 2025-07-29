@@ -15,6 +15,7 @@ from telegram_download_chat.core import DownloaderContext, TelegramChatDownloade
 from telegram_download_chat.core.presets import (
     add_preset,
     apply_preset,
+    is_preset_modified,
     load_presets,
     remove_preset,
 )
@@ -169,7 +170,26 @@ def build_options() -> CLIOptions | None:
         on_change=on_preset_change,
     )
 
-    col_save, col_del = st.columns(2)
+    current_values = {
+        name: st.session_state.get(f"form_{name}", val)
+        for name, val in defaults.items()
+    }
+    selected_name = st.session_state.get("form_preset") or ""
+    selected_preset = next(
+        (p for p in presets if p.get("name") == selected_name),
+        None,
+    )
+
+    col_update, col_save, col_del = st.columns(3)
+    if (
+        selected_name
+        and selected_preset
+        and is_preset_modified(selected_preset.get("args", {}), current_values)
+        and col_update.button("Update preset")
+    ):
+        add_preset(selected_name, current_values)
+        st.session_state["new_preset_to_select"] = selected_name
+
     if col_save.button("Save as preset"):
         st.session_state["show_preset_input"] = True
     if st.session_state.get("form_preset") and col_del.button(

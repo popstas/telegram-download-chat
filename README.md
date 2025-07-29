@@ -404,7 +404,11 @@ telegram-download-chat-web
 The web interface provides a simple form to input chat identifiers and
 download a limited number of messages. It saves your previous values in
 the same `config.yml` under `form_settings` so you can easily tweak
-options.
+options. The selected preset is stored there as well. Presets from the config can be selected in a dropdown. Selecting a preset immediately fills the form with its values. Use
+"Save as preset" to store the current form values (existing presets with
+the same name are replaced), update the chosen preset when the form
+differs using the **Update preset** button, or delete it via the trash
+icon.
 
 ## Output Formats
 

@@ -12,6 +12,13 @@ import streamlit as st
 
 from telegram_download_chat.cli.arguments import CLIOptions
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
+from telegram_download_chat.core.presets import (
+    add_preset,
+    apply_preset,
+    is_preset_modified,
+    load_presets,
+    remove_preset,
+)
 from telegram_download_chat.gui.utils import ConfigManager
 from telegram_download_chat.paths import get_default_config_path, get_downloads_dir
 
@@ -129,14 +136,96 @@ def build_options() -> CLIOptions | None:
         "split": "",
         "sort": "asc",
         "keywords": "",
+        "preset": "",
     }
     defaults.update(load_form_state())
+
+    presets = load_presets()
+    preset_names = [p.get("name") for p in presets]
+
     if "form" not in st.session_state:
         st.session_state["form"] = defaults.copy()
+
+    if "new_preset_to_select" in st.session_state:
+        st.session_state["form_preset"] = st.session_state.pop("new_preset_to_select")
+
+    if "form_chat" not in st.session_state and st.session_state["form"].get("preset"):
+        name = st.session_state["form"]["preset"]
+        for p in presets:
+            if p.get("name") == name:
+                apply_preset(p.get("args", {}), st.session_state["form"])
+                break
+
     for name, val in defaults.items():
         st.session_state.setdefault(
             f"form_{name}", st.session_state["form"].get(name, val)
         )
+
+    def on_preset_change() -> None:
+        name = st.session_state.get("form_preset", "")
+        for p in presets:
+            if p.get("name") == name:
+                apply_preset(p.get("args", {}), st.session_state["form"])
+                st.session_state["form"]["preset"] = name
+                for k, v in st.session_state["form"].items():
+                    key = f"form_{k}"
+                    if key in st.session_state:
+                        st.session_state[key] = v
+                break
+
+    st.selectbox(
+        "Preset",
+        [""] + preset_names,
+        key="form_preset",
+        on_change=on_preset_change,
+    )
+
+    current_values = {
+        name: st.session_state.get(f"form_{name}", val)
+        for name, val in defaults.items()
+    }
+    selected_name = st.session_state.get("form_preset") or ""
+    selected_preset = next(
+        (p for p in presets if p.get("name") == selected_name),
+        None,
+    )
+
+    col_update, col_save, col_del = st.columns(3)
+    if (
+        selected_name
+        and selected_preset
+        and is_preset_modified(selected_preset.get("args", {}), current_values)
+        and col_update.button("Update preset")
+    ):
+        add_preset(selected_name, current_values)
+        st.session_state["new_preset_to_select"] = selected_name
+
+    if col_save.button("Save as preset"):
+        st.session_state["show_preset_input"] = True
+    if st.session_state.get("form_preset") and col_del.button(
+        "\U0001F5D1 Delete preset"
+    ):
+        st.session_state["confirm_delete_preset"] = True
+
+    if st.session_state.get("show_preset_input"):
+        name = st.text_input("Preset name", key="preset_name_input")
+        c1, c2 = st.columns(2)
+        if c1.button("Save"):
+            if name:
+                add_preset(name, st.session_state["form"])
+                st.session_state["new_preset_to_select"] = name
+            st.session_state["show_preset_input"] = False
+        if c2.button("Cancel"):
+            st.session_state["show_preset_input"] = False
+
+    if st.session_state.get("confirm_delete_preset"):
+        d1, d2 = st.columns(2)
+        if d1.button("Confirm delete"):
+            remove_preset(st.session_state["form_preset"])
+            st.session_state["new_preset_to_select"] = ""
+            st.session_state["confirm_delete_preset"] = False
+        if d2.button("Cancel"):
+            st.session_state["confirm_delete_preset"] = False
 
     with st.form("download_form", clear_on_submit=False):
         chat = st.text_input("Chat ID or username", key="form_chat")
@@ -178,6 +267,7 @@ def build_options() -> CLIOptions | None:
         "split": split or "",
         "sort": sort,
         "keywords": keywords,
+        "preset": st.session_state.get("form_preset", ""),
     }
     save_form_state(st.session_state["form"])
 
@@ -199,6 +289,7 @@ def build_options() -> CLIOptions | None:
         sort=sort,
         results_json=False,
         keywords=keywords or None,
+        preset=st.session_state.get("form_preset") or None,
     )
 
 

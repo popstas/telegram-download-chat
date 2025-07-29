@@ -120,9 +120,9 @@ async def async_main() -> int:
         if not preset_config:
             downloader.logger.error(f"Preset '{args.preset}' not found")
             return 1
-        for key, value in preset_config.items():
-            if hasattr(args, key):
-                setattr(args, key, value)
+        from telegram_download_chat.core.presets import apply_preset
+
+        apply_preset(preset_config, args)
     ctx = DownloaderContext(downloader, cli=True)
     _downloader_ctx = ctx
 

@@ -39,3 +39,24 @@ def remove_preset(name: str) -> None:
     """Remove a preset from the configuration."""
     presets = [p for p in load_presets() if p.get("name") != name]
     save_presets(presets)
+
+
+def apply_preset(preset: Dict[str, Any], args: Any) -> Any:
+    """Apply values from *preset* to *args* object.
+
+    Parameters
+    ----------
+    preset:
+        Dictionary with argument overrides.
+    args:
+        Object to update. Attributes matching the keys in ``preset`` will be
+        replaced. The object is returned for convenience.
+    """
+
+    for key, value in preset.items():
+        if hasattr(args, key):
+            setattr(args, key, value)
+        elif isinstance(args, dict):
+            args[key] = value
+
+    return args

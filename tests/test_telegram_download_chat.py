@@ -317,6 +317,20 @@ class TestFilterMessagesBySubchat:
         args, kwargs = mock_downloader.download_chat.call_args
         assert kwargs.get("request_limit") == 5
 
+    def test_apply_preset_helper(self):
+        """apply_preset should update attributes on target object."""
+        from telegram_download_chat.core.presets import apply_preset
+
+        class Dummy:
+            chat = None
+            limit = 0
+
+        obj = Dummy()
+        apply_preset({"chat": "test", "limit": 10}, obj)
+
+        assert obj.chat == "test"
+        assert obj.limit == 10
+
 
 class TestAnalyzeKeywords:
     """Tests for analyze_keywords helper."""

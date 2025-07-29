@@ -139,17 +139,27 @@ def build_options() -> CLIOptions | None:
         "preset": "",
     }
     defaults.update(load_form_state())
+
+    presets = load_presets()
+    preset_names = [p.get("name") for p in presets]
+
     if "form" not in st.session_state:
         st.session_state["form"] = defaults.copy()
+
     if "new_preset_to_select" in st.session_state:
         st.session_state["form_preset"] = st.session_state.pop("new_preset_to_select")
+
+    if "form_chat" not in st.session_state and st.session_state["form"].get("preset"):
+        name = st.session_state["form"]["preset"]
+        for p in presets:
+            if p.get("name") == name:
+                apply_preset(p.get("args", {}), st.session_state["form"])
+                break
+
     for name, val in defaults.items():
         st.session_state.setdefault(
             f"form_{name}", st.session_state["form"].get(name, val)
         )
-
-    presets = load_presets()
-    preset_names = [p.get("name") for p in presets]
 
     def on_preset_change() -> None:
         name = st.session_state.get("form_preset", "")

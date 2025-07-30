@@ -90,6 +90,15 @@ class TestCLIArgumentParsing:
             args = parse_args()
             assert args.preset == "short"
 
+    def test_since_id_argument(self):
+        """Test parsing of --since-id option."""
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--since-id", "123"],
+        ):
+            args = parse_args()
+            assert args.since_id == 123
+
 
 class TestFilterMessagesBySubchat:
     """Tests for filter_messages_by_subchat function."""
@@ -316,6 +325,63 @@ class TestFilterMessagesBySubchat:
 
         args, kwargs = mock_downloader.download_chat.call_args
         assert kwargs.get("request_limit") == 5
+
+    @pytest.mark.asyncio
+    async def test_since_id_passed(self, mock_downloader, tmp_path):
+        """Test that --since-id is forwarded to download_chat."""
+        mock_downloader.connect = AsyncMock()
+        mock_downloader.close = AsyncMock()
+        mock_downloader.cleanup_stop_file = MagicMock()
+        mock_downloader.config = {"settings": {"save_path": str(tmp_path)}}
+        mock_downloader.get_entity_name = AsyncMock(return_value="chat")
+        mock_downloader.download_chat = AsyncMock(return_value=[])
+
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--since-id", "42"],
+        ), patch(
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
+        ):
+            await async_main()
+
+        args, kwargs = mock_downloader.download_chat.call_args
+        assert kwargs.get("since_id") == 42
+
+    @pytest.mark.asyncio
+    async def test_resume_from_existing_file(self, tmp_path):
+        """When --since-id is not provided, last ID from file is used."""
+        from datetime import datetime
+
+        existing = [{"id": 10, "date": "2025-07-10T12:00:00"}]
+        output_file = tmp_path / "chat.json"
+        output_file.write_text(json.dumps(existing))
+
+        mock_downloader = AsyncMock()
+        mock_downloader.config = {"settings": {"save_path": str(tmp_path)}}
+        mock_downloader.logger = MagicMock()
+        mock_downloader.get_entity_name = AsyncMock(return_value="chat")
+        mock_downloader.get_entity_full_name = AsyncMock(return_value="Chat")
+        mock_downloader.get_entity = AsyncMock(return_value=MagicMock(id=123))
+        msg = MagicMock()
+        msg.id = 11
+        msg.date = datetime(2025, 7, 11, 12, 0, 0)
+        mock_downloader.download_chat = AsyncMock(return_value=[msg])
+        mock_downloader.save_messages = AsyncMock()
+
+        with patch(
+            "sys.argv",
+            ["script_name", "chat"],
+        ), patch(
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
+        ):
+            await async_main()
+
+        args, kwargs = mock_downloader.download_chat.call_args
+        assert kwargs.get("since_id") == 10
+        saved_msgs = mock_downloader.save_messages.call_args[0][0]
+        assert len(saved_msgs) == 2
 
     def test_apply_preset_helper(self):
         """apply_preset should update attributes on target object."""

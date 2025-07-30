@@ -194,6 +194,23 @@ async def process_chat_download(
                 )
             )
 
+    since_id = args.since_id
+    existing_messages: List[Any] = []
+    output_path = Path(output_file)
+    if since_id is None and output_path.exists():
+        try:
+            with open(output_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    existing_messages = data
+                    ids = [
+                        m.get("id") for m in data if isinstance(m, dict) and "id" in m
+                    ]
+                    if ids:
+                        since_id = max(ids)
+        except Exception as e:  # pragma: no cover - just logging
+            downloader.logger.warning(f"Failed to read existing file: {e}")
+
     download_kwargs = {
         "chat_id": chat_identifier,
         "request_limit": args.limit if args.limit > 0 else 100,
@@ -203,9 +220,14 @@ async def process_chat_download(
     }
     if args.until:
         download_kwargs["until_date"] = args.until
+    if since_id is not None:
+        download_kwargs["since_id"] = since_id
 
     messages = await downloader.download_chat(**download_kwargs)
     downloader.logger.debug(f"Downloaded {len(messages)} messages")
+
+    if existing_messages:
+        messages = existing_messages + messages
 
     if args.subchat:
         messages = filter_messages_by_subchat(messages, args.subchat)

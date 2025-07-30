@@ -17,6 +17,7 @@ class CLIOptions:
     chats: List[str] = field(default_factory=list)
     output: Optional[str] = None
     limit: int = 0
+    since_id: Optional[int] = None
     config: Optional[str] = None
     debug: bool = False
     show_config: bool = False
@@ -54,6 +55,11 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         type=int,
         default=0,
         help="Maximum number of messages to download (default: 0 - no limit)",
+    )
+    parser.add_argument(
+        "--since-id",
+        type=int,
+        help="Start downloading after the specified message ID",
     )
     parser.add_argument(
         "-c",

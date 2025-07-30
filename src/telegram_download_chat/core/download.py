@@ -26,13 +26,14 @@ class DownloadMixin:
         save_partial: bool = True,
         silent: bool = False,
         until_date: Optional[str] = None,
+        since_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         if not self.client:
             await self.connect()
 
         entity = await self.get_entity(chat_id)
 
-        offset_id = 0
+        offset_id = since_id or 0
         all_messages: List[Any] = []
 
         output_path = Path(output_file) if output_file else None
@@ -40,7 +41,7 @@ class DownloadMixin:
             loaded_messages, last_id = self._load_partial_messages(output_path)
             if loaded_messages:
                 all_messages = loaded_messages
-                offset_id = last_id
+                offset_id = max(offset_id, last_id)
                 if not silent:
                     self.logger.info(
                         f"Resuming download from message ID {offset_id}..."
@@ -66,7 +67,7 @@ class DownloadMixin:
                         add_offset=0,
                         limit=request_limit,
                         max_id=0,
-                        min_id=0,
+                        min_id=since_id or 0,
                         hash=0,
                     )
                 )
@@ -106,7 +107,8 @@ class DownloadMixin:
                             )
                         break
 
-                new_messages.append(msg)
+                if since_id is None or msg.id > since_id:
+                    new_messages.append(msg)
 
             all_messages.extend(new_messages)
 
@@ -122,6 +124,8 @@ class DownloadMixin:
                 break
 
             offset_id = min(msg.id for msg in history.messages)
+            if since_id is not None and offset_id <= since_id:
+                break
             total_fetched = len(all_messages)
 
             current_time = asyncio.get_event_loop().time()

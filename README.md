@@ -235,6 +235,9 @@ telegram-download-chat username --keywords "@user,hello"
 
 # Use predefined preset
 telegram-download-chat username --preset short
+
+# Resume download starting after a specific message ID
+telegram-download-chat username --since-id 5000
 ```
 
 ### Command Line Options
@@ -255,6 +258,7 @@ options:
   -h, --help            show this help message and exit
   -o, --output OUTPUT    Output file path (default: chat_<chat_id>.json)
   -l, --limit LIMIT     Maximum number of messages to download (default: 0 - no limit)
+  --since-id SINCE_ID  Start downloading after this message ID
   --from DATE           Base date for --last-days (format: YYYY-MM-DD)
   --last-days DAYS      Number of days back from --from (or today) to download
   --until DATE          Only download messages until this date (format: YYYY-MM-DD)
@@ -298,6 +302,7 @@ The tool will process the archive and generate both JSON and TXT files with the 
 
 ### Resuming Interrupted Downloads
 If the download is interrupted, you can simply run the same command again to resume from where it left off. The tool automatically saves progress to a temporary file.
+You can also resume later using `--since-id` with the last downloaded message ID or let the tool read it from the existing JSON file.
 
 ### User Mapping
 Display names for users and bots are collected automatically. You can override them in the `users_map` section:

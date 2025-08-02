@@ -72,6 +72,12 @@ class TestCLIArgumentParsing:
             assert args.results_json is True
             assert args.chats == ["chat"]
 
+    def test_jsonl_argument(self):
+        """Test parsing of --jsonl option."""
+        with patch("sys.argv", ["script_name", "chat", "--jsonl"]):
+            args = parse_args()
+            assert args.jsonl is True
+
     def test_keywords_argument(self):
         """Test parsing of --keywords option."""
         with patch(
@@ -594,6 +600,35 @@ class TestCLIExecution:
         assert result_info["messages"] == 1
         assert result_info["from"] == "2025-07-10"
         assert result_info["to"] == "2025-07-10"
+
+    @pytest.mark.asyncio
+    async def test_jsonl_save_called(self, tmp_path):
+        """save_messages_as_jsonl called when --jsonl flag used."""
+        mock_downloader = AsyncMock()
+        mock_downloader.config = {"settings": {"save_path": str(tmp_path)}}
+        mock_downloader.logger = MagicMock()
+        mock_downloader.get_entity_name = AsyncMock(return_value="chat")
+        mock_downloader.get_entity_full_name = AsyncMock(return_value="Chat")
+        mock_downloader.get_entity = AsyncMock(return_value=MagicMock(id=123))
+        from datetime import datetime
+
+        msg = MagicMock()
+        msg.id = 1
+        msg.date = datetime(2025, 7, 10, 12, 0, 0)
+        mock_downloader.download_chat = AsyncMock(return_value=[msg])
+        mock_downloader.save_messages = AsyncMock()
+        mock_downloader.save_messages_as_jsonl = AsyncMock()
+
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--jsonl"],
+        ), patch(
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
+        ), patch("telegram_download_chat.paths.get_app_dir", return_value=tmp_path):
+            await async_main()
+
+        mock_downloader.save_messages_as_jsonl.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_multiple_chats_download(self, tmp_path):

@@ -13,6 +13,7 @@ A powerful command-line utility to download and analyze Telegram chat history in
 - Download chats folder
 - Save messages in JSON format with full message metadata
 - Generate human and LLM readable TXT exports with user-friendly display names
+- Optionally save plain message texts in JSONL format with `--jsonl`
 - Filter messages by date range and specific users
 - Extract sub-conversations from message threads
 - Output results summary in JSON format
@@ -434,6 +435,9 @@ A human-readable version of the chat with:
 - Display names from your `users_map`
 - Message content with basic formatting
 - Reply indicators
+
+### JSONL Output (`[chat_name].jsonl`)
+Plain message texts only, one per line encoded as JSON. Enable with `--jsonl`.
 
 ### Example Output Structure
 

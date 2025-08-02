@@ -170,6 +170,18 @@ async def save_txt_with_status(
     )
 
 
+async def save_jsonl_with_status(
+    downloader: TelegramChatDownloader,
+    messages: List[Any],
+    jsonl_file: Path,
+) -> int:
+    """Save only message texts to JSONL with progress output."""
+    return await _run_with_status(
+        downloader.save_messages_as_jsonl(messages, jsonl_file),
+        downloader.logger,
+    )
+
+
 async def process_chat_download(
     downloader: TelegramChatDownloader,
     chat_identifier: Any,
@@ -289,6 +301,9 @@ async def process_chat_download(
                 await save_messages_with_status(
                     downloader, messages, output_file, args.sort
                 )
+                if args.jsonl:
+                    jsonl_path = Path(output_file).with_suffix(".jsonl")
+                    await save_jsonl_with_status(downloader, messages, jsonl_path)
             else:
                 output_path = Path(output_file)
                 base_name = output_path.stem
@@ -298,6 +313,9 @@ async def process_chat_download(
                     await save_messages_with_status(
                         downloader, msgs, str(split_file), args.sort
                     )
+                    if args.jsonl:
+                        jsonl_file = Path(split_file).with_suffix(".jsonl")
+                        await save_jsonl_with_status(downloader, msgs, jsonl_file)
                     downloader.logger.info(
                         f"Saved {len(msgs)} messages to {split_file}"
                     )
@@ -308,6 +326,9 @@ async def process_chat_download(
             await save_messages_with_status(
                 downloader, messages, output_file, args.sort
             )
+            if args.jsonl:
+                jsonl_path = Path(output_file).with_suffix(".jsonl")
+                await save_jsonl_with_status(downloader, messages, jsonl_path)
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")
         return {"chat_id": chat_identifier, "error": str(e)}
@@ -331,6 +352,9 @@ async def process_chat_download(
         "to": last_date,
         "result_json": output_file,
         "result_txt": str(Path(output_file).with_suffix(".txt")),
+        "result_jsonl": str(Path(output_file).with_suffix(".jsonl"))
+        if args.jsonl
+        else None,
         "keywords": keywords_data,
     }
 
@@ -391,6 +415,9 @@ async def convert(
             saved = await save_txt_with_status(
                 downloader, messages, txt_path, args.sort
             )
+            if args.jsonl:
+                jsonl_path = txt_path.with_suffix(".jsonl")
+                await save_jsonl_with_status(downloader, messages, jsonl_path)
             saved_relative = get_relative_to_downloads_dir(txt_path)
             downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
         else:
@@ -403,6 +430,9 @@ async def convert(
                 )
                 saved_relative = get_relative_to_downloads_dir(split_file)
                 downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
+                if args.jsonl:
+                    jsonl_file = split_file.with_suffix(".jsonl")
+                    await save_jsonl_with_status(downloader, msgs, jsonl_file)
             downloader.logger.info(
                 f"Saved {len(split_messages)} split files in {txt_path.parent}"
             )
@@ -410,6 +440,9 @@ async def convert(
         saved = await save_txt_with_status(downloader, messages, txt_path, args.sort)
         saved_relative = get_relative_to_downloads_dir(txt_path)
         downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
+        if args.jsonl:
+            jsonl_path = txt_path.with_suffix(".jsonl")
+            await save_jsonl_with_status(downloader, messages, jsonl_path)
 
     downloader.logger.debug("Conversion completed successfully")
     return {
@@ -422,6 +455,7 @@ async def convert(
         "to": last_date,
         "result_json": str(json_path),
         "result_txt": str(txt_path),
+        "result_jsonl": str(json_path.with_suffix(".jsonl")) if args.jsonl else None,
         "keywords": keywords_data,
     }
 
@@ -471,6 +505,7 @@ __all__ = [
     "analyze_keywords",
     "save_messages_with_status",
     "save_txt_with_status",
+    "save_jsonl_with_status",
     "process_chat_download",
     "convert",
     "folder",

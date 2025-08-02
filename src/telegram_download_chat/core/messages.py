@@ -231,3 +231,28 @@ class MessagesMixin:
 
         output_file_relative = get_relative_to_downloads_dir(output_path)
         self.logger.info(f"Saved {len(messages)} messages to {output_file_relative}")
+
+    async def save_messages_as_jsonl(
+        self, messages: List[Any], jsonl_path: Path
+    ) -> int:
+        """Save only message texts to a JSONL file."""
+        saved = 0
+        jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        for msg in messages:
+            try:
+                msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
+                text = msg_dict.get("text") or msg_dict.get("message") or ""
+                if isinstance(text, list):
+                    text = "".join(
+                        part if isinstance(part, str) else part.get("text", "")
+                        for part in text
+                    )
+                elif not isinstance(text, str):
+                    text = str(text)
+                with open(jsonl_path, "a", encoding="utf-8") as f:
+                    json.dump(text, f, ensure_ascii=False)
+                    f.write("\n")
+                saved += 1
+            except Exception as e:
+                logging.warning(f"Error saving message to JSONL: {e}")
+        return saved

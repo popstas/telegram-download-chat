@@ -86,13 +86,14 @@ async def run_download(options: CLIOptions) -> Path:
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
     async with ctx:
-        chat_name = await downloader.get_entity_name(options.chat)
+        entity = await downloader.get_entity(options.chat)
+        chat_name = getattr(entity, 'title', options.chat)
         output_file = (
             Path(options.output)
             if options.output
-            else downloads_dir / f"{chat_name}.json"
+            else downloads_dir / f"{getattr(entity, 'title', chat_name)}.json"
         )
-        messages = await downloader.download_chat(
+        messages_by_topic = await downloader.download_chat(
             chat_id=options.chat,
             request_limit=min(100, options.limit or 100),
             total_limit=options.limit or 0,
@@ -100,14 +101,26 @@ async def run_download(options: CLIOptions) -> Path:
             silent=False,
             until_date=options.until,
         )
-        await downloader.save_messages(
-            messages, str(output_file), sort_order=options.sort
-        )
+        last_output_file = None
+        for topic_title, messages in messages_by_topic.items():
+            if len(messages_by_topic) > 1:
+                safe_topic_title = "".join(c for c in topic_title if c.isalnum() or c in " -_").rstrip()
+                output_file = downloads_dir / f"{entity.title}-{safe_topic_title}.json"
+            else:
+                output_file = downloads_dir / f"{entity.title}.json"
+            await downloader.save_messages(messages, str(output_file), sort_order=options.sort)
+            last_output_file = output_file
+        
+        if last_output_file:
+            return last_output_file.with_suffix(".txt")
+        else:
+            return Path()
 
     downloader.logger.removeHandler(handler)
     progress_placeholder.progress(1.0)
     status_placeholder.text("Download complete")
     stop_placeholder.empty()
+    downloader.logger.info(f"Output file: {output_file}")
     return output_file.with_suffix(".txt")
 
 
@@ -141,82 +154,191 @@ def get_default_form_values() -> dict:
 def build_options() -> CLIOptions | None:
     """Render the input form and return CLIOptions if submitted."""
 
-    # --- State Initialization ---
-    if "form" not in st.session_state:
-        defaults = get_default_form_values()
-        defaults.update(load_form_state())
-        st.session_state.form = defaults
+    defaults = {
+        "chat": "",
+        "output": "",
+        "limit": 0,
+        "from_date": "",
+        "last_days": 0,
+        "until": "",
+        "split": "",
+        "sort": "asc",
+        "keywords": "",
+        "preset": "",
+    }
+    defaults.update(load_form_state())
 
-    # --- Preset Handling ---
     presets = load_presets()
     preset_names = [p.get("name") for p in presets]
 
-    def on_preset_change():
-        # Read the widget's new value directly from its key in session_state.
-        preset_name = st.session_state["form.preset"]
-        selected_preset = next((p for p in presets if p["name"] == preset_name), None)
-        if selected_preset:
-            st.session_state.form.update(selected_preset.get("args", {}))
-            st.session_state.form["preset"] = preset_name
-        else:
-            st.session_state.form = get_default_form_values()
+    if "form" not in st.session_state:
+        st.session_state["form"] = defaults.copy()
+
+    if "new_preset_to_select" in st.session_state:
+        st.session_state["form_preset"] = st.session_state.pop("new_preset_to_select")
+        # Immediately apply the new preset's values
+        name = st.session_state["form_preset"]
+        for p in presets:
+            if p.get("name") == name:
+                for key, value in p.get("args", {}).items():
+                    st.session_state[f"form_{key}"] = value
+
+    if "form_chat" not in st.session_state and st.session_state["form"].get("preset"):
+        name = st.session_state["form"]["preset"]
+        for p in presets:
+            if p.get("name") == name:
+                apply_preset(p.get("args", {}), st.session_state["form"])
+                break
+
+    for name, val in defaults.items():
+        st.session_state.setdefault(
+            f"form_{name}", st.session_state["form"].get(name, val)
+        )
+
+    def on_preset_change() -> None:
+        name = st.session_state["form_preset"]
+        # First, reset all form fields to their default values
+        for key, value in get_default_form_values().items():
+            st.session_state[f"form_{key}"] = value
+
+        for p in presets:
+            if p.get("name") == name:
+                for key, value in p.get("args", {}).items():
+                    st.session_state[f"form_{key}"] = value
+                break
+        else:  # If preset is cleared
+            for key, value in get_default_form_values().items():
+                st.session_state[f"form_{key}"] = value
 
     st.selectbox(
         "Preset",
         [""] + preset_names,
-        key="form.preset",
+        key="form_preset",
         on_change=on_preset_change,
     )
 
-    # --- Form Definition ---
+    current_values = {
+        name: st.session_state.get(f"form_{name}", val) or ""
+        for name, val in defaults.items()
+    }
+    selected_name = st.session_state.get("form_preset") or ""
+    selected_preset = next(
+        (p for p in presets if p.get("name") == selected_name),
+        None,
+    )
+
+    col_update, col_save, col_del = st.columns(3)
+    if (
+        selected_name
+        and selected_preset
+        and is_preset_modified(selected_preset.get("args", {}), current_values)
+        and col_update.button("Update preset")
+    ):
+        add_preset(selected_name, current_values)
+        st.session_state["new_preset_to_select"] = selected_name
+
+    if col_save.button("Save as preset"):
+        st.session_state["show_preset_input"] = True
+    if st.session_state.get("form_preset") and col_del.button(
+        "\U0001F5D1 Delete preset"
+    ):
+        st.session_state["confirm_delete_preset"] = True
+
+    if st.session_state.get("show_preset_input"):
+        with st.form("preset_form"):
+            st.text_input("New preset name", key="preset_name_input")
+            
+            c1, c2 = st.columns(2)
+            save_submitted = c1.form_submit_button("Save", use_container_width=True)
+            cancel_submitted = c2.form_submit_button("Cancel", use_container_width=True)
+
+            if save_submitted:
+                name = st.session_state.get("preset_name_input", "").strip()
+                if name:
+                    new_preset_args = {
+                        key: st.session_state.get(f"form_{key}") for key in defaults if key != "preset"
+                    }
+                    add_preset(name, {k: v for k, v in new_preset_args.items() if v})
+                    st.session_state["new_preset_to_select"] = name
+                st.session_state["show_preset_input"] = False
+                st.rerun()
+            if cancel_submitted:
+                st.session_state["show_preset_input"] = False
+                st.rerun()
+
+    if st.session_state.get("confirm_delete_preset"):
+        with st.container(border=True):
+            st.warning(f"Are you sure you want to delete the preset '{selected_name}'?")
+            d1, d2 = st.columns(2)
+            if d1.button("Confirm Delete"):
+                remove_preset(selected_name)
+                st.session_state.form_preset = ""
+                st.session_state["confirm_delete_preset"] = False
+                st.session_state.form = get_default_form_values()
+                save_form_state(st.session_state.form)
+                st.rerun()
+            if d2.button("Cancel", key="cancel_delete"):
+                st.session_state["confirm_delete_preset"] = False
+                st.rerun()
+
     with st.form("download_form", clear_on_submit=False):
-        form = st.session_state.form
-        form["chat"] = st.text_input("Chat ID or username", value=form["chat"])
-        form["output"] = st.text_input("Output file path", value=form["output"])
-        form["limit"] = int(st.number_input("Message limit (0 = no limit)", min_value=0, value=form["limit"]))
-        form["from_date"] = st.text_input("Base date for --last-days (YYYY-MM-DD)", value=form["from_date"])
-        form["last_days"] = int(st.number_input("Last days", min_value=0, value=form["last_days"]))
-        form["until"] = st.text_input("Until date (YYYY-MM-DD)", value=form["until"])
+        chat = st.text_input("Chat ID or username", key="form_chat")
+        output = st.text_input("Output file path", key="form_output")
+        limit = int(
+            st.number_input(
+                "Message limit (0 = no limit)",
+                min_value=0,
+                key="form_limit",
+            )
+        )
+        from_date = st.text_input(
+            "Base date for --last-days (YYYY-MM-DD)", key="form_from_date"
+        )
+        last_days = int(st.number_input("Last days", min_value=0, key="form_last_days"))
+        until = st.text_input("Until date (YYYY-MM-DD)", key="form_until")
 
         split_options = ["", "month", "year"]
-        split_idx = split_options.index(form["split"]) if form["split"] in split_options else 0
-        form["split"] = st.selectbox("Split output", split_options, index=split_idx) or ""
+        split_idx = split_options.index(st.session_state.form_split) if st.session_state.form_split in split_options else 0
+        split = st.selectbox("Split output", split_options, index=split_idx, key="form_split") or None
 
         sort_options = ["asc", "desc"]
-        sort_idx = sort_options.index(form["sort"]) if form["sort"] in sort_options else 0
-        form["sort"] = st.selectbox("Sort order", sort_options, index=sort_idx)
+        sort_idx = sort_options.index(st.session_state.form_sort) if st.session_state.form_sort in sort_options else 0
+        sort = st.selectbox("Sort order", sort_options, index=sort_idx, key="form_sort")
 
-        form["keywords"] = st.text_input("Keywords (comma separated)", value=form["keywords"])
+        keywords = st.text_input("Keywords (comma separated)", key="form_keywords")
 
         submitted = st.form_submit_button("Download")
 
     if not submitted:
         return None
 
-    if not form.get("chat"):
+    if not chat:
         st.error("Chat ID is required")
         return None
 
-    save_form_state(form)
+    # Persist form state on successful submission
+    form_state = {key: st.session_state.get(f"form_{key}") for key in defaults}
+    save_form_state(form_state)
 
     return CLIOptions(
-        chat=form.get("chat"),
-        chats=[form.get("chat")] if form.get("chat") else [],
-        output=form.get("output"),
-        limit=form.get("limit"),
+        chat=chat,
+        chats=[chat] if chat else [],
+        output=output,
+        limit=limit,
         config=None,
         debug=False,
         show_config=False,
         subchat=None,
         subchat_name=None,
         user=None,
-        from_date=form.get("from_date"),
-        last_days=form.get("last_days"),
-        until=form.get("until"),
-        split=form.get("split"),
-        sort=form.get("sort"),
+        from_date=from_date,
+        last_days=last_days,
+        until=until,
+        split=split,
+        sort=sort,
         results_json=False,
-        keywords=form.get("keywords"),
+        keywords=keywords,
+        preset=selected_name,
     )
 
 

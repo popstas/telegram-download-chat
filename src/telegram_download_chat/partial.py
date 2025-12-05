@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, Callable, Dict, List, Tuple
 
 
@@ -15,65 +15,51 @@ class PartialDownloadManager:
     ) -> None:
         self.make_serializable = make_serializable
         self.logger = logger or logging.getLogger(__name__)
+        self._last_saved_ids: Dict[PurePath, int] = {}
 
-    def get_temp_file_path(self, output_file: Path) -> Path:
+    def get_temp_file_path(self, output_file: Path, topic_id: int | None = None) -> Path:
         """Return path for temporary partial file."""
-        return output_file.with_suffix(".part.jsonl")
+        if topic_id is not None:
+            return output_file.with_suffix(f".{topic_id}.part.jsonl")
+        return output_file.with_suffix(f".part.jsonl")
 
-    def save_messages(self, messages: List[Dict[str, Any]], output_file: Path) -> None:
+    def save_messages(self, messages: List[Dict[str, Any]], output_file: Path, topic_id: int | None = None) -> None:
         """Save messages to a JSONL temporary file for partial downloads."""
         start_time = time.time()
-        temp_file = self.get_temp_file_path(output_file)
+        temp_file = self.get_temp_file_path(output_file, topic_id)
         temp_file.parent.mkdir(parents=True, exist_ok=True)
 
-        existing_ids: set[int] = set()
-        if temp_file.exists():
-            try:
-                with open(temp_file, "r", encoding="utf-8") as f:
-                    all_lines = f.readlines()
-                    last_10k_lines = (
-                        all_lines[-10000:] if len(all_lines) > 10000 else all_lines
-                    )
-                    for line in last_10k_lines:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            data = json.loads(line)
-                            if isinstance(data, dict) and "i" in data:
-                                existing_ids.add(data["i"])
-                        except json.JSONDecodeError:
-                            continue
-            except IOError:
-                pass
+        last_saved_id = self._last_saved_ids.get(temp_file, 0)
 
         new_saved = 0
+        new_last_id = last_saved_id
         with open(temp_file, "a", encoding="utf-8") as f:
-            for msg in messages[-10000:]:
+            for msg in messages:
                 try:
                     msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
                     serialized = self.make_serializable(msg_dict)
-                    msg_id = (
-                        msg_dict.get("id")
-                        if hasattr(msg_dict, "get")
-                        else getattr(msg_dict, "id", 0)
-                    )
-                    if msg_id not in existing_ids:
+                    msg_id = serialized.get("id", 0)
+
+                    if msg_id > last_saved_id:
                         json.dump({"m": serialized, "i": msg_id}, f, ensure_ascii=False)
                         f.write("\n")
-                        existing_ids.add(msg_id)
                         new_saved += 1
+                        if msg_id > new_last_id:
+                            new_last_id = msg_id
                 except Exception as e:  # pragma: no cover - safety net
                     self.logger.warning(f"Failed to serialize message: {e}")
+
+        if new_last_id > last_saved_id:
+            self._last_saved_ids[temp_file] = new_last_id
 
         elapsed = time.time() - start_time
         self.logger.info(
             f"Saved {new_saved} new messages to partial file in {elapsed:.2f}s"
         )
 
-    def load_messages(self, output_file: Path) -> Tuple[List[Dict[str, Any]], int]:
+    def load_messages(self, output_file: Path, topic_id: int | None = None) -> Tuple[List[Dict[str, Any]], int]:
         """Load messages from partial file if it exists."""
-        temp_file = self.get_temp_file_path(output_file)
+        temp_file = self.get_temp_file_path(output_file, topic_id)
         if not temp_file.exists():
             return [], 0
 
@@ -93,6 +79,7 @@ class PartialDownloadManager:
                     except json.JSONDecodeError as e:
                         logging.warning(f"Skipping invalid JSON line: {e}")
                         continue
+            self._last_saved_ids[temp_file] = last_id
             return messages, last_id
         except (IOError, json.JSONDecodeError) as e:
             logging.warning(f"Error loading partial messages: {e}")

@@ -63,7 +63,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.bump:
-        subprocess.run(["bumpversion", args.bump], check=True)
+        subprocess.run([sys.executable, "-m", "bumpversion", args.bump], check=True)
 
     # Run tests first
     if not run_tests():

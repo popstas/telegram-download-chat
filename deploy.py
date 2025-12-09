@@ -17,10 +17,10 @@ def run_tests():
         print(result.stderr, file=sys.stderr)
 
     if result.returncode != 0:
-        print("\n❌ Tests failed. Aborting deployment.", file=sys.stderr)
+        print("\n[ERROR] Tests failed. Aborting deployment.", file=sys.stderr)
         return False
 
-    print("\n✅ All tests passed!")
+    print("\n[OK] All tests passed!")
     return True
 
 
@@ -74,15 +74,15 @@ def main() -> None:
     check_package()
     upload_package()
 
-    print("\n🚀 Deployment completed successfully!")
+    print("\n[SUCCESS] Deployment completed successfully!")
 
 
 if __name__ == "__main__":
     try:
         main()
     except subprocess.CalledProcessError as e:
-        print(f"\n❌ Error during deployment: {e}", file=sys.stderr)
+        print(f"\n[ERROR] Error during deployment: {e}", file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
-        print("\n🚫 Deployment cancelled by user.")
+        print("\n[CANCELLED] Deployment cancelled by user.")
         sys.exit(1)

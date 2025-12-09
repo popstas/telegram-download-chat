@@ -50,7 +50,7 @@ dev = [
 ]
 
 [tool.bumpversion]
-current_version = "0.5.3"
+current_version = "0.5.4"
 
 [tool.setuptools_scm]
 # Use git tags for versioning

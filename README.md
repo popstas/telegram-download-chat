@@ -359,6 +359,7 @@ The GUI provides all the functionality of the command-line interface with additi
 - **Date Filter**: Download messages only until a specific date
 - **User Filter**: Filter messages by specific sender
 - **Subchat Extraction**: Extract messages from specific threads
+- **Split Output**: Save messages into separate files by month or year
 - **Debug Mode**: Enable detailed logging for troubleshooting
 
 #### Smart Download Management

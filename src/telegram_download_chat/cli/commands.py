@@ -29,21 +29,24 @@ def _parse_date(value: Any) -> datetime | None:
         return None
 
 
-def split_messages_by_date(
-    messages: List[Dict[str, Any]], split_by: str
-) -> Dict[str, List[Dict[str, Any]]]:
+def split_messages_by_date(messages: List[Any], split_by: str) -> Dict[str, List[Any]]:
     """Split messages by month or year based on message date."""
 
     split_messages: Dict[str, List[Dict[str, Any]]] = {}
     for msg in messages:
-        if not msg.get("date"):
+        raw_date = (
+            msg.get("date") if isinstance(msg, dict) else getattr(msg, "date", None)
+        )
+        parsed_date = _parse_date(raw_date)
+        if not parsed_date:
             continue
+
         try:
-            dt = datetime.strptime(msg["date"].split(".")[0], "%Y-%m-%dT%H:%M:%S")
-            key = dt.strftime("%Y-%m" if split_by == "month" else "%Y")
-            split_messages.setdefault(key, []).append(msg)
+            key = parsed_date.strftime("%Y-%m" if split_by == "month" else "%Y")
         except (ValueError, AttributeError):
             continue
+
+        split_messages.setdefault(key, []).append(msg)
     return split_messages
 
 

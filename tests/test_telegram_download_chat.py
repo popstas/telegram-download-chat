@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import sys
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
@@ -23,6 +24,7 @@ from telegram_download_chat.cli import (
     filter_messages_by_subchat,
     parse_args,
     show_config,
+    split_messages_by_date,
 )
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
 
@@ -178,6 +180,45 @@ class TestFilterMessagesBySubchat:
         ]
         with pytest.raises(ValueError, match="Invalid message ID format: abc"):
             filter_messages_by_subchat(messages, "abc")
+
+
+class TestSplitMessagesByDate:
+    """Tests for split_messages_by_date function."""
+
+    def test_splits_dict_messages_by_month(self):
+        """Messages with ISO date strings are grouped by month."""
+
+        messages = [
+            {"id": 1, "date": "2024-01-05T12:00:00"},
+            {"id": 2, "date": "2024-01-15T00:00:00"},
+            {"id": 3, "date": "2024-02-01T08:30:00"},
+        ]
+
+        result = split_messages_by_date(messages, "month")
+
+        assert set(result.keys()) == {"2024-01", "2024-02"}
+        assert [m["id"] for m in result["2024-01"]] == [1, 2]
+        assert [m["id"] for m in result["2024-02"]] == [3]
+
+    def test_splits_objects_by_year(self):
+        """Message objects with datetime attributes are grouped by year."""
+
+        class Message:
+            def __init__(self, message_id: int, date: datetime):
+                self.id = message_id
+                self.date = date
+
+        messages = [
+            Message(1, datetime(2023, 12, 31, 23, 59, 59)),
+            Message(2, datetime(2024, 1, 1, 0, 0, 1)),
+            Message(3, datetime(2024, 6, 1, 12, 0, 0)),
+        ]
+
+        result = split_messages_by_date(messages, "year")
+
+        assert set(result.keys()) == {"2023", "2024"}
+        assert [m.id for m in result["2023"]] == [1]
+        assert [m.id for m in result["2024"]] == [2, 3]
 
     def test_all_arguments(self):
         """Test parsing of all command line arguments."""

@@ -149,6 +149,13 @@ class DownloadTab(QWidget):
         self.sort_combo.setCurrentIndex(0)
         settings_form.addRow("Sort order:", self.sort_combo)
 
+        # Split output
+        self.split_combo = QComboBox()
+        self.split_combo.addItem("Don't split", None)
+        self.split_combo.addItem("By Month", "month")
+        self.split_combo.addItem("By Year", "year")
+        settings_form.addRow("Split output:", self.split_combo)
+
         # Output file selection
         self.output_edit = QLineEdit()
         self.output_edit.setPlaceholderText("Leave empty to use chat name")
@@ -418,6 +425,15 @@ class DownloadTab(QWidget):
             index = 0 if sort_order == "asc" else 1
             self.sort_combo.setCurrentIndex(index)
 
+            split_by = settings.get("split") or None
+            split_index = (
+                self.split_combo.findData(split_by)
+                if split_by is not None
+                else self.split_combo.findData(None)
+            )
+            if split_index >= 0:
+                self.split_combo.setCurrentIndex(split_index)
+
         except Exception as e:
             logging.error(f"Error loading settings: {e}", exc_info=True)
 
@@ -454,6 +470,7 @@ class DownloadTab(QWidget):
                     "user": self.user_edit.text().strip(),
                     "debug": self.debug_chk.isChecked(),
                     "sort": self.sort_combo.currentData() or "asc",
+                    "split": self.split_combo.currentData() or "",
                 }
             )
 
@@ -543,6 +560,10 @@ class DownloadTab(QWidget):
         sort_order = self.sort_combo.currentData()
         if sort_order:
             cmd_args.extend(["--sort", sort_order])
+
+        split_by = self.split_combo.currentData()
+        if split_by:
+            cmd_args.extend(["--split", split_by])
 
         if self.debug_chk.isChecked():
             cmd_args.append("--debug")
@@ -733,6 +754,7 @@ class DownloadTab(QWidget):
         settings["user"] = self.user_edit.text()
         settings["debug"] = self.debug_chk.isChecked()
         settings["sort"] = self.sort_combo.currentData() or "asc"
+        settings["split"] = self.split_combo.currentData() or ""
 
     def load_settings(self, settings: Dict[str, Any]):
         """Load tab settings from a dictionary.
@@ -761,3 +783,12 @@ class DownloadTab(QWidget):
         sort_order = settings.get("sort", "asc")
         index = 0 if sort_order == "asc" else 1
         self.sort_combo.setCurrentIndex(index)
+
+        split_by = settings.get("split") or None
+        split_index = (
+            self.split_combo.findData(split_by)
+            if split_by is not None
+            else self.split_combo.findData(None)
+        )
+        if split_index >= 0:
+            self.split_combo.setCurrentIndex(split_index)

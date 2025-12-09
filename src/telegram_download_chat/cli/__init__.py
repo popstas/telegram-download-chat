@@ -27,7 +27,11 @@ from telegram_download_chat.paths import (
 
 from . import commands
 from .arguments import CLIOptions, parse_args
-from .commands import analyze_keywords, filter_messages_by_subchat
+from .commands import (
+    analyze_keywords,
+    filter_messages_by_subchat,
+    split_messages_by_date,
+)
 
 _downloader_ctx: DownloaderContext | None = None
 

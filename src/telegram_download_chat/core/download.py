@@ -26,6 +26,7 @@ class DownloadMixin:
         save_partial: bool = True,
         silent: bool = False,
         until_date: Optional[str] = None,
+        from_date: Optional[str] = None,
         since_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         if not self.client:
@@ -106,6 +107,16 @@ class DownloadMixin:
                                 f"Reached message from {msg_date} which is older than {until_date}"
                             )
                         break
+
+                if from_date and hasattr(msg, "date") and msg.date:
+                    from_parsed = datetime.strptime(from_date, "%Y-%m-%d").replace(
+                        tzinfo=timezone.utc
+                    )
+                    msg_date = msg.date
+                    if msg_date.tzinfo is None:
+                        msg_date = msg_date.replace(tzinfo=timezone.utc)
+                    if msg_date.date() > from_parsed.date():
+                        continue
 
                 if since_id is None or msg.id > since_id:
                     new_messages.append(msg)

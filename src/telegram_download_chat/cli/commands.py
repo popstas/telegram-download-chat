@@ -226,6 +226,8 @@ async def process_chat_download(
     }
     if args.until:
         download_kwargs["until_date"] = args.until
+    if args.from_date:
+        download_kwargs["from_date"] = args.from_date
     if since_id is not None:
         download_kwargs["since_id"] = since_id
 

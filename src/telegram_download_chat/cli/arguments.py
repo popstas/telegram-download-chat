@@ -93,7 +93,7 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--from",
         dest="from_date",
         type=str,
-        help="Base date for --last-days calculation (format: YYYY-MM-DD)",
+        help="Only download messages on or before this date (format: YYYY-MM-DD). Also used as base date for --last-days.",
     )
     parser.add_argument(
         "--last-days",
@@ -104,7 +104,7 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
     parser.add_argument(
         "--until",
         type=str,
-        help="Only download messages until this date (format: YYYY-MM-DD)",
+        help="Only download messages on or after this date (format: YYYY-MM-DD)",
     )
     parser.add_argument(
         "--split", choices=["month", "year"], help="Split output files by month or year"

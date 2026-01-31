@@ -138,6 +138,13 @@ async def async_main() -> int:
             downloader.logger.setLevel(logging.DEBUG)
             downloader.logger.debug("Debug logging enabled")
 
+        if args.from_date is not None:
+            try:
+                datetime.strptime(args.from_date, "%Y-%m-%d")
+            except ValueError:
+                downloader.logger.error("Invalid date format for --from")
+                return 1
+
         if args.last_days is not None:
             base_str = args.from_date or datetime.utcnow().strftime("%Y-%m-%d")
             try:

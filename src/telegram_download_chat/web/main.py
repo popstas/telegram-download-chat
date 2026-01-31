@@ -180,32 +180,11 @@ def build_options() -> CLIOptions | None:
         on_change=on_preset_change,
     )
 
-    current_values = {
-        name: st.session_state.get(f"form_{name}", val)
-        for name, val in defaults.items()
-    }
     selected_name = st.session_state.get("form_preset") or ""
     selected_preset = next(
         (p for p in presets if p.get("name") == selected_name),
         None,
     )
-
-    col_update, col_save, col_del = st.columns(3)
-    if (
-        selected_name
-        and selected_preset
-        and is_preset_modified(selected_preset.get("args", {}), current_values)
-        and col_update.button("Update preset")
-    ):
-        add_preset(selected_name, current_values)
-        st.session_state["new_preset_to_select"] = selected_name
-
-    if col_save.button("Save as preset"):
-        st.session_state["show_preset_input"] = True
-    if st.session_state.get("form_preset") and col_del.button(
-        "\U0001F5D1 Delete preset"
-    ):
-        st.session_state["confirm_delete_preset"] = True
 
     if st.session_state.get("show_preset_input"):
         name = st.text_input("Preset name", key="preset_name_input")
@@ -248,16 +227,21 @@ def build_options() -> CLIOptions | None:
         )
         sort = st.selectbox("Sort order", ["asc", "desc"], key="form_sort")
         keywords = st.text_input("Keywords (comma separated)", key="form_keywords")
-        submitted = st.form_submit_button("Download")
 
-    if not submitted:
-        return None
+        col_update, col_save, col_del = st.columns(3)
+        update_clicked = (
+            selected_name
+            and selected_preset
+            and col_update.form_submit_button("Update preset")
+        )
+        save_clicked = col_save.form_submit_button("Save as preset")
+        delete_clicked = st.session_state.get(
+            "form_preset"
+        ) and col_del.form_submit_button("\U0001F5D1 Delete preset")
+        download_clicked = st.form_submit_button("Download")
 
-    if not chat:
-        st.error("Chat ID is required")
-        return None
-
-    st.session_state["form"] = {
+    # Build current_values from form variables (available after any form submit)
+    form_values = {
         "chat": chat,
         "output": output,
         "limit": limit,
@@ -269,7 +253,32 @@ def build_options() -> CLIOptions | None:
         "keywords": keywords,
         "preset": st.session_state.get("form_preset", ""),
     }
-    save_form_state(st.session_state["form"])
+
+    if update_clicked and is_preset_modified(
+        selected_preset.get("args", {}), form_values
+    ):
+        add_preset(selected_name, form_values)
+        st.session_state["new_preset_to_select"] = selected_name
+        st.session_state["form"] = form_values
+        save_form_state(form_values)
+
+    if save_clicked:
+        st.session_state["form"] = form_values
+        st.session_state["show_preset_input"] = True
+
+    if delete_clicked:
+        st.session_state["form"] = form_values
+        st.session_state["confirm_delete_preset"] = True
+
+    if not download_clicked:
+        return None
+
+    if not chat:
+        st.error("Chat ID is required")
+        return None
+
+    st.session_state["form"] = form_values
+    save_form_state(form_values)
 
     return CLIOptions(
         chat=chat or None,

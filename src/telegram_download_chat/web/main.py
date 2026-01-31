@@ -193,6 +193,7 @@ def build_options() -> CLIOptions | None:
             if name:
                 add_preset(name, st.session_state["form"])
                 st.session_state["new_preset_to_select"] = name
+                st.rerun()
             st.session_state["show_preset_input"] = False
         if c2.button("Cancel"):
             st.session_state["show_preset_input"] = False
@@ -203,6 +204,7 @@ def build_options() -> CLIOptions | None:
             remove_preset(st.session_state["form_preset"])
             st.session_state["new_preset_to_select"] = ""
             st.session_state["confirm_delete_preset"] = False
+            st.rerun()
         if d2.button("Cancel"):
             st.session_state["confirm_delete_preset"] = False
 
@@ -261,6 +263,7 @@ def build_options() -> CLIOptions | None:
         st.session_state["new_preset_to_select"] = selected_name
         st.session_state["form"] = form_values
         save_form_state(form_values)
+        st.rerun()
 
     if save_clicked:
         st.session_state["form"] = form_values

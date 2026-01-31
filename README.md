@@ -13,6 +13,7 @@ A powerful command-line utility to download and analyze Telegram chat history in
 - Download chats folder
 - Save messages in JSON format with full message metadata
 - Generate human and LLM readable TXT exports with user-friendly display names
+- **Download media attachments** (photos, videos, documents, audio, etc.) with `--media` flag
 - Filter messages by date range and specific users
 - Extract sub-conversations from message threads
 - Output results summary in JSON format
@@ -238,6 +239,9 @@ telegram-download-chat username --preset short
 
 # Resume download starting after a specific message ID
 telegram-download-chat username --since-id 5000
+
+# Download messages with media attachments (photos, videos, documents, etc.)
+telegram-download-chat username --media
 ```
 
 ### Command Line Options
@@ -272,6 +276,7 @@ options:
   --results-json        Output results summary as JSON to stdout
   --keywords KEYWORDS  Comma-separated keywords to search in messages
   --preset PRESET     Use preset from config
+  --media               Download media attachments to a separate folder
   -v, --version         Show program's version number and exit
 ```
 
@@ -435,6 +440,29 @@ A human-readable version of the chat with:
 - Display names from your `users_map`
 - Message content with basic formatting
 - Reply indicators
+
+### Media Attachments (`[chat_name]_attachments/`)
+When using the `--media` flag, media files are downloaded to a separate folder with the following structure:
+
+```
+[chat_name]_attachments/
+├── 12345/                    # Message ID
+│   └── 123456789000.jpg      # Downloaded media file
+├── 12346/
+│   └── 2937458923.pdf
+└── 12347/
+    └── 9832749823498723.mp4
+```
+
+Each message's media is stored in a directory named after the message ID.
+
+Supported media types:
+- **Photos**: Downloaded as JPG files
+- **Videos**: Including video messages and round videos
+- **Documents**: PDFs, archives, office files, etc.
+- **Audio**: Music files and audio messages
+- **Voice messages**: Voice recordings
+- **Stickers**: Including animated stickers
 
 ### Example Output Structure
 

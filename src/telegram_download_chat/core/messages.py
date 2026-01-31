@@ -195,12 +195,21 @@ class MessagesMixin:
             except Exception:
                 return None
 
+    def get_attachments_dir(self, output_file: Path) -> Path:
+        """Get the attachments directory path for a given output file.
+
+        Creates a name <output_file_without_extension>_attachments in the same
+        directory as the output file.
+        """
+        return output_file.parent / f"{output_file.stem}_attachments"
+
     async def save_messages(
         self,
         messages,
         output_file: str,
         save_txt: bool = True,
         sort_order: str = "asc",
+        download_media: bool = False,
     ) -> None:
         output_path = Path(output_file)
 
@@ -223,6 +232,11 @@ class MessagesMixin:
             )
             txt_path_relative = get_relative_to_downloads_dir(txt_path)
             self.logger.info(f"Saved {saved} messages to {txt_path_relative}")
+
+        # Download media attachments if requested
+        if download_media:
+            self.logger.info("Downloading media attachments...")
+            await self.download_all_media(messages, self.get_attachments_dir(output_path))
 
         partial = self.get_temp_file_path(output_path)
         if partial.exists() and not self._stop_requested:

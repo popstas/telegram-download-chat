@@ -6,11 +6,12 @@ from .auth import AuthMixin
 from .config import ConfigMixin
 from .download import DownloadMixin
 from .entities import EntitiesMixin
+from .media import MediaMixin
 from .messages import MessagesMixin
 
 
 class TelegramChatDownloader(
-    ConfigMixin, AuthMixin, DownloadMixin, EntitiesMixin, MessagesMixin
+    ConfigMixin, AuthMixin, DownloadMixin, EntitiesMixin, MessagesMixin, MediaMixin
 ):
     """Main class for downloading Telegram chat history."""
 

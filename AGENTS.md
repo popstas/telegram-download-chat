@@ -17,6 +17,7 @@ src/telegram_download_chat/
 │   ├── config.py             # Configuration helpers
 │   ├── download.py           # Chat downloading logic
 │   ├── entities.py           # Entity utilities
+│   ├── media.py              # Media download utilities
 │   ├── messages.py           # Message formatting utilities
 │   └── presets.py            # Preset management helpers
 ├── gui/                      # Main GUI package

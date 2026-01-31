@@ -152,10 +152,13 @@ async def save_messages_with_status(
     messages: List[Any],
     output_file: str,
     sort_order: str = "asc",
+    download_media: bool = False,
 ) -> None:
     """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
-        downloader.save_messages(messages, output_file, sort_order=sort_order),
+        downloader.save_messages(
+            messages, output_file, sort_order=sort_order, download_media=download_media
+        ),
         downloader.logger,
     )
 
@@ -290,7 +293,7 @@ async def process_chat_download(
                     "No messages with valid dates found for splitting"
                 )
                 await save_messages_with_status(
-                    downloader, messages, output_file, args.sort
+                    downloader, messages, output_file, args.sort, args.media
                 )
             else:
                 output_path = Path(output_file)
@@ -299,7 +302,7 @@ async def process_chat_download(
                 for date_key, msgs in split_messages.items():
                     split_file = output_path.with_name(f"{base_name}_{date_key}{ext}")
                     await save_messages_with_status(
-                        downloader, msgs, str(split_file), args.sort
+                        downloader, msgs, str(split_file), args.sort, args.media
                     )
                     downloader.logger.info(
                         f"Saved {len(msgs)} messages to {split_file}"
@@ -309,7 +312,7 @@ async def process_chat_download(
                 )
         else:
             await save_messages_with_status(
-                downloader, messages, output_file, args.sort
+                downloader, messages, output_file, args.sort, args.media
             )
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")
@@ -324,7 +327,7 @@ async def process_chat_download(
     elif isinstance(entity, Channel):
         chat_type = "channel" if getattr(entity, "broadcast", False) else "supergroup"
 
-    return {
+    result = {
         "chat_id": getattr(entity, "id", chat_identifier),
         "chat_title": await downloader.get_entity_full_name(chat_identifier),
         "chat_type": chat_type,
@@ -336,6 +339,10 @@ async def process_chat_download(
         "result_txt": str(Path(output_file).with_suffix(".txt")),
         "keywords": keywords_data,
     }
+    if args.media:
+        attachments_dir = downloader.get_attachments_dir(Path(output_file))
+        result["result_attachments"] = str(attachments_dir)
+    return result
 
 
 async def convert(

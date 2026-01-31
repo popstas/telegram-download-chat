@@ -32,6 +32,7 @@ class CLIOptions:
     results_json: bool = False
     keywords: Optional[str] = None
     preset: Optional[str] = None
+    media: bool = False
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -131,6 +132,11 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--preset",
         type=str,
         help="Name of preset from config to use",
+    )
+    parser.add_argument(
+        "--media",
+        action="store_true",
+        help="Download media attachments to a separate folder",
     )
 
     args = parser.parse_args(argv)

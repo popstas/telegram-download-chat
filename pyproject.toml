@@ -40,6 +40,8 @@ web = [
     "streamlit>=1.30.0"
 ]
 dev = [
+    "build>=1.0.0",
+    "twine>=4.0.0",
     "pytest>=6.0",
     "pytest-asyncio>=0.21",
     "pytest-cov>=4.0",

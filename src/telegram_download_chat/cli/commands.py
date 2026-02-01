@@ -81,6 +81,35 @@ def filter_messages_by_subchat(
     return filtered
 
 
+def _message_text(msg: Any) -> str:
+    """Extract plain text from a message (dict or Telethon object)."""
+    if isinstance(msg, dict):
+        text = msg.get("message") or msg.get("text") or ""
+    else:
+        d = msg.to_dict() if hasattr(msg, "to_dict") else {}
+        text = d.get("message") or d.get("text") or ""
+    if isinstance(text, list):
+        text = "".join(
+            part if isinstance(part, str) else part.get("text", "") for part in text
+        )
+    return str(text)
+
+
+def filter_messages_by_keywords(messages: List[Any], keywords: List[str]) -> List[Any]:
+    """Keep only messages whose text contains at least one keyword (case-insensitive)."""
+    if not keywords:
+        return messages
+    kw_lower = [k.strip().lower() for k in keywords if k.strip()]
+    if not kw_lower:
+        return messages
+    filtered = []
+    for msg in messages:
+        text = _message_text(msg).lower()
+        if any(kw in text for kw in kw_lower):
+            filtered.append(msg)
+    return filtered
+
+
 def analyze_keywords(
     keywords: List[str], messages: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
@@ -94,13 +123,7 @@ def analyze_keywords(
         matches = []
         count = 0
         for msg in messages:
-            text = msg.get("message") or msg.get("text") or ""
-            if isinstance(text, list):
-                text = "".join(
-                    part if isinstance(part, str) else part.get("text", "")
-                    for part in text
-                )
-            text_str = str(text)
+            text_str = _message_text(msg)
             if kw_lower in text_str.lower():
                 count += 1
                 sender = msg.get("from_id") or msg.get("sender_id") or {}
@@ -261,6 +284,14 @@ async def process_chat_download(
         downloader.logger.info(
             f"Filtered to {len(messages)} messages in subchat {args.subchat}"
         )
+
+    if args.keywords:
+        kw_list = [k.strip() for k in args.keywords.split(",") if k.strip()]
+        if kw_list:
+            messages = filter_messages_by_keywords(messages, kw_list)
+            downloader.logger.info(
+                f"Filtered to {len(messages)} messages matching keywords: {kw_list}"
+            )
 
     msg_dates = [
         _parse_date(

@@ -17,7 +17,7 @@ A powerful command-line utility to download and analyze Telegram chat history in
 - Filter messages by date range and specific users
 - Extract sub-conversations from message threads
 - Output results summary in JSON format
-- Search messages for specific keywords
+- Filter saved messages by keywords (only messages containing given words are saved)
 - Use presets for common option sets via `--preset`
 - Cross-platform support (Windows, macOS, Linux)
 - Optional graphical user interface (GUI) for easier interaction
@@ -231,8 +231,8 @@ telegram-download-chat --show-config
 # Output results summary as JSON
 telegram-download-chat username --results-json
 
-# Search chat for keywords
-telegram-download-chat username --keywords "@user,hello"
+# Save only messages containing given keywords (comma-separated, case-insensitive)
+telegram-download-chat username --keywords "после,hello"
 
 # Use predefined preset
 telegram-download-chat username --preset short
@@ -274,7 +274,7 @@ options:
   --sort {asc,desc}     Sort messages by date (default: asc)
   --show-config         Show config file location and exit
   --results-json        Output results summary as JSON to stdout
-  --keywords KEYWORDS  Comma-separated keywords to search in messages
+  --keywords KEYWORDS  Only save messages containing these keywords (comma-separated)
   --preset PRESET     Use preset from config
   --media               Download media attachments to a separate folder
   --overwrite           Replace existing output files instead of resuming
@@ -325,6 +325,18 @@ Titles for group and channel chats are fetched automatically. Use `chats_map` on
 ```yaml
 chats_map:
   100123456: "MyGroup"
+```
+
+### Keyword Filtering
+Use `--keywords` to save only messages that contain at least one of the given words. This reduces output size when you need messages about specific topics.
+
+- **Behavior**: After downloading (within your date/limit), messages are filtered; only those whose text contains at least one keyword (case-insensitive) are written to JSON and TXT.
+- **Format**: Comma-separated list, e.g. `--keywords "word1,word2,@user"`.
+- **Result**: The summary (and `--results-json`) still includes a `keywords` block with counts and sample messages per keyword.
+
+```bash
+# Save only messages containing "после" or "hello"
+telegram-download-chat username --min-date 2026-01-01 --keywords "после,hello"
 ```
 
 ### Subchat Extraction

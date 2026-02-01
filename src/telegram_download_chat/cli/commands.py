@@ -190,8 +190,14 @@ async def process_chat_download(
         )
         return {"chat_id": chat_identifier, "error": "failed to resolve chat"}
 
-    output_file = args.output
-    if not output_file or output_dir != Path(output_file).parent:
+    if args.output:
+        output_path_user = Path(args.output).resolve()
+        output_file = str(
+            output_path_user.with_suffix(".json")
+            if not output_path_user.suffix
+            else output_path_user
+        )
+    else:
         output_file = str(output_dir / f"{safe_chat_name}.json")
         if args.subchat:
             output_file = str(

@@ -37,6 +37,7 @@ ENV/
 # Project specific
 *.session
 *.json
+*.txt
 !requirements*.txt
 !test*.json
 data/

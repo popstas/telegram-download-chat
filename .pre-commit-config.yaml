@@ -1,4 +1,11 @@
 repos:
+  - repo: local
+    hooks:
+      - id: generate-changelog
+        name: Generate changelog
+        entry: python generate_changelog.py
+        language: system
+        pass_filenames: false
   - repo: https://github.com/psf/black
     rev: 23.7.0
     hooks:

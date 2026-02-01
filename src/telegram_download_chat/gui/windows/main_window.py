@@ -640,7 +640,7 @@ class MainWindow(QMainWindow):
             f"<h2>Telegram Download Chat</h2>"
             f"<p>Version {__version__}</p>"
             "<p>A tool to download Telegram chat history.</p>"
-            "<p>Copyright 2025 Stanislav Popov. All rights reserved.</p>",
+            "<p>Copyright 2026 Stanislav Popov. All rights reserved.</p>",
         )
 
     def closeEvent(self, event: QCloseEvent):

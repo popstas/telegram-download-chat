@@ -236,7 +236,9 @@ class MessagesMixin:
         # Download media attachments if requested
         if download_media:
             self.logger.info("Downloading media attachments...")
-            await self.download_all_media(messages, self.get_attachments_dir(output_path))
+            await self.download_all_media(
+                messages, self.get_attachments_dir(output_path)
+            )
 
         partial = self.get_temp_file_path(output_path)
         if partial.exists() and not self._stop_requested:

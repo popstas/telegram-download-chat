@@ -142,19 +142,21 @@ async def async_main() -> int:
             try:
                 datetime.strptime(args.from_date, "%Y-%m-%d")
             except ValueError:
-                downloader.logger.error("Invalid date format for --from")
+                downloader.logger.error("Invalid date format for --max-date")
                 return 1
 
+        # --last-days takes priority over --min-date; compute until when last_days set
         if args.last_days is not None:
             base_str = args.from_date or datetime.utcnow().strftime("%Y-%m-%d")
             try:
                 base_date = datetime.strptime(base_str, "%Y-%m-%d")
             except ValueError:
-                downloader.logger.error("Invalid date format for --from")
+                downloader.logger.error("Invalid date format for --max-date")
                 return 1
-            args.until = (base_date - timedelta(days=args.last_days)).strftime(
-                "%Y-%m-%d"
-            )
+            # N days = base_date + (N-1) preceding days (inclusive)
+            args.until = (
+                base_date - timedelta(days=max(0, args.last_days - 1))
+            ).strftime("%Y-%m-%d")
 
         chats = args.chats or ([args.chat] if args.chat else [])
         if not chats:

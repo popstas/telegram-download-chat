@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -224,7 +224,14 @@ async def process_chat_download(
         "output_file": output_file,
         "silent": False,
     }
-    if args.until:
+    # --last-days takes priority over --min-date; N days = base_date + (N-1) preceding days (inclusive)
+    if args.last_days is not None:
+        base_str = args.from_date or datetime.utcnow().strftime("%Y-%m-%d")
+        base_date = datetime.strptime(base_str, "%Y-%m-%d")
+        download_kwargs["until_date"] = (
+            base_date - timedelta(days=max(0, args.last_days - 1))
+        ).strftime("%Y-%m-%d")
+    elif args.until:
         download_kwargs["until_date"] = args.until
     if args.from_date:
         download_kwargs["from_date"] = args.from_date

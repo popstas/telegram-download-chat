@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -52,6 +52,16 @@ class DownloadMixin:
         last_save = asyncio.get_event_loop().time()
         save_interval = 60
 
+        # offset_date: messages *previous* to this date (exclusive); use from_date when set
+        offset_date = None
+        if from_date:
+            offset_date = datetime.strptime(from_date, "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            ) + timedelta(days=1)
+            self.logger.debug(
+                "Using offset_date=%s from from_date=%s", offset_date, from_date
+            )
+
         while True:
             if self._stop_requested or (self._stop_file and self._stop_file.exists()):
                 self._stop_requested = True
@@ -64,7 +74,7 @@ class DownloadMixin:
                     GetHistoryRequest(
                         peer=entity,
                         offset_id=offset_id,
-                        offset_date=None,
+                        offset_date=offset_date,
                         add_offset=0,
                         limit=request_limit,
                         max_id=0,
@@ -88,6 +98,7 @@ class DownloadMixin:
                 break
 
             new_messages = []
+            hit_until_boundary = False
             for msg in history.messages:
                 if not hasattr(msg, "id") or any(
                     m.id == msg.id for m in all_messages if hasattr(m, "id")
@@ -102,6 +113,7 @@ class DownloadMixin:
                     if msg_date.tzinfo is None:
                         msg_date = msg_date.replace(tzinfo=timezone.utc)
                     if msg_date.date() < until.date():
+                        hit_until_boundary = True
                         if not silent:
                             self.logger.debug(
                                 f"Reached message from {msg_date} which is older than {until_date}"
@@ -124,6 +136,20 @@ class DownloadMixin:
             all_messages.extend(new_messages)
 
             if not new_messages:
+                if hit_until_boundary:
+                    # Reached min-date boundary, stop
+                    if not silent:
+                        self.logger.info(
+                            f"Reached messages older than {until_date}, stopping"
+                        )
+                    break
+                if from_date:
+                    # All messages in batch were too new (filtered by max-date);
+                    # continue fetching older batches
+                    offset_id = min(msg.id for msg in history.messages)
+                    if since_id is not None and offset_id <= since_id:
+                        break
+                    continue
                 self.logger.debug("No new messages found, stopping")
                 break
 

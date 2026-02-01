@@ -107,7 +107,8 @@ python main.py  # Launches GUI by default
 - `--subchat`: Extract message threads/replies
 - `--split`: Split output by month/year
 - `--user`: Filter by specific sender
-- `--until`: Date-based filtering
+- `--max-date`: Messages on or before this date
+- `--min-date`: Messages on or after this date
 - `--media`: Download media attachments (photos, videos, documents, etc.)
 
 ### PyInstaller Integration

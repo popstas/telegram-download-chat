@@ -3,12 +3,7 @@
 from pathlib import Path
 from typing import Any, List, Optional
 
-from telethon.tl.types import (
-    Document,
-    MessageMediaDocument,
-    MessageMediaPhoto,
-    Photo,
-)
+from telethon.tl.types import Document, MessageMediaDocument, MessageMediaPhoto, Photo
 
 
 class MediaMixin:
@@ -68,7 +63,9 @@ class MediaMixin:
         Creates a directory structure:
             attachments_dir/<message_id>/<filename>
         """
-        media = getattr(message, "media", None) or (message.get("media") if isinstance(message, dict) else None)
+        media = getattr(message, "media", None) or (
+            message.get("media") if isinstance(message, dict) else None
+        )
         if not media:
             return
 
@@ -76,7 +73,10 @@ class MediaMixin:
         if not filename:
             return
 
-        message_id = str(getattr(message, "id", None) or (message.get("id") if isinstance(message, dict) else None))
+        message_id = str(
+            getattr(message, "id", None)
+            or (message.get("id") if isinstance(message, dict) else None)
+        )
         if not message_id:
             return
 
@@ -115,7 +115,6 @@ class MediaMixin:
             if self._stop_requested:
                 self.logger.info("Stop requested, aborting media download...")
                 return
-
 
             await self.download_message_media(msg, attachments_dir)
             downloaded += 1

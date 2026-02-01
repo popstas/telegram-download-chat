@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -92,13 +93,25 @@ async def run_download(options: CLIOptions) -> Path:
             if options.output
             else downloads_dir / f"{chat_name}.json"
         )
+        # --last-days takes priority over --min-date
+        until_date = options.until
+        from_date = options.from_date
+        if options.last_days is not None:
+            base_str = options.from_date or datetime.utcnow().strftime("%Y-%m-%d")
+            base_date = datetime.strptime(base_str, "%Y-%m-%d")
+            # N days = base_date + (N-1) preceding days (inclusive)
+            until_date = (
+                base_date - timedelta(days=max(0, options.last_days - 1))
+            ).strftime("%Y-%m-%d")
+            from_date = base_str
         messages = await downloader.download_chat(
             chat_id=options.chat,
             request_limit=min(100, options.limit or 100),
             total_limit=options.limit or 0,
             output_file=None,
             silent=False,
-            until_date=options.until,
+            until_date=until_date,
+            from_date=from_date,
         )
         await downloader.save_messages(
             messages, str(output_file), sort_order=options.sort
@@ -219,10 +232,10 @@ def build_options() -> CLIOptions | None:
             )
         )
         from_date = st.text_input(
-            "Base date for --last-days (YYYY-MM-DD)", key="form_from_date"
+            "Max date (YYYY-MM-DD, base for last-days)", key="form_from_date"
         )
         last_days = st.number_input("Last days", min_value=0, key="form_last_days")
-        until = st.text_input("Until date (YYYY-MM-DD)", key="form_until")
+        until = st.text_input("Min date (YYYY-MM-DD)", key="form_until")
         split = (
             st.selectbox("Split output", ["", "month", "year"], key="form_split")
             or None

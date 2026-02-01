@@ -90,6 +90,7 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         help="Filter messages by sender ID (e.g., 12345 or user12345)",
     )
     parser.add_argument(
+        "--max-date",
         "--from",
         dest="from_date",
         type=str,
@@ -99,10 +100,12 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--last-days",
         dest="last_days",
         type=int,
-        help="Number of days back from --from (or today) to download",
+        help="Number of days back from --max-date (or today) to download",
     )
     parser.add_argument(
+        "--min-date",
         "--until",
+        dest="until",
         type=str,
         help="Only download messages on or after this date (format: YYYY-MM-DD)",
     )

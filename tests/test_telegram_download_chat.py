@@ -236,7 +236,7 @@ class TestSplitMessagesByDate:
             "123",
             "--subchat-name",
             "custom_subchat",
-            "--until",
+            "--min-date",
             "2025-01-01",
             "--sort",
             "asc",
@@ -255,11 +255,11 @@ class TestSplitMessagesByDate:
             assert args.sort == "asc"
 
     def test_from_and_last_days_arguments(self):
-        """Test parsing of --from and --last-days options."""
+        """Test parsing of --max-date (alias --from) and --last-days options."""
         test_args = [
             "script_name",
             "chat",
-            "--from",
+            "--max-date",
             "2025-06-05",
             "--last-days",
             "1",
@@ -268,6 +268,31 @@ class TestSplitMessagesByDate:
             args = parse_args()
             assert args.from_date == "2025-06-05"
             assert args.last_days == 1
+
+    def test_max_date_min_date_aliases(self):
+        """Test that --max-date and --min-date populate from_date and until correctly."""
+        with patch(
+            "sys.argv",
+            [
+                "script_name",
+                "chat",
+                "--max-date",
+                "2025-06-05",
+                "--min-date",
+                "2025-01-01",
+            ],
+        ):
+            args = parse_args()
+            assert args.from_date == "2025-06-05"
+            assert args.until == "2025-01-01"
+        # Verify legacy --from and --until still work
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--from", "2025-06-05", "--until", "2025-01-01"],
+        ):
+            args = parse_args()
+            assert args.from_date == "2025-06-05"
+            assert args.until == "2025-01-01"
 
     def test_until_date_format_validation(self):
         """Test that invalid date formats are accepted by the parser but handled in async_main."""
@@ -332,7 +357,7 @@ class TestSplitMessagesByDate:
 
         with patch(
             "sys.argv",
-            ["script_name", "chat", "--from", "2025-06-05", "--last-days", "1"],
+            ["script_name", "chat", "--max-date", "2025-06-05", "--last-days", "1"],
         ), patch(
             "telegram_download_chat.cli.TelegramChatDownloader",
             return_value=mock_downloader,
@@ -340,7 +365,38 @@ class TestSplitMessagesByDate:
             await async_main()
 
         args, kwargs = mock_downloader.download_chat.call_args
-        assert kwargs.get("until_date") == "2025-06-04"
+        # last-days=1: 1 day inclusive = base_date only
+        assert kwargs.get("until_date") == "2025-06-05"
+
+    @pytest.mark.asyncio
+    async def test_last_days_two_days_inclusive(self, mock_downloader, tmp_path):
+        """Test that --last-days 2 with max-date gives 2 days inclusive."""
+        mock_downloader.connect = AsyncMock()
+        mock_downloader.close = AsyncMock()
+        mock_downloader.cleanup_stop_file = MagicMock()
+        mock_downloader.config = {"settings": {"save_path": str(tmp_path)}}
+        mock_downloader.get_entity_name = AsyncMock(return_value="chat")
+        mock_downloader.download_chat = AsyncMock(return_value=[])
+
+        with patch(
+            "sys.argv",
+            [
+                "script_name",
+                "chat",
+                "--max-date",
+                "2025-12-27",
+                "--last-days",
+                "2",
+            ],
+        ), patch(
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
+        ):
+            await async_main()
+
+        args, kwargs = mock_downloader.download_chat.call_args
+        # last-days=2: 2 days inclusive = 12/26, 12/27 -> min_date 2025-12-26
+        assert kwargs.get("until_date") == "2025-12-26"
 
     @pytest.mark.asyncio
     async def test_preset_applied(self, mock_downloader, tmp_path):

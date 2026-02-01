@@ -231,11 +231,11 @@ def build_options() -> CLIOptions | None:
                 key="form_limit",
             )
         )
+        until = st.text_input("Min date (YYYY-MM-DD)", key="form_until")
         from_date = st.text_input(
             "Max date (YYYY-MM-DD, base for last-days)", key="form_from_date"
         )
         last_days = st.number_input("Last days", min_value=0, key="form_last_days")
-        until = st.text_input("Min date (YYYY-MM-DD)", key="form_until")
         split = (
             st.selectbox("Split output", ["", "month", "year"], key="form_split")
             or None

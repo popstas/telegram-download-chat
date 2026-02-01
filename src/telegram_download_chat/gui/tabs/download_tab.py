@@ -171,7 +171,14 @@ class DownloadTab(QWidget):
         self.limit_spin.setRange(0, 1000000)
         settings_form.addRow("Message limit:", self.limit_spin)
 
-        # Max date for last days
+        # Min date
+        self.until_edit = QDateEdit()
+        self.until_edit.setCalendarPopup(True)
+        self.until_edit.setDisplayFormat("yyyy-MM-dd")
+        self.until_edit.setDate(QDate())  # Set to invalid/empty date
+        settings_form.addRow("Min date:", self.until_edit)
+
+        # Max date (base for last-days)
         self.from_edit = QDateEdit()
         self.from_edit.setCalendarPopup(True)
         self.from_edit.setDisplayFormat("yyyy-MM-dd")
@@ -182,13 +189,6 @@ class DownloadTab(QWidget):
         self.last_days_spin = QSpinBox()
         self.last_days_spin.setRange(0, 3650)
         settings_form.addRow("Last days:", self.last_days_spin)
-
-        # Min date
-        self.until_edit = QDateEdit()
-        self.until_edit.setCalendarPopup(True)
-        self.until_edit.setDisplayFormat("yyyy-MM-dd")
-        self.until_edit.setDate(QDate())  # Set to invalid/empty date
-        settings_form.addRow("Min date:", self.until_edit)
 
         # Subchat
         self.subchat_edit = QLineEdit()

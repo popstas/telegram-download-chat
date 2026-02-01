@@ -277,6 +277,7 @@ options:
   --keywords KEYWORDS  Comma-separated keywords to search in messages
   --preset PRESET     Use preset from config
   --media               Download media attachments to a separate folder
+  --overwrite           Replace existing output files instead of resuming
   -v, --version         Show program's version number and exit
 ```
 
@@ -307,7 +308,7 @@ The tool will process the archive and generate both JSON and TXT files with the 
 
 ### Resuming Interrupted Downloads
 If the download is interrupted, you can simply run the same command again to resume from where it left off. The tool automatically saves progress to a temporary file.
-You can also resume later using `--since-id` with the last downloaded message ID or let the tool read it from the existing JSON file.
+You can also resume later using `--since-id` with the last downloaded message ID or let the tool read it from the existing JSON file. Use `--overwrite` to replace existing output files instead of resuming.
 
 ### User Mapping
 Display names for users and bots are collected automatically. You can override them in the `users_map` section:

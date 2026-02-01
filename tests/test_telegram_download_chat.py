@@ -101,6 +101,15 @@ class TestCLIArgumentParsing:
             args = parse_args()
             assert args.since_id == 123
 
+    def test_overwrite_argument(self):
+        """Test parsing of --overwrite option."""
+        with patch("sys.argv", ["script_name", "chat", "--overwrite"]):
+            args = parse_args()
+            assert args.overwrite is True
+        with patch("sys.argv", ["script_name", "chat"]):
+            args = parse_args()
+            assert args.overwrite is False
+
 
 class TestFilterMessagesBySubchat:
     """Tests for filter_messages_by_subchat function."""

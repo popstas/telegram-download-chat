@@ -33,6 +33,7 @@ class CLIOptions:
     keywords: Optional[str] = None
     preset: Optional[str] = None
     media: bool = False
+    overwrite: bool = False
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -140,6 +141,11 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--media",
         action="store_true",
         help="Download media attachments to a separate folder",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace existing output files instead of resuming",
     )
 
     args = parser.parse_args(argv)

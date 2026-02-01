@@ -209,7 +209,7 @@ async def process_chat_download(
     since_id = args.since_id
     existing_messages: List[Any] = []
     output_path = Path(output_file)
-    if since_id is None and output_path.exists():
+    if not args.overwrite and since_id is None and output_path.exists():
         try:
             with open(output_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -223,12 +223,18 @@ async def process_chat_download(
         except Exception as e:  # pragma: no cover - just logging
             downloader.logger.warning(f"Failed to read existing file: {e}")
 
+    if args.overwrite:
+        part_path = downloader.get_temp_file_path(output_path)
+        if part_path.exists():
+            part_path.unlink()
+
     download_kwargs = {
         "chat_id": chat_identifier,
         "request_limit": args.limit if args.limit > 0 else 100,
         "total_limit": args.limit if args.limit > 0 else 0,
         "output_file": output_file,
         "silent": False,
+        "save_partial": not args.overwrite,
     }
     # --last-days takes priority over --min-date; N days = base_date + (N-1) preceding days (inclusive)
     if args.last_days is not None:

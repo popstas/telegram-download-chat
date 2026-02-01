@@ -206,6 +206,10 @@ class DownloadTab(QWidget):
         self.debug_chk = QCheckBox("Enable debug mode")
         settings_form.addRow("Debug mode:", self.debug_chk)
 
+        # Overwrite
+        self.overwrite_chk = QCheckBox("Replace existing files")
+        settings_form.addRow("Overwrite:", self.overwrite_chk)
+
         # Create a model for the tree
         model = QStandardItemModel()
         model.setHorizontalHeaderLabels(["Settings"])
@@ -421,6 +425,9 @@ class DownloadTab(QWidget):
             if "debug" in settings:
                 self.debug_chk.setChecked(settings["debug"])
 
+            if "overwrite" in settings:
+                self.overwrite_chk.setChecked(settings["overwrite"])
+
             sort_order = settings.get("sort", "asc")
             index = 0 if sort_order == "asc" else 1
             self.sort_combo.setCurrentIndex(index)
@@ -469,6 +476,7 @@ class DownloadTab(QWidget):
                     "subchat": self.subchat_edit.text().strip(),
                     "user": self.user_edit.text().strip(),
                     "debug": self.debug_chk.isChecked(),
+                    "overwrite": self.overwrite_chk.isChecked(),
                     "sort": self.sort_combo.currentData() or "asc",
                     "split": self.split_combo.currentData() or "",
                 }
@@ -567,6 +575,9 @@ class DownloadTab(QWidget):
 
         if self.debug_chk.isChecked():
             cmd_args.append("--debug")
+
+        if self.overwrite_chk.isChecked():
+            cmd_args.append("--overwrite")
 
         # Update UI for download start
         self._set_download_in_progress(True)
@@ -753,6 +764,7 @@ class DownloadTab(QWidget):
         settings["subchat"] = self.subchat_edit.text()
         settings["user"] = self.user_edit.text()
         settings["debug"] = self.debug_chk.isChecked()
+        settings["overwrite"] = self.overwrite_chk.isChecked()
         settings["sort"] = self.sort_combo.currentData() or "asc"
         settings["split"] = self.split_combo.currentData() or ""
 
@@ -779,6 +791,7 @@ class DownloadTab(QWidget):
         self.subchat_edit.setText(settings.get("subchat", ""))
         self.user_edit.setText(settings.get("user", ""))
         self.debug_chk.setChecked(bool(settings.get("debug", False)))
+        self.overwrite_chk.setChecked(bool(settings.get("overwrite", False)))
 
         sort_order = settings.get("sort", "asc")
         index = 0 if sort_order == "asc" else 1

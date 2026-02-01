@@ -132,6 +132,7 @@ class MessagesMixin:
     ) -> int:
         saved = 0
         txt_path.parent.mkdir(parents=True, exist_ok=True)
+        txt_path.write_text("", encoding="utf-8")  # Truncate for fresh overwrite
 
         ordered_messages = self.prepare_messages_for_txt(messages, sort_order)
 

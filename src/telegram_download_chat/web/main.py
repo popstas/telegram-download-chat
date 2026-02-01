@@ -150,6 +150,7 @@ def build_options() -> CLIOptions | None:
         "sort": "asc",
         "keywords": "",
         "preset": "",
+        "overwrite": False,
     }
     defaults.update(load_form_state())
 
@@ -242,6 +243,7 @@ def build_options() -> CLIOptions | None:
         )
         sort = st.selectbox("Sort order", ["asc", "desc"], key="form_sort")
         keywords = st.text_input("Keywords (comma separated)", key="form_keywords")
+        overwrite = st.checkbox("Overwrite existing files", key="form_overwrite")
 
         col_update, col_save, col_del = st.columns(3)
         update_clicked = (
@@ -267,6 +269,7 @@ def build_options() -> CLIOptions | None:
         "sort": sort,
         "keywords": keywords,
         "preset": st.session_state.get("form_preset", ""),
+        "overwrite": overwrite,
     }
 
     if update_clicked and is_preset_modified(
@@ -315,6 +318,7 @@ def build_options() -> CLIOptions | None:
         results_json=False,
         keywords=keywords or None,
         preset=st.session_state.get("form_preset") or None,
+        overwrite=overwrite,
     )
 
 

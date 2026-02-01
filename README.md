@@ -1,74 +1,25 @@
 # Telegram Chat Downloader
 
-[![PyPI](https://img.shields.io/pypi/v/telegram-download-chat)](https://pypi.org/project/telegram-download-chat/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python Version](https://img.shields.io/pypi/pyversions/telegram-download-chat)](https://pypi.org/project/telegram-download-chat/)
-[![Coverage Status](https://coveralls.io/repos/github/popstas/telegram-download-chat/badge.svg?branch=main)](https://coveralls.io/github/popstas/telegram-download-chat?branch=main)
-
-A powerful command-line utility to download and analyze Telegram chat history in multiple formats.
+A powerful command-line, GUI and web interface utility to download and analyze Telegram chat history in multiple formats.
 
 ## Features
 
-- Download complete chat history from any Telegram chat, group, channel or Telegram export archive
+- Download complete chat history from any Telegram chat, group, supergroup, channel or Telegram export archive
 - Download chats folder
+- Extract sub-conversations from message threads
 - Save messages in JSON format with full message metadata
 - Generate human and LLM readable TXT exports with user-friendly display names
-- **Download media attachments** (photos, videos, documents, audio, etc.) with `--media` flag
-- Filter messages by date range and specific users
-- Extract sub-conversations from message threads
-- Output results summary in JSON format
-- Filter saved messages by keywords (only messages containing given words are saved)
+- Download media attachments (photos, videos, documents, audio, etc.)
 - Use presets for common option sets via `--preset`
 - Cross-platform support (Windows, macOS, Linux)
-- Optional graphical user interface (GUI) for easier interaction
-- Core functionality resides under the `telegram_download_chat.core` package for easier maintenance.
+- CLI-first, optional graphical user interface and web interface
 
-## Project Structure
+## Filtering
 
-The codebase follows a source layout with dedicated subpackages:
-
-```
-src/telegram_download_chat/
-├── core/           # Download engine and helpers
-│   ├── downloader.py   # `TelegramChatDownloader` class
-│   ├── auth.py         # login utilities
-│   ├── config.py       # configuration loading helpers
-│   ├── download.py     # chat download routines
-│   ├── entities.py     # user and chat name helpers
-│   ├── messages.py     # message formatting utilities
-│   └── context.py      # async context manager
-├── cli/            # Command line interface
-├── gui/            # GUI application
-```
-
-
-
-## Use Cases
-
-### Learning and Research
-- Download study group discussions for offline review
-- Archive Q&A sessions for future reference
-- Collect data for linguistic or social research
-
-### Team Collaboration
-- Archive work-related group chats
-- Document important decisions and discussions
-- Create searchable knowledge bases from team conversations
-
-### Personal Use
-- Backup important personal conversations
-- Organize saved messages and notes
-- Analyze your own communication patterns over time
-
-### Data Analysis
-- Export chat data for sentiment analysis
-- Track topic trends in community groups
-- Generate statistics on message frequency and engagement
-
-### Content Creation
-- Collect discussions for content inspiration
-- Reference past conversations for accuracy
-- Archive community feedback and suggestions
+- Filter messages by date range
+- Filter messages by specific users
+- Filter saved messages by keywords
+- Filter messages by sub-conversations from message threads
 
 
 ## Installation
@@ -76,45 +27,6 @@ src/telegram_download_chat/
 ### Prerequisites
 - Python 3.8 or higher
 - pip (Python package manager)
-
-### GUI Version (Optional)
-
-For those who prefer a graphical interface, a GUI version is available. To use it:
-
-1. Install with GUI dependencies:
-   ```bash
-   pip install "telegram-download-chat[gui]"
-   ```
-
-2. Launch the GUI:
-   ```bash
-   telegram-download-chat gui
-   ```
-
-The GUI provides an easy-to-use interface with the following features:
-- Download chat history with configurable options
-- Convert exported JSON data to other formats
-- Real-time log viewing
-- File preview functionality
-- Browse and open downloaded files
-
-### Streamlit Web Interface (Optional)
-
-A lightweight web interface built with Streamlit is also available.
-It provides a subset of common command line options and shows progress
-while downloading.
-The form remembers your last values using the same `config.yml` as the
-GUI under `form_settings` so you don't need to retype them each time.
-
-1. Install with web dependencies:
-   ```bash
-   pip install "telegram-download-chat[web]"
-   ```
-
-2. Launch the web UI:
-   ```bash
-   telegram-download-chat-web
-   ```
 
 ### Install from PyPI (recommended)
 
@@ -127,6 +39,36 @@ pip install telegram-download-chat
 ```bash
 uvx install git+https://github.com/popstas/telegram-download-chat.git
 ```
+
+### GUI Version (Optional)
+
+For those who prefer a graphical interface, a GUI version is available. 
+
+Windows build is available in the [releases](https://github.com/popstas/telegram-download-chat/releases/latest) page.
+
+1. Install with GUI dependencies:
+   ```bash
+   pip install "telegram-download-chat[gui]"
+   ```
+
+2. Launch the GUI:
+   ```bash
+   telegram-download-chat gui
+   ```
+
+### Web Interface
+
+A lightweight web interface built with Streamlit is also available.
+
+1. Install with web dependencies:
+   ```bash
+   pip install "telegram-download-chat[web]"
+   ```
+
+2. Launch the web UI:
+   ```bash
+   telegram-download-chat-web
+   ```
 
 ## Configuration
 
@@ -161,7 +103,7 @@ settings:
   log_file: app.log        # Path to log file (relative to app dir or absolute)
 
 # Map user IDs to display names for text exports
-# Names for users and bots are automatically fetched and stored here
+# Names for users and bots are automatically fetched and stored here, you can change them here.
 users_map:
   123456: "Alice"
   789012: "Bob"
@@ -216,6 +158,9 @@ telegram-download-chat username --max-date 2025-06-05 --last-days 1
 # Filter messages by specific user
 telegram-download-chat group_username --user 123456
 
+# Filter messages containing given keywords (comma-separated, case-insensitive)
+telegram-download-chat username --keywords "hello,bye"
+
 # Download messages from a specific thread/reply chain
 telegram-download-chat group_username --subchat 12345
 
@@ -225,23 +170,20 @@ telegram-download-chat username -o custom_output.json
 # Enable debug logging
 telegram-download-chat username --debug
 
+# Download messages with media attachments (photos, videos, documents, etc.)
+telegram-download-chat username --media
+
 # Show current configuration
 telegram-download-chat --show-config
 
-# Output results summary as JSON
+# Output results summary as JSON to stdout
 telegram-download-chat username --results-json
-
-# Save only messages containing given keywords (comma-separated, case-insensitive)
-telegram-download-chat username --keywords "после,hello"
 
 # Use predefined preset
 telegram-download-chat username --preset short
 
 # Resume download starting after a specific message ID
 telegram-download-chat username --since-id 5000
-
-# Download messages with media attachments (photos, videos, documents, etc.)
-telegram-download-chat username --media
 ```
 
 ### Command Line Options
@@ -263,9 +205,9 @@ options:
   -o, --output OUTPUT    Output file path (default: chat_<chat_id>.json)
   -l, --limit LIMIT     Maximum number of messages to download (default: 0 - no limit)
   --since-id SINCE_ID  Start downloading after this message ID
+  --min-date DATE       Only download messages on or after this date (format: YYYY-MM-DD). Aliases: --until
   --max-date DATE       Only download messages on or before this date (format: YYYY-MM-DD). Aliases: --from
   --last-days DAYS      Number of days back from --max-date (or today) to download
-  --min-date DATE       Only download messages on or after this date (format: YYYY-MM-DD). Aliases: --until
   --subchat SUBCHAT     Filter messages by thread/reply chain (message ID or URL)
   --subchat-name NAME   Custom name for subchat directory
   --user USER           Filter messages by sender ID
@@ -361,79 +303,6 @@ For users who prefer a visual interface, the application includes an optional GU
 telegram-download-chat --gui
 ```
 
-### GUI Features
-
-The GUI provides all the functionality of the command-line interface with additional user-friendly features:
-
-#### Main Interface
-- **Chat Input**: Enter chat identifier (username, phone number, chat ID, or URL)
-- **Output Directory**: Select where to save downloaded files
-- **Download Options**: Configure limit, date filters, and other parameters
-- **Progress Tracking**: Real-time progress bar showing download status
-- **File List**: View all downloaded files with easy access
-
-#### Advanced Options
-- **Message Limit**: Set maximum number of messages to download
-- **Date Filter**: Download messages only until a specific date
-- **User Filter**: Filter messages by specific sender
-- **Subchat Extraction**: Extract messages from specific threads
-- **Split Output**: Save messages into separate files by month or year
-- **Debug Mode**: Enable detailed logging for troubleshooting
-
-#### Smart Download Management
-- **Pause/Resume**: Stop and resume downloads at any time
-- **Message Saving**: When you stop a download, all messages that were already fetched are automatically saved
-- **Progress Persistence**: Downloads can be resumed from where they left off
-- **File Organization**: Downloaded files are automatically organized and displayed
-
-#### Stop and Save Functionality
-One of the key GUI features is the ability to stop downloads while preserving progress:
-
-1. **During Download**: Click the "Stop" button to halt the current download
-2. **Automatic Saving**: The application will save all messages that were already downloaded
-3. **User Feedback**: You'll see a message like "Stopping download and saving messages..."
-4. **File Collection**: After stopping, the GUI will display "Messages saved successfully! Found X file(s)."
-5. **File Access**: All saved files are immediately available in the file list
-
-This feature is particularly useful for:
-- Large chats where you want to preview initial messages
-- Testing downloads before committing to full extraction
-- Situations where you need to stop due to time constraints
-- Recovering partial downloads when issues occur
-
-### GUI vs Command Line
-
-| Feature | GUI | Command Line |
-|---------|-----|--------------|
-| Ease of use | Intuitive interface | Requires command knowledge |
-| Progress tracking | Visual progress bar | Text-based progress |
-| File management | Integrated file browser | Manual file navigation |
-| Stop/Resume | One-click stop with auto-save | Manual interruption |
-| Configuration | Visual forms | Manual config editing |
-| Batch operations | One chat at a time | Scriptable |
-| Automation | Interactive only | Fully scriptable |
-
-## Streamlit Web Interface
-
-In addition to the desktop GUI, a basic web interface built with
-Streamlit is available for quick access from the browser. The web UI
-provides controls for all CLI arguments, displays download progress,
-allows you to stop a running download, and lets you download the resulting TXT
-file with a small preview.
-
-```bash
-telegram-download-chat-web
-```
-
-The web interface provides a simple form to input chat identifiers and
-download a limited number of messages. It saves your previous values in
-the same `config.yml` under `form_settings` so you can easily tweak
-options. The selected preset is stored there as well. Presets from the config can be selected in a dropdown. Selecting a preset immediately fills the form with its values. Use
-"Save as preset" to store the current form values (existing presets with
-the same name are replaced), update the chosen preset when the form
-differs using the **Update preset** button, or delete it via the trash
-icon.
-
 ## Output Formats
 
 The tool generates the following files for each chat:
@@ -442,6 +311,7 @@ The tool generates the following files for each chat:
 Contains complete message data including metadata like:
 - Message IDs and timestamps
 - Sender information
+- `user_display_name` from `users_map`
 - Message content (including formatting)
 - Reply information
 - Media and file attachments
@@ -450,7 +320,7 @@ Contains complete message data including metadata like:
 ### Text Output (`[chat_name].txt`)
 A human-readable version of the chat with:
 - Formatted timestamps
-- Display names from your `users_map`
+- Display names from your `users_map`, `sender name` -> `recipient name`
 - Message content with basic formatting
 - Reply indicators
 
@@ -490,6 +360,33 @@ Hi Alice! How are you?
 Welcome to the group!
 ```
 
+## Use Cases
+
+### Learning and Research
+- Download study group discussions for offline review
+- Archive Q&A sessions for future reference
+- Collect data for linguistic or social research
+
+### Team Collaboration
+- Archive work-related group chats
+- Document important decisions and discussions
+- Create searchable knowledge bases from team conversations
+
+### Personal Use
+- Backup important personal conversations
+- Organize saved messages and notes
+- Analyze your own communication patterns over time
+
+### Data Analysis
+- Export chat data for sentiment analysis
+- Track topic trends in community groups
+- Generate statistics on message frequency and engagement
+
+### Content Creation
+- Collect discussions for content inspiration
+- Reference past conversations for accuracy
+- Archive community feedback and suggestions
+
 ## Troubleshooting
 
 ### Common Issues
@@ -523,12 +420,6 @@ If you encounter any issues, please:
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-For releasing a new version to PyPI, run the deploy script with a bump level:
-
-```bash
-python deploy.py patch  # or minor/major
-```
 
 ## License
 

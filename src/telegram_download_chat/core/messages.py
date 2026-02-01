@@ -218,6 +218,12 @@ class MessagesMixin:
         for msg in messages:
             try:
                 msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
+                sender_id = self._get_sender_id(msg_dict)
+                msg_dict["user_display_name"] = (
+                    await self._get_user_display_name(sender_id)
+                    if sender_id
+                    else "Unknown"
+                )
                 serializable_messages.append(self.make_serializable(msg_dict))
             except Exception as e:
                 self.logger.warning(f"Failed to serialize message: {e}")

@@ -71,6 +71,7 @@ __version_tuple__ = version_tuple = {version_tuple}
 telegram-download-chat = "telegram_download_chat.cli:main"
 telegram-download-chat-web = "telegram_download_chat.web:main"
 telegram-download-chat-mcp = "telegram_download_chat.mcp:main"
+telegram-download-chat-mcp-http = "telegram_download_chat.mcp:main_http"
 
 [project.urls]
 Homepage = "https://github.com/popstas/telegram-download-chat"

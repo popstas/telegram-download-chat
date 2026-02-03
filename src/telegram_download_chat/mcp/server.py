@@ -131,5 +131,40 @@ async def telegram_get_messages(
 
 
 def main():
-    """Entry point for the MCP server."""
-    mcp.run()
+    """Entry point for the MCP server (stdio transport)."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Telegram MCP Server")
+    parser.add_argument(
+        "--transport",
+        "-t",
+        choices=["stdio", "http"],
+        default="stdio",
+        help="Transport type (default: stdio)",
+    )
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="HTTP host (default: 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--port",
+        "-p",
+        type=int,
+        default=8000,
+        help="HTTP port (default: 8000)",
+    )
+    args = parser.parse_args()
+
+    if args.transport == "http":
+        main_http(args.host, args.port)
+    else:
+        mcp.run()
+
+
+def main_http(host: str = "0.0.0.0", port: int = 8000):
+    """Entry point for the MCP server (HTTP transport, no auth)."""
+    import uvicorn
+
+    app = mcp.streamable_http_app()
+    uvicorn.run(app, host=host, port=port)

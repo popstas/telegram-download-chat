@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
 
 from ..core import DownloaderContext, TelegramChatDownloader
@@ -57,6 +58,9 @@ async def lifespan(server: FastMCP):
 mcp = FastMCP(
     "telegram_chat_mcp",
     lifespan=lifespan,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
+    ),
 )
 
 
@@ -167,4 +171,10 @@ def main_http(host: str = "0.0.0.0", port: int = 8000):
     import uvicorn
 
     app = mcp.streamable_http_app()
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )

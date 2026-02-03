@@ -34,7 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = [
-    "PySide6>=6.5.0"
+    "PySide6-Essentials>=6.5.0"
 ]
 web = [
     "streamlit>=1.30.0"

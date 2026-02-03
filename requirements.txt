@@ -1,5 +1,5 @@
 telethon>=1.34.0
 PyYAML>=6.0.0
-PySide6>=6.0.0
+PySide6-Essentials>=6.5.0
 qasync>=0.27.0
 psutil>=5.9.0

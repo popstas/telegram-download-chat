@@ -50,6 +50,9 @@ dev = [
     "mypy>=0.910",
     "flake8>=4.0.0"
 ]
+mcp = [
+    "mcp>=1.0.0"
+]
 
 [tool.bumpversion]
 current_version = "0.6.0"
@@ -67,6 +70,7 @@ __version_tuple__ = version_tuple = {version_tuple}
 [project.scripts]
 telegram-download-chat = "telegram_download_chat.cli:main"
 telegram-download-chat-web = "telegram_download_chat.web:main"
+telegram-download-chat-mcp = "telegram_download_chat.mcp:main"
 
 [project.urls]
 Homepage = "https://github.com/popstas/telegram-download-chat"

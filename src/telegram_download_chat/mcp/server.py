@@ -3,6 +3,7 @@
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -20,8 +21,8 @@ class GetMessagesInput(BaseModel):
     chat_id: str = Field(
         description="Chat identifier (username, phone, or numeric ID)"
     )
-    since_id: int = Field(
-        description="Stop fetching when reaching this message ID (exclusive)"
+    min_datetime: str = Field(
+        description="Minimum message datetime in ISO format (e.g., '2026-02-03 17:45:48+00:00')"
     )
     limit: int = Field(
         default=100, description="Maximum number of messages to return", ge=1, le=1000
@@ -73,14 +74,14 @@ mcp = FastMCP(
 )
 async def telegram_get_messages(
     chat_id: str,
-    since_id: int,
+    min_datetime: str,
     limit: int = 100,
 ) -> str:
-    """Get messages from a Telegram chat, from now back to a specific message ID.
+    """Get messages from a Telegram chat, from now back to a minimum datetime.
 
     Args:
         chat_id: Chat identifier (username, phone, or numeric ID)
-        since_id: Stop fetching when reaching this message ID (exclusive)
+        min_datetime: Stop at messages older than this datetime (ISO format, e.g., '2026-02-03 17:45:48+00:00')
         limit: Maximum number of messages to return (1-1000, default 100)
 
     Returns:
@@ -99,9 +100,17 @@ async def telegram_get_messages(
         )
 
     try:
+        # Parse min_datetime
+        min_dt = datetime.fromisoformat(min_datetime)
+        if min_dt.tzinfo is None:
+            min_dt = min_dt.replace(tzinfo=timezone.utc)
+
+        # Use date part for until_date (downloader's date boundary)
+        until_date_str = min_dt.strftime("%Y-%m-%d")
+
         messages = await _downloader.download_chat(
             chat_id=chat_id,
-            since_id=since_id,
+            until_date=until_date_str,
             total_limit=limit,
             request_limit=min(100, limit),
             save_partial=False,
@@ -112,6 +121,13 @@ async def telegram_get_messages(
         for msg in messages:
             msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
             serializable = _downloader.make_serializable(msg_dict)
+
+            # Filter by exact datetime
+            msg_date_str = serializable.get("date")
+            if msg_date_str:
+                msg_dt = datetime.fromisoformat(msg_date_str.replace("Z", "+00:00"))
+                if msg_dt < min_dt:
+                    continue  # Skip messages older than min_datetime
 
             result.append(
                 {

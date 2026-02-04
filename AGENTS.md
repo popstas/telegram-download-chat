@@ -51,6 +51,11 @@ src/telegram_download_chat/
 │   ├── __init__.py          # CLI entry point
 │   ├── arguments.py         # Argument parsing helpers
 │   └── commands.py          # Download and conversion logic
+├── mcp/                     # MCP server for AI assistants
+│   ├── __init__.py          # Entry point exports
+│   ├── server.py            # FastMCP server with tools
+│   ├── connection_manager.py# Telegram connection + task queue
+│   └── AGENTS.md            # MCP-specific documentation
 
 ## Key Components
 

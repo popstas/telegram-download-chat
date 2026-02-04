@@ -417,6 +417,64 @@ If you encounter any issues, please:
 2. Run with `--debug` flag for detailed output
 3. Open an issue on [GitHub](https://github.com/popstas/telegram-download-chat/issues)
 
+## MCP Server (for AI Assistants)
+
+The package includes an MCP (Model Context Protocol) server that allows AI assistants like Claude to retrieve messages from your Telegram chats.
+
+### Installation
+
+```bash
+pip install "telegram-download-chat[mcp]"
+```
+
+### Running the Server
+
+```bash
+# stdio transport (for Claude Desktop)
+python -m telegram_download_chat.mcp
+
+# HTTP transport (for debugging/testing)
+python -m telegram_download_chat.mcp -t http -p 8000
+```
+
+### Claude Desktop Configuration
+
+Add to your Claude Desktop config file (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "telegram": {
+      "command": "python",
+      "args": ["-m", "telegram_download_chat.mcp"]
+    }
+  }
+}
+```
+
+Or using uvx:
+
+```json
+{
+  "mcpServers": {
+    "telegram": {
+      "command": "uvx",
+      "args": ["--from", "telegram-download-chat[mcp]", "telegram-download-chat-mcp"]
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `telegram_get_messages` | Fetch messages from a chat with datetime filter |
+
+### Prerequisites
+
+Before using the MCP server, you must authenticate via CLI or GUI at least once to create a valid Telegram session.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

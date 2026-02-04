@@ -151,6 +151,7 @@ async def _fetch_messages(
 
 @mcp.tool(
     name="telegram_get_messages",
+    description="Use this when you need to download messages from a Telegram chat and make a messages summary.",
     annotations={
         "readOnlyHint": True,
         "idempotentHint": True,
@@ -161,16 +162,7 @@ async def telegram_get_messages(
     min_datetime: str,
     limit: int = 100,
 ) -> TelegramMessagesResponse | TelegramErrorResponse:
-    """Get messages from a Telegram chat, from now back to a minimum datetime.
 
-    Args:
-        chat_id: Chat identifier (username, phone, or numeric ID)
-        min_datetime: Stop at messages older than this datetime (ISO format, e.g., '2026-02-03 17:45:48+00:00')
-        limit: Maximum number of messages to return (1-1000, default 100)
-
-    Returns:
-        Response containing list of messages with id, date, text, user_name, and reply_to_msg_id
-    """
     # Convert chat_id to string for downloader
     chat_id_str = str(chat_id)
     global _manager

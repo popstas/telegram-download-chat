@@ -179,9 +179,17 @@ async def _fetch_messages(
     },
 )
 async def telegram_get_messages(
-    chat_id: str | int,
-    min_datetime: str,
-    limit: int = 100,
+    chat_id: str | int = Field(
+        default="current",
+        description="Chat ID, username, or invite link. Use 'current' for the chat context.",
+    ),
+    min_datetime: str = Field(
+        description="Minimum datetime in ISO format (e.g., '2025-01-15T10:30:00').",
+    ),
+    limit: int = Field(
+        default=100,
+        description="Maximum number of messages to retrieve.",
+    ),
 ) -> TelegramMessagesResponse | TelegramErrorResponse:
 
     # Convert chat_id to string for downloader

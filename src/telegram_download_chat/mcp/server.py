@@ -1,8 +1,9 @@
 """MCP server for Telegram chat message retrieval."""
 
+import asyncio
+import atexit
 import logging
 import uuid
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -50,35 +51,55 @@ class TelegramErrorResponse(BaseModel):
         default=None, description="Telegram RPC error code"
     )
 
-# Global connection manager instance
+
+# Global connection manager instance (singleton, survives client sessions)
 _manager: Optional[TelegramConnectionManager] = None
+_manager_lock: Optional[asyncio.Lock] = None
 
 # Simple client ID for this session (in real MCP, would come from request context)
 _session_client_id: str = str(uuid.uuid4())[:8]
 
 
-@asynccontextmanager
-async def lifespan(server: FastMCP):
-    """Manage Telegram client lifecycle."""
+def _get_lock() -> asyncio.Lock:
+    """Get or create the async lock (lazy to avoid event loop issues)."""
+    global _manager_lock
+    if _manager_lock is None:
+        _manager_lock = asyncio.Lock()
+    return _manager_lock
+
+
+async def _get_manager() -> TelegramConnectionManager:
+    """Get or create the connection manager (lazy singleton)."""
     global _manager
+    async with _get_lock():
+        if _manager is None:
+            _manager = TelegramConnectionManager()
+            connected = await _manager.connect()
+            if not connected:
+                logger.warning("Initial connection failed")
+        return _manager
 
-    _manager = TelegramConnectionManager()
-    connected = await _manager.connect()
 
-    if not connected:
-        logger.warning("Initial connection failed")
-
-    try:
-        yield
-    finally:
-        if _manager:
-            await _manager.disconnect()
+def _shutdown_sync():
+    """Synchronous shutdown for atexit."""
+    global _manager
+    if _manager is not None:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(_manager.shutdown())
+            else:
+                loop.run_until_complete(_manager.shutdown())
+        except Exception as e:
+            logger.warning(f"Error during atexit shutdown: {e}")
         _manager = None
+
+
+atexit.register(_shutdown_sync)
 
 
 mcp = FastMCP(
     "telegram_chat_mcp",
-    lifespan=lifespan,
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=False,
     ),
@@ -165,12 +186,14 @@ async def telegram_get_messages(
 
     # Convert chat_id to string for downloader
     chat_id_str = str(chat_id)
-    global _manager
 
-    if _manager is None:
-        return TelegramErrorResponse(error="Connection manager not initialized")
+    try:
+        manager = await _get_manager()
+    except Exception as e:
+        logger.exception("Failed to get connection manager")
+        return TelegramErrorResponse(error=f"Connection failed: {e}")
 
-    if not _manager.is_connected:
+    if not manager.is_connected:
         return TelegramErrorResponse(error="Not connected to Telegram")
 
     # Parse min_datetime
@@ -182,10 +205,10 @@ async def telegram_get_messages(
         return TelegramErrorResponse(error=f"Invalid datetime format: {e}")
 
     try:
-        result = await _manager.execute(
+        result = await manager.execute(
             _session_client_id,
             _fetch_messages,
-            _manager.downloader,
+            manager.downloader,
             chat_id_str,
             min_dt,
             limit,
@@ -195,14 +218,14 @@ async def telegram_get_messages(
         )
 
     except AuthKeyUnregisteredError:
-        _manager.record_error(AuthKeyUnregisteredError())
+        manager.record_error(AuthKeyUnregisteredError())
         return TelegramErrorResponse(
             error="Authentication expired. Please re-authenticate via CLI or GUI.",
             code="AUTH_KEY_UNREGISTERED",
         )
 
     except FloodWaitError as e:
-        _manager.record_error(e)
+        manager.record_error(e)
         return TelegramErrorResponse(
             error=f"Rate limited by Telegram. Retry after {e.seconds} seconds.",
             code="FLOOD_WAIT",
@@ -210,7 +233,7 @@ async def telegram_get_messages(
         )
 
     except RPCError as e:
-        _manager.record_error(e)
+        manager.record_error(e)
         logger.warning(f"Telegram API error: {e}")
         return TelegramErrorResponse(
             error=f"Telegram API error: {e.message}",
@@ -222,7 +245,7 @@ async def telegram_get_messages(
         return TelegramErrorResponse(error=str(e))
 
     except Exception as e:
-        _manager.record_error(e)
+        manager.record_error(e)
         logger.exception("Unexpected error")
         return TelegramErrorResponse(error=str(e), code="UNKNOWN")
 

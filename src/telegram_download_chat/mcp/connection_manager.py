@@ -71,7 +71,7 @@ class TaskQueue:
         logger.info("Task queue worker started")
 
     async def stop(self) -> None:
-        """Stop the queue worker."""
+        """Stop the queue worker. Only call on app shutdown."""
         self._running = False
         if self._worker_task:
             # Cancel any pending tasks
@@ -88,6 +88,24 @@ class TaskQueue:
                 pass
             self._worker_task = None
         logger.info("Task queue worker stopped")
+
+    def cancel_client_tasks(self, client_id: str) -> int:
+        """Cancel all pending tasks for a specific client.
+
+        Args:
+            client_id: The client whose tasks should be cancelled
+
+        Returns:
+            Number of tasks cancelled
+        """
+        cancelled = 0
+        for task in list(self._pending.values()):
+            if task.client_id == client_id and not task.future.done():
+                task.future.cancel()
+                cancelled += 1
+        if cancelled:
+            logger.info(f"Cancelled {cancelled} pending tasks for client {client_id}")
+        return cancelled
 
     async def submit(
         self,
@@ -234,8 +252,8 @@ class TelegramConnectionManager:
             logger.exception("Failed to connect to Telegram")
             return False
 
-    async def disconnect(self) -> None:
-        """Disconnect from Telegram."""
+    async def shutdown(self) -> None:
+        """Shutdown the connection manager. Only call on app shutdown."""
         # Stop the queue first
         await self._queue.stop()
 
@@ -251,6 +269,18 @@ class TelegramConnectionManager:
         self._downloader = None
         self._connected = False
         logger.info("Telegram client disconnected")
+
+    def handle_client_disconnect(self, client_id: str) -> None:
+        """Handle MCP client disconnection.
+
+        Cancels pending tasks for the client but keeps
+        Telegram connection and queue running.
+
+        Args:
+            client_id: The disconnected client's identifier
+        """
+        cancelled = self._queue.cancel_client_tasks(client_id)
+        logger.info(f"Client {client_id} disconnected, cancelled {cancelled} tasks")
 
     async def execute(
         self,

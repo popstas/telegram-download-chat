@@ -1,12 +1,12 @@
 """MCP server for Telegram chat message retrieval."""
 
-import json
 import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
+from pydantic import BaseModel, Field
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from telethon.errors import (
@@ -18,6 +18,37 @@ from telethon.errors import (
 from .connection_manager import TelegramConnectionManager
 
 logger = logging.getLogger(__name__)
+
+
+class TelegramMessage(BaseModel):
+    """Single message from Telegram chat."""
+
+    id: int = Field(description="Message ID")
+    date: str = Field(description="ISO format datetime of the message")
+    text: str = Field(description="Message text content")
+    user_name: str = Field(description="Display name of the sender")
+    reply_to_msg_id: Optional[int] = Field(
+        default=None, description="ID of replied message"
+    )
+
+
+class TelegramMessagesResponse(BaseModel):
+    """Response containing list of messages."""
+
+    messages: list[TelegramMessage] = Field(description="List of messages")
+
+
+class TelegramErrorResponse(BaseModel):
+    """Error response from Telegram operations."""
+
+    error: str = Field(description="Error message")
+    code: Optional[str] = Field(default=None, description="Error code")
+    retry_after: Optional[int] = Field(
+        default=None, description="Seconds to wait before retry (for rate limits)"
+    )
+    rpc_code: Optional[int] = Field(
+        default=None, description="Telegram RPC error code"
+    )
 
 # Global connection manager instance
 _manager: Optional[TelegramConnectionManager] = None
@@ -76,7 +107,7 @@ async def _fetch_messages(
         silent=True,
     )
 
-    result = []
+    result_messages = []
     for msg in messages:
         msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
         serializable = downloader.make_serializable(msg_dict)
@@ -88,12 +119,25 @@ async def _fetch_messages(
             if msg_dt < min_dt:
                 continue
 
-        result.append(
+        # Extract user_id from from_id dict
+        sender_from_id = serializable.get("from_id")
+        user_id = None
+        if isinstance(sender_from_id, dict):
+            user_id = sender_from_id.get("user_id") or sender_from_id.get("channel_id")
+        elif isinstance(sender_from_id, int):
+            user_id = sender_from_id
+
+        # Resolve to display name
+        user_name = (
+            await downloader._get_user_display_name(user_id) if user_id else "Unknown"
+        )
+
+        result_messages.append(
             {
                 "id": serializable.get("id"),
                 "date": serializable.get("date"),
                 "text": serializable.get("message", ""),
-                "from_id": serializable.get("from_id"),
+                "user_name": user_name,
                 "reply_to_msg_id": serializable.get("reply_to", {}).get(
                     "reply_to_msg_id"
                 )
@@ -102,7 +146,7 @@ async def _fetch_messages(
             }
         )
 
-    return result
+    return result_messages
 
 
 @mcp.tool(
@@ -113,10 +157,10 @@ async def _fetch_messages(
     },
 )
 async def telegram_get_messages(
-    chat_id: str,
+    chat_id: str | int,
     min_datetime: str,
     limit: int = 100,
-) -> str:
+) -> TelegramMessagesResponse | TelegramErrorResponse:
     """Get messages from a Telegram chat, from now back to a minimum datetime.
 
     Args:
@@ -125,15 +169,17 @@ async def telegram_get_messages(
         limit: Maximum number of messages to return (1-1000, default 100)
 
     Returns:
-        JSON array of messages with id, date, text, and sender info
+        Response containing list of messages with id, date, text, user_name, and reply_to_msg_id
     """
+    # Convert chat_id to string for downloader
+    chat_id_str = str(chat_id)
     global _manager
 
     if _manager is None:
-        return json.dumps({"error": "Connection manager not initialized"})
+        return TelegramErrorResponse(error="Connection manager not initialized")
 
     if not _manager.is_connected:
-        return json.dumps({"error": "Not connected to Telegram"})
+        return TelegramErrorResponse(error="Not connected to Telegram")
 
     # Parse min_datetime
     try:
@@ -141,56 +187,52 @@ async def telegram_get_messages(
         if min_dt.tzinfo is None:
             min_dt = min_dt.replace(tzinfo=timezone.utc)
     except ValueError as e:
-        return json.dumps({"error": f"Invalid datetime format: {e}"})
+        return TelegramErrorResponse(error=f"Invalid datetime format: {e}")
 
     try:
         result = await _manager.execute(
             _session_client_id,
             _fetch_messages,
             _manager.downloader,
-            chat_id,
+            chat_id_str,
             min_dt,
             limit,
         )
-        return json.dumps(result, ensure_ascii=False, indent=2)
+        return TelegramMessagesResponse(
+            messages=[TelegramMessage(**msg) for msg in result]
+        )
 
     except AuthKeyUnregisteredError:
         _manager.record_error(AuthKeyUnregisteredError())
-        return json.dumps(
-            {
-                "error": "Authentication expired. Please re-authenticate via CLI or GUI.",
-                "code": "AUTH_KEY_UNREGISTERED",
-            }
+        return TelegramErrorResponse(
+            error="Authentication expired. Please re-authenticate via CLI or GUI.",
+            code="AUTH_KEY_UNREGISTERED",
         )
 
     except FloodWaitError as e:
         _manager.record_error(e)
-        return json.dumps(
-            {
-                "error": f"Rate limited by Telegram. Retry after {e.seconds} seconds.",
-                "code": "FLOOD_WAIT",
-                "retry_after": e.seconds,
-            }
+        return TelegramErrorResponse(
+            error=f"Rate limited by Telegram. Retry after {e.seconds} seconds.",
+            code="FLOOD_WAIT",
+            retry_after=e.seconds,
         )
 
     except RPCError as e:
         _manager.record_error(e)
         logger.warning(f"Telegram API error: {e}")
-        return json.dumps(
-            {
-                "error": f"Telegram API error: {e.message}",
-                "code": "RPC_ERROR",
-                "rpc_code": e.code if hasattr(e, "code") else None,
-            }
+        return TelegramErrorResponse(
+            error=f"Telegram API error: {e.message}",
+            code="RPC_ERROR",
+            rpc_code=e.code if hasattr(e, "code") else None,
         )
 
     except RuntimeError as e:
-        return json.dumps({"error": str(e)})
+        return TelegramErrorResponse(error=str(e))
 
     except Exception as e:
         _manager.record_error(e)
         logger.exception("Unexpected error")
-        return json.dumps({"error": str(e), "code": "UNKNOWN"})
+        return TelegramErrorResponse(error=str(e), code="UNKNOWN")
 
 
 def main():

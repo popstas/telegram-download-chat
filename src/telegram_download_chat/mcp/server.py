@@ -110,17 +110,21 @@ async def _fetch_messages(
     downloader,
     chat_id: str,
     min_dt: datetime,
+    max_dt: datetime,
     limit: int,
 ) -> list[dict]:
     """Fetch messages from Telegram (runs in queue)."""
     if not downloader.client:
         raise RuntimeError("Not authenticated")
 
-    # Use date part for until_date (downloader's date boundary)
-    until_date_str = min_dt.strftime("%Y-%m-%d")
+    # Convert datetime to date strings for downloader
+    # Note: downloader's from_date is upper boundary (newer), until_date is lower boundary (older)
+    from_date_str = max_dt.strftime("%Y-%m-%d")  # upper boundary (max)
+    until_date_str = min_dt.strftime("%Y-%m-%d")  # lower boundary (min)
 
     messages = await downloader.download_chat(
         chat_id=chat_id,
+        from_date=from_date_str,
         until_date=until_date_str,
         total_limit=limit,
         request_limit=min(100, limit),
@@ -133,11 +137,11 @@ async def _fetch_messages(
         msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
         serializable = downloader.make_serializable(msg_dict)
 
-        # Filter by exact datetime
+        # Filter by exact datetime range (inclusive)
         msg_date_str = serializable.get("date")
         if msg_date_str:
             msg_dt = datetime.fromisoformat(msg_date_str.replace("Z", "+00:00"))
-            if msg_dt < min_dt:
+            if msg_dt < min_dt or msg_dt > max_dt:
                 continue
 
         # Extract user_id from from_id dict
@@ -186,6 +190,10 @@ async def telegram_get_messages(
     min_datetime: str = Field(
         description="Minimum datetime in ISO format (e.g., '2025-01-15T10:30:00').",
     ),
+    max_datetime: Optional[str] = Field(
+        default=None,
+        description="Maximum datetime in ISO format (e.g., '2025-01-20T15:45:00'). Defaults to now.",
+    ),
     limit: int = Field(
         default=100,
         description="Maximum number of messages to retrieve.",
@@ -210,7 +218,18 @@ async def telegram_get_messages(
         if min_dt.tzinfo is None:
             min_dt = min_dt.replace(tzinfo=timezone.utc)
     except ValueError as e:
-        return TelegramErrorResponse(error=f"Invalid datetime format: {e}")
+        return TelegramErrorResponse(error=f"Invalid min_datetime format: {e}")
+
+    # Parse max_datetime (default to now if not provided)
+    try:
+        if max_datetime is None:
+            max_dt = datetime.now(timezone.utc)
+        else:
+            max_dt = datetime.fromisoformat(max_datetime)
+            if max_dt.tzinfo is None:
+                max_dt = max_dt.replace(tzinfo=timezone.utc)
+    except ValueError as e:
+        return TelegramErrorResponse(error=f"Invalid max_datetime format: {e}")
 
     try:
         result = await manager.execute(
@@ -219,6 +238,7 @@ async def telegram_get_messages(
             manager.downloader,
             chat_id_str,
             min_dt,
+            max_dt,
             limit,
         )
         return TelegramMessagesResponse(

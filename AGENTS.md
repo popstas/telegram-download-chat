@@ -1,89 +1,126 @@
-# Before commit
+# CLAUDE.md
 
-- Format code with `black` and `isort` using `pre-commit` before committing.
-- Run tests with `pytest`.
-- Ensure `.pre-commit-config.yaml` stays up to date with project style tools.
-- Update README.md after features changes.
-- Update AGENTS.md when project structure changes.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-# Telegram Download Chat GUI Structure
+## Project Overview
 
-## Project Structure
-src/telegram_download_chat/
-├── core/                     # Core downloader package with mixins
-│   ├── downloader.py         # TelegramChatDownloader
-│   ├── auth.py               # Authentication helpers
-│   ├── auth_utils.py         # TelegramAuth utilities
-│   ├── config.py             # Configuration helpers
-│   ├── download.py           # Chat downloading logic
-│   ├── entities.py           # Entity utilities
-│   ├── media.py              # Media download utilities
-│   ├── messages.py           # Message formatting utilities
-│   └── presets.py            # Preset management helpers
-├── gui/                      # Main GUI package
-│   ├── __init__.py           # Package initialization
-│   ├── main.py               # Main application entry point
-│   ├── worker.py             # Background worker thread
-│   ├── windows/              # Window classes
-│   │   └── main_window.py    # Main application window
-│   │
-│   ├── widgets/              # Custom widgets
-│   │   ├── file_list.py      # File list with preview
-│   │   └── log_viewer.py     # Log viewing widget
-│   │
-│   ├── tabs/                 # Application tabs
-│   │   ├── download_tab.py   # Download tab
-│   │   ├── convert_tab.py    # Convert tab
-│   │   └── settings_tab.py   # Settings tab
-│   │
-│   ├── auth/                 # Authentication workflows
-│   │   └── session_manager.py# Login/logout logic
-│   │
-│   └── utils/                # Utility modules
-│       ├── config.py         # Configuration management
-│       ├── file_utils.py     # File operations
-├── web/                      # Streamlit web interface
-│   ├── __init__.py           # Entry point to launch Streamlit
-│   └── main.py               # Streamlit application code
-│
-└── gui_app_.py              # Old GUI implementation (renamed)
-├── cli/                     # Command line interface package
-│   ├── __init__.py          # CLI entry point
-│   ├── arguments.py         # Argument parsing helpers
-│   └── commands.py          # Download and conversion logic
-├── mcp/                     # MCP server for AI assistants
-│   ├── __init__.py          # Entry point exports
-│   ├── server.py            # FastMCP server with tools
-│   ├── connection_manager.py# Telegram connection + task queue
-│   └── AGENTS.md            # MCP-specific documentation
+Telegram Download Chat is a Python CLI utility that downloads and analyzes Telegram chat history. It provides both command-line and GUI interfaces for downloading messages from chats, groups, channels, or archived exports and saving them in JSON/TXT formats.
 
-## Key Components
+### Key Components
 
-1. **Main Window**
-   - Central widget with tabbed interface
-   - Menu bar with File, Edit, View, Help
-   - Status bar with progress indicators
+- **Core Engine** (`core/` package): Contains `TelegramChatDownloader` plus helper modules (`auth`, `config`, `download`, `entities`, `media`, `messages`, `context`) built on Telethon
+- **CLI Interface** (`cli.py`): Command-line interface with argument parsing and async message processing
+- **GUI Interface** (`gui_app.py`): PySide6-based graphical interface with threading for async operations
+- **MCP Server** (`mcp/` package): Model Context Protocol server exposing Telegram chat tools for AI assistants
+- **Configuration** (`paths.py`): Handles config file management and application directories
 
-2. **Tabs**
-   - **Download Tab**: For downloading chat history
-   - **Convert Tab**: For converting between formats (future)
-   - **Settings Tab**: Application configuration
+### Architecture
 
-3. **Widgets**
-   - FileList: Displays downloaded files with preview
-   - LogViewer: Shows log output with copy/expand features
+The application follows a modular design:
+1. **Configuration Layer**: YAML-based config with API credentials and user settings
+2. **Telegram Client Layer**: Telethon wrapper for authenticated API communication
+3. **Processing Layer**: Message filtering, date splitting, format conversion
+4. **Interface Layer**: CLI and GUI frontends sharing the same core functionality
 
-4. **Worker Thread**
-   - Handles long-running operations
-   - Emits progress and completion signals
+## Development Commands
 
-## Development Notes
-- Uses PySide6 for the GUI
-- Follows MVC pattern where possible
-- Uses signals/slots for inter-component communication
-- Config stored in YAML format
-- Session management for Telegram authentication
+Use `.venv` virtual environment.
 
-## Running the Application
-- Use `python -m telegram_download_chat.gui.main` to start the GUI
-- Or use the launcher: `python launcher.py`
+### Setup Development Environment
+```bash
+# Install in development mode with all dependencies
+pip install -e ".[dev,gui]"
+
+# Or install from requirements
+pip install -r requirements.txt
+```
+
+### Testing
+```bash
+# Run tests
+pytest
+
+# Run tests with async support
+pytest -v
+
+# Run specific test
+pytest tests/test_telegram_download_chat.py::TestClass::test_method
+```
+
+### Code Quality
+```bash
+# Format code
+black src/ tests/
+
+# Sort imports
+isort src/ tests/
+
+# Type checking
+mypy src/
+```
+
+### Building
+```bash
+# Build package
+python -m build
+
+# Install from source
+pip install .
+
+# Build PyInstaller executables
+./build_macos.sh      # macOS
+./build_windows.ps1   # Windows
+```
+
+### Running
+```bash
+# CLI mode
+python -m telegram_download_chat username
+
+# GUI mode  
+python -m telegram_download_chat gui
+# or
+telegram-download-chat gui
+
+# From source
+python main.py  # Launches GUI by default
+```
+
+## Configuration
+
+- Config file auto-created at OS-specific locations (see `paths.py`)
+- Requires Telegram API credentials from https://my.telegram.org
+- Example config in `config.example.yml`
+- GUI provides config editing interface
+
+## Key Features to Understand
+
+### Message Processing
+- Downloads via Telethon's `iter_messages()` with pagination
+- Supports resume from interruption using temporary files
+- Can filter by date ranges, specific users, or message threads
+- Outputs JSON (full metadata) and TXT (human-readable) formats
+
+### Authentication
+- Uses Telethon sessions for persistent login
+- GUI handles phone/code/password flow
+- CLI opens browser for authentication
+
+### Filtering & Splitting
+- `--subchat`: Extract message threads/replies
+- `--split`: Split output by month/year
+- `--user`: Filter by specific sender
+- `--max-date`: Messages on or before this date
+- `--min-date`: Messages on or after this date
+- `--media`: Download media attachments (photos, videos, documents, etc.)
+
+### PyInstaller Integration
+- Custom hooks in `_pyinstaller/` for bundling
+- Platform-specific build scripts
+- GUI auto-launches when no CLI args provided
+
+### MCP Server
+- Exposes `telegram_get_messages` and `telegram_connection_status` tools
+- Uses task queue for serialized API calls
+- Supports stdio (Claude Desktop) and HTTP transports
+- Run with: `python -m telegram_download_chat.mcp`

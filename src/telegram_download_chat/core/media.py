@@ -83,6 +83,11 @@ class MediaMixin:
         try:
             # Telethon takes care of creating the directory itself
             download_to = attachments_dir / message_id / filename
+            if download_to.exists():
+                self.logger.debug(
+                    f"Media already exists for message {message_id}, skipping"
+                )
+                return
             downloaded_path = await self.client.download_media(
                 message, file=download_to
             )

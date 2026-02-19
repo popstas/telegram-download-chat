@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from datetime import datetime, timedelta
@@ -12,6 +13,7 @@ from typing import Optional
 import streamlit as st
 
 from telegram_download_chat.cli.arguments import CLIOptions
+from telegram_download_chat.cli.commands import _dedup_messages
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
 from telegram_download_chat.core.presets import (
     add_preset,
@@ -93,6 +95,30 @@ async def run_download(options: CLIOptions) -> Path:
             if options.output
             else downloads_dir / f"{chat_name}.json"
         )
+
+        # Resume logic: mirrors cli/commands.py
+        since_id = None
+        existing_messages = []
+        if not options.overwrite and output_file.exists():
+            try:
+                data = json.loads(output_file.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    existing_messages = data
+                    ids = [
+                        m.get("id")
+                        for m in data
+                        if isinstance(m, dict) and "id" in m
+                    ]
+                    if ids:
+                        since_id = max(ids)
+            except Exception as e:
+                downloader.logger.warning(f"Failed to read existing file: {e}")
+
+        if options.overwrite:
+            part_path = downloader.get_temp_file_path(output_file)
+            if part_path.exists():
+                part_path.unlink()
+
         # --last-days takes priority over --min-date
         until_date = options.until
         from_date = options.from_date
@@ -104,15 +130,25 @@ async def run_download(options: CLIOptions) -> Path:
                 base_date - timedelta(days=max(0, options.last_days - 1))
             ).strftime("%Y-%m-%d")
             from_date = base_str
-        messages = await downloader.download_chat(
-            chat_id=options.chat,
-            request_limit=min(100, options.limit or 100),
-            total_limit=options.limit or 0,
-            output_file=None,
-            silent=False,
-            until_date=until_date,
-            from_date=from_date,
-        )
+
+        download_kwargs: dict = {
+            "chat_id": options.chat,
+            "request_limit": min(100, options.limit or 100),
+            "total_limit": options.limit or 0,
+            "output_file": str(output_file),
+            "save_partial": not options.overwrite,
+            "silent": False,
+            "until_date": until_date,
+            "from_date": from_date,
+        }
+        if since_id is not None:
+            download_kwargs["since_id"] = since_id
+
+        messages = await downloader.download_chat(**download_kwargs)
+
+        if existing_messages:
+            messages = _dedup_messages(existing_messages + messages)
+
         await downloader.save_messages(
             messages, str(output_file), sort_order=options.sort
         )

@@ -17,6 +17,19 @@ from telegram_download_chat.paths import get_relative_to_downloads_dir
 from .arguments import CLIOptions
 
 
+def _dedup_messages(messages: List[Any]) -> List[Any]:
+    """Deduplicate messages by id, preserving original order."""
+    seen: set = set()
+    deduped = []
+    for m in messages:
+        mid = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
+        if mid is None or mid not in seen:
+            if mid is not None:
+                seen.add(mid)
+            deduped.append(m)
+    return deduped
+
+
 def _parse_date(value: Any) -> datetime | None:
     """Parse date from various formats to datetime."""
     if not value:
@@ -243,8 +256,17 @@ async def process_chat_download(
                     ]
                     if ids:
                         since_id = max(ids)
+                        downloader.logger.info(
+                            f"Resuming: found {len(existing_messages)} existing messages "
+                            f"(newest ID {since_id})"
+                        )
         except Exception as e:  # pragma: no cover - just logging
             downloader.logger.warning(f"Failed to read existing file: {e}")
+
+    if args.overwrite:
+        downloader.logger.info("Overwrite mode: starting fresh download")
+    elif since_id is None and not existing_messages:
+        downloader.logger.info("Starting new download")
 
     if args.overwrite:
         part_path = downloader.get_temp_file_path(output_path)
@@ -277,7 +299,7 @@ async def process_chat_download(
     downloader.logger.debug(f"Downloaded {len(messages)} messages")
 
     if existing_messages:
-        messages = existing_messages + messages
+        messages = _dedup_messages(existing_messages + messages)
 
     if args.subchat:
         messages = filter_messages_by_subchat(messages, args.subchat)
@@ -528,6 +550,7 @@ async def download(
 
 
 __all__ = [
+    "_dedup_messages",
     "split_messages_by_date",
     "filter_messages_by_subchat",
     "analyze_keywords",

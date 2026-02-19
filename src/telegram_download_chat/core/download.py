@@ -34,7 +34,7 @@ class DownloadMixin:
 
         entity = await self.get_entity(chat_id)
 
-        offset_id = since_id or 0
+        offset_id = 0  # always start from newest message
         all_messages: List[Any] = []
 
         output_path = Path(output_file) if output_file else None
@@ -42,11 +42,23 @@ class DownloadMixin:
             loaded_messages, last_id = self._load_partial_messages(output_path)
             if loaded_messages:
                 all_messages = loaded_messages
-                offset_id = max(offset_id, last_id)
-                if not silent:
-                    self.logger.info(
-                        f"Resuming download from message ID {offset_id}..."
-                    )
+                if since_id is None:
+                    # Resuming a first-time download; continue backwards
+                    offset_id = last_id
+                    if not silent:
+                        self.logger.info(
+                            f"Resuming download from message ID {offset_id}..."
+                        )
+                else:
+                    # Incremental update: offset_id=0 finds new messages;
+                    # partial messages deduped below
+                    offset_id = 0
+
+        # Build existing ID set once; updated incrementally as new messages arrive
+        existing_ids: set = {
+            (m.get("id") if isinstance(m, dict) else getattr(m, "id", None))
+            for m in all_messages
+        } - {None}
 
         total_fetched = len(all_messages)
         last_save = asyncio.get_event_loop().time()
@@ -100,9 +112,8 @@ class DownloadMixin:
             new_messages = []
             hit_until_boundary = False
             for msg in history.messages:
-                if not hasattr(msg, "id") or any(
-                    m.id == msg.id for m in all_messages if hasattr(m, "id")
-                ):
+                msg_id = getattr(msg, "id", None)
+                if msg_id is None or msg_id in existing_ids:
                     continue
 
                 if until_date and hasattr(msg, "date") and msg.date:
@@ -131,6 +142,7 @@ class DownloadMixin:
                         continue
 
                 if since_id is None or msg.id > since_id:
+                    existing_ids.add(msg_id)
                     new_messages.append(msg)
 
             all_messages.extend(new_messages)

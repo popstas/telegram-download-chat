@@ -3,13 +3,20 @@
 from pathlib import Path
 from typing import Any, List, Optional
 
-from telethon.tl.types import Document, MessageMediaDocument, MessageMediaPhoto, Photo
+from telethon.tl.types import Document, DocumentAttributeFilename, MessageMediaDocument, MessageMediaPhoto, Photo
 
 
 class MediaMixin:
     """Mixin class for downloading media from Telegram messages."""
 
-    def get_filename(self, media: Any) -> Optional[str]:
+    def _get_original_filename(self, doc: Document) -> Optional[str]:
+        """Extract the original filename from document attributes, if present."""
+        for attr in doc.attributes:
+            if isinstance(attr, DocumentAttributeFilename):
+                return attr.file_name
+        return None
+
+    def get_filename(self, media: Any, use_original_names: bool = False) -> Optional[str]:
         """Returns a filename for the given media object."""
         if isinstance(media, MessageMediaPhoto):
             photo = media.photo
@@ -19,6 +26,10 @@ class MediaMixin:
         elif isinstance(media, MessageMediaDocument):
             doc = media.document
             if isinstance(doc, Document):
+                if use_original_names:
+                    original = self._get_original_filename(doc)
+                    if original:
+                        return original
                 return f"{doc.id}{self._get_extension_from_mime(doc.mime_type)}"
 
         return None
@@ -57,6 +68,7 @@ class MediaMixin:
         self,
         message: Any,
         attachments_dir: Path,
+        use_original_names: bool = False,
     ) -> None:
         """Download media from a single message.
 
@@ -69,7 +81,7 @@ class MediaMixin:
         if not media:
             return
 
-        filename = self.get_filename(media)
+        filename = self.get_filename(media, use_original_names=use_original_names)
         if not filename:
             return
 
@@ -108,6 +120,7 @@ class MediaMixin:
         self,
         messages: List[Any],
         attachments_dir: Path,
+        use_original_names: bool = False,
     ) -> None:
         """Download media from all messages that have attachments.
 
@@ -121,7 +134,7 @@ class MediaMixin:
                 self.logger.info("Stop requested, aborting media download...")
                 return
 
-            await self.download_message_media(msg, attachments_dir)
+            await self.download_message_media(msg, attachments_dir, use_original_names=use_original_names)
             downloaded += 1
 
         self.logger.info(f"Downloaded {downloaded} media files to {attachments_dir}")

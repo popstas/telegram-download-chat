@@ -189,11 +189,13 @@ async def save_messages_with_status(
     output_file: str,
     sort_order: str = "asc",
     download_media: bool = False,
+    media_original_names: bool = False,
 ) -> None:
     """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
         downloader.save_messages(
-            messages, output_file, sort_order=sort_order, download_media=download_media
+            messages, output_file, sort_order=sort_order, download_media=download_media,
+            media_original_names=media_original_names,
         ),
         downloader.logger,
     )
@@ -367,7 +369,8 @@ async def process_chat_download(
                     "No messages with valid dates found for splitting"
                 )
                 await save_messages_with_status(
-                    downloader, messages, output_file, args.sort, args.media
+                    downloader, messages, output_file, args.sort, args.media,
+                    args.media_original_names,
                 )
             else:
                 output_path = Path(output_file)
@@ -376,7 +379,8 @@ async def process_chat_download(
                 for date_key, msgs in split_messages.items():
                     split_file = output_path.with_name(f"{base_name}_{date_key}{ext}")
                     await save_messages_with_status(
-                        downloader, msgs, str(split_file), args.sort, args.media
+                        downloader, msgs, str(split_file), args.sort, args.media,
+                        args.media_original_names,
                     )
                     downloader.logger.info(
                         f"Saved {len(msgs)} messages to {split_file}"
@@ -386,7 +390,8 @@ async def process_chat_download(
                 )
         else:
             await save_messages_with_status(
-                downloader, messages, output_file, args.sort, args.media
+                downloader, messages, output_file, args.sort, args.media,
+                args.media_original_names,
             )
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")

@@ -211,6 +211,7 @@ class MessagesMixin:
         save_txt: bool = True,
         sort_order: str = "asc",
         download_media: bool = False,
+        media_original_names: bool = False,
     ) -> None:
         output_path = Path(output_file)
 
@@ -244,7 +245,8 @@ class MessagesMixin:
         if download_media:
             self.logger.info("Downloading media attachments...")
             await self.download_all_media(
-                messages, self.get_attachments_dir(output_path)
+                messages, self.get_attachments_dir(output_path),
+                use_original_names=media_original_names,
             )
 
         partial = self.get_temp_file_path(output_path)

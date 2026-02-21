@@ -16,6 +16,7 @@ class WorkerThread(QThread):
 
     log = Signal(str)
     progress = Signal(int, int)  # current, maximum
+    status_update = Signal(str)  # parsed status for status bar
     finished = Signal(list, bool)  # files, was_stopped_by_user
 
     def __init__(self, cmd_args, output_dir):
@@ -52,6 +53,35 @@ class WorkerThread(QThread):
             except Exception:
                 # Fallback to terminate if stop file creation fails
                 self.process.terminate()
+
+    def _parse_status(self, line):
+        """Parse log line and emit status update for the status bar.
+
+        Args:
+            line: Output line from the command
+        """
+        lower = line.lower()
+        if "fetched:" in lower:
+            # Extract count from "Fetched: N"
+            try:
+                count = line.split("Fetched:")[1].strip().split()[0]
+                self.status_update.emit(f"Fetched {count} messages")
+            except (IndexError, ValueError):
+                pass
+        elif "saved" in lower and "messages to" in lower:
+            try:
+                # "Saved N messages to ..."
+                parts = line.split("Saved")[1].strip().split()
+                count = parts[0]
+                self.status_update.emit(f"Saved {count} messages")
+            except (IndexError, ValueError):
+                pass
+        elif "resuming download from" in lower:
+            self.status_update.emit("Resuming download...")
+        elif "flood" in lower and "wait" in lower:
+            self.status_update.emit("Rate limited, waiting...")
+        elif "downloading media" in lower:
+            self.status_update.emit("Downloading media...")
 
     def _extract_progress(self, line):
         """Extract progress information from command output.
@@ -133,6 +163,7 @@ class WorkerThread(QThread):
 
                 # Try to extract progress information from the output
                 self._extract_progress(line)
+                self._parse_status(line)
 
             # Read any remaining output
             if self.process.poll() is not None:
@@ -141,6 +172,7 @@ class WorkerThread(QThread):
                     if line:
                         self.log.emit(line)
                         self._extract_progress(line)
+                        self._parse_status(line)
 
         except Exception as e:
             self.log.emit(f"Error in worker thread: {str(e)}")

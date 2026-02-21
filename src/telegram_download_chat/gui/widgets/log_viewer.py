@@ -153,7 +153,7 @@ class LogViewer(QWidget):
         self.log_text.setFont(font)
 
         # Calculate heights
-        self._collapsed_height = int(self.log_text.fontMetrics().height() * 1.5)
+        self._collapsed_height = int(self.log_text.fontMetrics().height() * 3.5)
         self._expanded_height = int(self.log_text.fontMetrics().height() * 10.5)
 
         parent_layout.addWidget(self.log_text)

@@ -46,6 +46,17 @@ class DownloadTab(QWidget):
         self._connect_signals()
         self._load_settings()
 
+    def _is_date_set(self, date_edit: QDateEdit) -> bool:
+        """Check if a date edit has a real date set (not cleared).
+
+        Args:
+            date_edit: The QDateEdit widget to check
+
+        Returns:
+            True if a real date is set, False if cleared
+        """
+        return date_edit.date() > date_edit.minimumDate()
+
     def _setup_ui(self):
         """Set up the user interface."""
         # Main layout
@@ -136,7 +147,7 @@ class DownloadTab(QWidget):
         settings_form = QFormLayout(self.settings_widget)
         settings_form.setContentsMargins(2, 2, 2, 2)
         settings_form.setSpacing(4)
-        settings_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        settings_form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
         settings_form.setFormAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         # Add settings widget to the layout
@@ -147,6 +158,7 @@ class DownloadTab(QWidget):
         self.sort_combo.addItem("Ascending", "asc")
         self.sort_combo.addItem("Descending", "desc")
         self.sort_combo.setCurrentIndex(0)
+        self.sort_combo.setMaximumWidth(200)
         settings_form.addRow("Sort order:", self.sort_combo)
 
         # Split output
@@ -154,11 +166,14 @@ class DownloadTab(QWidget):
         self.split_combo.addItem("Don't split", None)
         self.split_combo.addItem("By Month", "month")
         self.split_combo.addItem("By Year", "year")
+        self.split_combo.setMaximumWidth(200)
         settings_form.addRow("Split output:", self.split_combo)
 
         # Output file selection
         self.output_edit = QLineEdit()
         self.output_edit.setPlaceholderText("Leave empty to use chat name")
+        self.output_edit.setMinimumWidth(200)
+        self.output_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         btn_out = QPushButton("Browse…")
         btn_out.clicked.connect(self._browse_output)
         h = QHBoxLayout()
@@ -169,30 +184,62 @@ class DownloadTab(QWidget):
         # Limit messages
         self.limit_spin = QSpinBox()
         self.limit_spin.setRange(0, 1000000)
+        self.limit_spin.setMaximumWidth(200)
         settings_form.addRow("Message limit:", self.limit_spin)
 
-        # Min date
+        # Dates on a single row with clear buttons
         self.until_edit = QDateEdit()
         self.until_edit.setCalendarPopup(True)
         self.until_edit.setDisplayFormat("yyyy-MM-dd")
-        self.until_edit.setDate(QDate())  # Set to invalid/empty date
-        settings_form.addRow("Min date:", self.until_edit)
+        self.until_edit.setSpecialValueText(" ")
+        self.until_edit.setMinimumDate(QDate(1900, 1, 1))
+        self.until_edit.setDate(self.until_edit.minimumDate())
+        self.until_edit.setMaximumWidth(200)
 
-        # Max date (base for last-days)
         self.from_edit = QDateEdit()
         self.from_edit.setCalendarPopup(True)
         self.from_edit.setDisplayFormat("yyyy-MM-dd")
-        self.from_edit.setDate(QDate())
-        settings_form.addRow("Max date:", self.from_edit)
+        self.from_edit.setSpecialValueText(" ")
+        self.from_edit.setMinimumDate(QDate(1900, 1, 1))
+        self.from_edit.setDate(self.from_edit.minimumDate())
+        self.from_edit.setMaximumWidth(200)
+
+        min_clear_btn = QPushButton("\u00d7")
+        min_clear_btn.setFixedSize(24, 24)
+        min_clear_btn.setToolTip("Clear min date")
+        min_clear_btn.clicked.connect(
+            lambda: self.until_edit.setDate(self.until_edit.minimumDate())
+        )
+
+        max_clear_btn = QPushButton("\u00d7")
+        max_clear_btn.setFixedSize(24, 24)
+        max_clear_btn.setToolTip("Clear max date")
+        max_clear_btn.clicked.connect(
+            lambda: self.from_edit.setDate(self.from_edit.minimumDate())
+        )
+
+        dates_layout = QHBoxLayout()
+        dates_layout.addWidget(QLabel("Min:"))
+        dates_layout.addWidget(self.until_edit)
+        dates_layout.addWidget(min_clear_btn)
+        dates_layout.addSpacing(10)
+        dates_layout.addWidget(QLabel("Max:"))
+        dates_layout.addWidget(self.from_edit)
+        dates_layout.addWidget(max_clear_btn)
+        dates_layout.addStretch()
+        settings_form.addRow("Dates:", dates_layout)
 
         # Last days
         self.last_days_spin = QSpinBox()
         self.last_days_spin.setRange(0, 3650)
+        self.last_days_spin.setMaximumWidth(200)
         settings_form.addRow("Last days:", self.last_days_spin)
 
         # Subchat
         self.subchat_edit = QLineEdit()
         self.subchat_edit.setPlaceholderText("Leave empty for main chat")
+        self.subchat_edit.setMinimumWidth(200)
+        self.subchat_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         settings_form.addRow("Subchat URL/ID:", self.subchat_edit)
 
         # User filter
@@ -200,6 +247,8 @@ class DownloadTab(QWidget):
         self.user_edit.setPlaceholderText(
             "@username or user_id (e.g., 12345 or user12345)"
         )
+        self.user_edit.setMinimumWidth(200)
+        self.user_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         settings_form.addRow("Filter by user:", self.user_edit)
 
         # Debug mode
@@ -478,13 +527,13 @@ class DownloadTab(QWidget):
                     "limit": self.limit_spin.value(),
                     "from_date": (
                         self.from_edit.date().toString("yyyy-MM-dd")
-                        if self.from_edit.date().isValid()
+                        if self._is_date_set(self.from_edit)
                         else ""
                     ),
                     "last_days": self.last_days_spin.value(),
                     "until": (
                         self.until_edit.date().toString("yyyy-MM-dd")
-                        if self.until_edit.date().isValid()
+                        if self._is_date_set(self.until_edit)
                         else ""
                     ),
                     "subchat": self.subchat_edit.text().strip(),
@@ -561,7 +610,7 @@ class DownloadTab(QWidget):
         if limit > 0:
             cmd_args.extend(["--limit", str(limit)])
 
-        if self.from_edit.date().isValid():
+        if self._is_date_set(self.from_edit):
             from_date = self.from_edit.date().toString("yyyy-MM-dd")
             cmd_args.extend(["--max-date", from_date])
 
@@ -569,7 +618,7 @@ class DownloadTab(QWidget):
         if last_days > 0:
             cmd_args.extend(["--last-days", str(last_days)])
 
-        if self.until_edit.date().isValid():
+        if self._is_date_set(self.until_edit):
             until_date = self.until_edit.date().toString("yyyy-MM-dd")
             cmd_args.extend(["--min-date", until_date])
 
@@ -774,13 +823,13 @@ class DownloadTab(QWidget):
         settings["limit"] = self.limit_spin.value()
         settings["from_date"] = (
             self.from_edit.date().toString("yyyy-MM-dd")
-            if self.from_edit.date().isValid()
+            if self._is_date_set(self.from_edit)
             else ""
         )
         settings["last_days"] = self.last_days_spin.value()
         settings["until"] = (
             self.until_edit.date().toString("yyyy-MM-dd")
-            if self.until_edit.date().isValid()
+            if self._is_date_set(self.until_edit)
             else ""
         )
         settings["subchat"] = self.subchat_edit.text()

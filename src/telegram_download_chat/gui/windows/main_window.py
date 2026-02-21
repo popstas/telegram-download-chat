@@ -2,6 +2,7 @@
 import logging
 import os
 import sys
+from pathlib import Path
 from typing import Any, Dict, List
 
 from PySide6.QtCore import QTimer, Signal
@@ -43,6 +44,7 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.config = ConfigManager()
         self.worker_thread = None
+        self._files_before_download = set()  # Track files before download starts
         self._setup_ui()
         self._connect_signals()
         self._load_settings()
@@ -302,10 +304,21 @@ class MainWindow(QMainWindow):
             # Clear previous logs
             self.log_viewer.clear()
 
+            # Snapshot existing files before download
+            self._files_before_download = set()
+            scan_dir = Path(output_dir) if output_dir else get_downloads_dir()
+            if scan_dir.exists():
+                self._files_before_download = {
+                    str(f.absolute())
+                    for f in scan_dir.iterdir()
+                    if f.is_file() and f.suffix.lower() in (".txt", ".json")
+                }
+
             # Create and start worker thread
             self.worker_thread = WorkerThread(cmd_args, output_dir)
             self.worker_thread.log.connect(self._on_worker_log)
             self.worker_thread.progress.connect(self._on_worker_progress)
+            self.worker_thread.status_update.connect(self.status_bar.showMessage)
             self.worker_thread.finished.connect(self._on_worker_finished)
 
             # Update UI
@@ -457,8 +470,9 @@ class MainWindow(QMainWindow):
             self.file_list.set_files(files)
             self.file_list.setVisible(True)
 
-            # Select first file
-            if files:
+            # Only auto-select first file if there are genuinely new files
+            new_files = [f for f in files if f not in self._files_before_download]
+            if new_files:
                 self.file_list.file_list.setCurrentRow(0)
         else:
             self.file_list.setVisible(False)

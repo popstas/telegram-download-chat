@@ -127,6 +127,9 @@ async def async_main() -> int:
         from telegram_download_chat.core.presets import apply_preset
 
         apply_preset(preset_config, args)
+    if args.proxy_url:
+        downloader.config.setdefault("settings", {})["proxy_url"] = args.proxy_url
+
     ctx = DownloaderContext(downloader, cli=True)
     _downloader_ctx = ctx
 

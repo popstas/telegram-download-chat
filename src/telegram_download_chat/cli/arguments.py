@@ -35,6 +35,7 @@ class CLIOptions:
     media: bool = False
     media_original_names: bool = False
     overwrite: bool = False
+    proxy_url: Optional[str] = None
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -152,6 +153,12 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--overwrite",
         action="store_true",
         help="Replace existing output files instead of resuming",
+    )
+    parser.add_argument(
+        "--proxy-url",
+        type=str,
+        default=None,
+        help="Proxy URL for Telegram connection (e.g. socks5://host:1080, http://host:8080)",
     )
 
     args = parser.parse_args(argv)

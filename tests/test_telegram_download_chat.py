@@ -110,6 +110,104 @@ class TestCLIArgumentParsing:
             args = parse_args()
             assert args.overwrite is False
 
+    def test_proxy_url_argument(self):
+        """Test parsing of --proxy-url option."""
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--proxy-url", "socks5://proxy.example.com:1080"],
+        ):
+            args = parse_args()
+            assert args.proxy_url == "socks5://proxy.example.com:1080"
+
+    def test_proxy_url_default_none(self):
+        """Test that proxy_url defaults to None."""
+        with patch("sys.argv", ["script_name", "chat"]):
+            args = parse_args()
+            assert args.proxy_url is None
+
+    def test_proxy_url_http(self):
+        """Test --proxy-url with HTTP proxy."""
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--proxy-url", "http://user:pass@proxy:8080"],
+        ):
+            args = parse_args()
+            assert args.proxy_url == "http://user:pass@proxy:8080"
+
+
+class TestProxyUrlCLIOverride:
+    """Tests for --proxy-url overriding config file value."""
+
+    @pytest.mark.asyncio
+    async def test_proxy_url_injected_into_config(self):
+        """Test that --proxy-url CLI arg overrides config settings."""
+        with patch("telegram_download_chat.cli.parse_args") as mock_parse, \
+             patch("telegram_download_chat.cli.TelegramChatDownloader") as mock_cls, \
+             patch("telegram_download_chat.cli.DownloaderContext") as mock_ctx_cls:
+
+            mock_args = CLIOptions(
+                chat="test_chat",
+                chats=["test_chat"],
+                proxy_url="socks5://cli-proxy:1080",
+            )
+            mock_parse.return_value = mock_args
+
+            mock_instance = mock_cls.return_value
+            mock_instance.config = {"settings": {"api_id": "123", "api_hash": "abc"}}
+            mock_instance.logger = MagicMock()
+            mock_instance.set_stop_file = MagicMock()
+            mock_instance.cleanup_stop_file = MagicMock()
+
+            mock_ctx = MagicMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_instance)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx_cls.return_value = mock_ctx
+
+            mock_instance.get_entity_name = AsyncMock(return_value="test_chat")
+            mock_instance.download_chat = AsyncMock(return_value=[])
+            mock_instance.get_entity = AsyncMock(return_value=MagicMock())
+            mock_instance.get_entity_full_name = AsyncMock(return_value="Test Chat")
+
+            await async_main()
+
+            assert mock_instance.config["settings"]["proxy_url"] == "socks5://cli-proxy:1080"
+
+    @pytest.mark.asyncio
+    async def test_no_proxy_url_preserves_config(self):
+        """Test that without --proxy-url, config proxy_url is not overridden."""
+        with patch("telegram_download_chat.cli.parse_args") as mock_parse, \
+             patch("telegram_download_chat.cli.TelegramChatDownloader") as mock_cls, \
+             patch("telegram_download_chat.cli.DownloaderContext") as mock_ctx_cls:
+
+            mock_args = CLIOptions(
+                chat="test_chat",
+                chats=["test_chat"],
+            )
+            mock_parse.return_value = mock_args
+
+            mock_instance = mock_cls.return_value
+            mock_instance.config = {
+                "settings": {"api_id": "123", "api_hash": "abc", "proxy_url": "socks5://config-proxy:1080"}
+            }
+            mock_instance.logger = MagicMock()
+            mock_instance.set_stop_file = MagicMock()
+            mock_instance.cleanup_stop_file = MagicMock()
+
+            mock_ctx = MagicMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_instance)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx_cls.return_value = mock_ctx
+
+            mock_instance.get_entity_name = AsyncMock(return_value="test_chat")
+            mock_instance.download_chat = AsyncMock(return_value=[])
+            mock_instance.get_entity = AsyncMock(return_value=MagicMock())
+            mock_instance.get_entity_full_name = AsyncMock(return_value="Test Chat")
+
+            await async_main()
+
+            # Config value should be preserved, not overridden
+            assert mock_instance.config["settings"]["proxy_url"] == "socks5://config-proxy:1080"
+
 
 class TestFilterMessagesBySubchat:
     """Tests for filter_messages_by_subchat function."""

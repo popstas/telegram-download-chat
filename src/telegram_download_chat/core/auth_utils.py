@@ -1,8 +1,10 @@
 """Telegram authentication utilities."""
+
 import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
 from telethon import TelegramClient
 from telethon.errors import (
@@ -29,33 +31,112 @@ class TelegramAuthError(Exception):
 class TelegramAuth:
     """Handles Telegram authentication and session management."""
 
-    def __init__(self, api_id: int, api_hash: str, session_path: Path):
+    def __init__(
+        self,
+        api_id: int,
+        api_hash: str,
+        session_path: Path,
+        proxy_url: Optional[str] = None,
+    ):
         """Initialize the Telegram authenticator.
 
         Args:
             api_id: Telegram API ID
             api_hash: Telegram API hash
             session_path: Path to store the session file
+            proxy_url: Optional proxy URL (e.g. socks5://user:pass@host:port)
         """
         self.api_id = api_id
         self.api_hash = api_hash
         self.session_path = str(session_path)
+        self.proxy_url = proxy_url
         self.client: Optional[TelegramClient] = None
         self._is_authenticated = False
         self.phone_code_hash: Optional[str] = None
 
+    @staticmethod
+    def parse_proxy_url(proxy_url: Optional[str]) -> Optional[dict]:
+        """Parse a proxy URL into Telethon proxy parameters.
+
+        Supports socks5, socks4, and http proxy schemes.
+
+        Args:
+            proxy_url: Proxy URL string (e.g. socks5://user:pass@host:1080)
+
+        Returns:
+            Dict with proxy_type, addr, port, and optionally username/password,
+            or None if proxy_url is empty/None.
+        """
+        if not proxy_url:
+            return None
+
+        # Numeric constants compatible with both PySocks and python-socks,
+        # and accepted directly by Telethon's _parse_proxy.
+        SOCKS5, SOCKS4, HTTP = 2, 1, 3
+
+        parsed = urlparse(proxy_url)
+        scheme = parsed.scheme.lower()
+
+        scheme_map = {
+            "socks5": SOCKS5,
+            "socks4": SOCKS4,
+            "http": HTTP,
+            "https": HTTP,
+        }
+
+        proxy_type = scheme_map.get(scheme)
+        if proxy_type is None:
+            raise ValueError(
+                f"Unsupported proxy scheme: {scheme}. "
+                f"Supported: socks5, socks4, http, https"
+            )
+
+        if not parsed.hostname:
+            sanitized = proxy_url.split("@")[-1] if "@" in proxy_url else proxy_url
+            raise ValueError(f"Proxy URL missing hostname: {sanitized}")
+
+        port = parsed.port or (1080 if scheme.startswith("socks") else 8080)
+
+        result = {
+            "proxy_type": proxy_type,
+            "addr": parsed.hostname,
+            "port": port,
+        }
+
+        if parsed.username:
+            result["username"] = unquote(parsed.username)
+        if parsed.password:
+            result["password"] = unquote(parsed.password)
+
+        return result
+
     async def initialize(self) -> None:
         """Initialize the Telegram client."""
         if self.client is None:
+            kwargs = {
+                "device_model": "Telegram Download Chat",
+                "app_version": "0.6.0",
+                "system_version": "1.0.0",
+                "lang_code": "en",
+                "system_lang_code": "en",
+            }
+
+            proxy = self.parse_proxy_url(self.proxy_url)
+            if proxy:
+                try:
+                    import python_socks  # noqa: F401
+                except ImportError:
+                    raise ImportError(
+                        "Proxy support requires python-socks[asyncio]. "
+                        "Install with: pip install 'python-socks[asyncio]'"
+                    )
+                kwargs["proxy"] = proxy
+
             self.client = TelegramClient(
                 self.session_path,
                 self.api_id,
                 self.api_hash,
-                device_model="Telegram Download Chat",
-                app_version="0.3.0",
-                system_version="1.0.0",
-                lang_code="en",
-                system_lang_code="en",
+                **kwargs,
             )
             await self.client.connect()
             self._is_authenticated = await self.client.is_user_authorized()

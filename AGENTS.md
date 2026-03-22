@@ -91,6 +91,7 @@ python main.py  # Launches GUI by default
 - Config file auto-created at OS-specific locations (see `paths.py`)
 - Requires Telegram API credentials from https://my.telegram.org
 - Example config in `config.example.yml`
+- Supports optional proxy via `proxy_url` in config or `--proxy-url` CLI flag (socks5/socks4/http)
 - GUI provides config editing interface
 
 ## Key Features to Understand

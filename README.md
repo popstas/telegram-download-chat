@@ -220,6 +220,7 @@ options:
   --preset PRESET     Use preset from config
   --media               Download media attachments to a separate folder
   --overwrite           Replace existing output files instead of resuming
+  --proxy-url URL       Proxy URL for Telegram connection (socks5://host:1080, http://host:8080)
   -v, --version         Show program's version number and exit
 ```
 

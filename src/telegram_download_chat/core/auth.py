@@ -45,11 +45,14 @@ class AuthMixin:
         self.logger.debug(f"Connecting to Telegram with API ID: {api_id}")
         self.logger.debug(f"Session file: {session_file}")
 
+        proxy_url = settings.get("proxy_url") or None
+
         try:
             self.telegram_auth = TelegramAuth(
                 api_id=int(api_id),
                 api_hash=api_hash,
                 session_path=Path(session_file),
+                proxy_url=proxy_url,
             )
 
             await self.telegram_auth.initialize()

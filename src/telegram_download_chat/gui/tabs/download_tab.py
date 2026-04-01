@@ -259,13 +259,9 @@ class DownloadTab(QWidget):
         self.overwrite_chk = QCheckBox("Replace existing files")
         settings_form.addRow("Overwrite:", self.overwrite_chk)
 
-        # Media download
-        self.media_chk = QCheckBox("Download media attachments")
-        settings_form.addRow("Media:", self.media_chk)
-
-        # Media original names (sub-option)
-        self.media_original_names_chk = QCheckBox("Use original filenames")
-        settings_form.addRow("Media filenames:", self.media_original_names_chk)
+        # Download media
+        self.media_chk = QCheckBox("Download images, videos, audio and all other files")
+        settings_form.addRow("Download media:", self.media_chk)
 
         # Create a model for the tree
         model = QStandardItemModel()
@@ -488,9 +484,6 @@ class DownloadTab(QWidget):
             if "media" in settings:
                 self.media_chk.setChecked(settings["media"])
 
-            if "media_original_names" in settings:
-                self.media_original_names_chk.setChecked(settings["media_original_names"])
-
             sort_order = settings.get("sort", "asc")
             index = 0 if sort_order == "asc" else 1
             self.sort_combo.setCurrentIndex(index)
@@ -541,7 +534,6 @@ class DownloadTab(QWidget):
                     "debug": self.debug_chk.isChecked(),
                     "overwrite": self.overwrite_chk.isChecked(),
                     "media": self.media_chk.isChecked(),
-                    "media_original_names": self.media_original_names_chk.isChecked(),
                     "sort": self.sort_combo.currentData() or "asc",
                     "split": self.split_combo.currentData() or "",
                 }
@@ -646,9 +638,6 @@ class DownloadTab(QWidget):
 
         if self.media_chk.isChecked():
             cmd_args.append("--media")
-
-        if self.media_original_names_chk.isChecked():
-            cmd_args.append("--media-original-names")
 
         # Update UI for download start
         self._set_download_in_progress(True)
@@ -837,7 +826,6 @@ class DownloadTab(QWidget):
         settings["debug"] = self.debug_chk.isChecked()
         settings["overwrite"] = self.overwrite_chk.isChecked()
         settings["media"] = self.media_chk.isChecked()
-        settings["media_original_names"] = self.media_original_names_chk.isChecked()
         settings["sort"] = self.sort_combo.currentData() or "asc"
         settings["split"] = self.split_combo.currentData() or ""
 
@@ -866,7 +854,6 @@ class DownloadTab(QWidget):
         self.debug_chk.setChecked(bool(settings.get("debug", False)))
         self.overwrite_chk.setChecked(bool(settings.get("overwrite", False)))
         self.media_chk.setChecked(bool(settings.get("media", False)))
-        self.media_original_names_chk.setChecked(bool(settings.get("media_original_names", False)))
 
         sort_order = settings.get("sort", "asc")
         index = 0 if sort_order == "asc" else 1

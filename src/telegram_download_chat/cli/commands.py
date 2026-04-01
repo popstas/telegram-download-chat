@@ -189,13 +189,11 @@ async def save_messages_with_status(
     output_file: str,
     sort_order: str = "asc",
     download_media: bool = False,
-    media_original_names: bool = False,
 ) -> None:
     """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
         downloader.save_messages(
             messages, output_file, sort_order=sort_order, download_media=download_media,
-            media_original_names=media_original_names,
         ),
         downloader.logger,
     )
@@ -236,13 +234,11 @@ async def process_chat_download(
             else output_path_user
         )
     else:
-        output_file = str(output_dir / f"{safe_chat_name}.json")
-        if args.subchat:
-            output_file = str(
-                Path(output_file).with_stem(
-                    f"{Path(output_file).stem}_subchat_{args.subchat}"
-                )
-            )
+        chat_dir = output_dir / safe_chat_name
+        stem = f"messages_subchat_{args.subchat}" if args.subchat else "messages"
+        output_file = str(chat_dir / f"{stem}.json")
+        # Ensure the chat directory exists early so partial files can be written
+        chat_dir.mkdir(parents=True, exist_ok=True)
 
     since_id = args.since_id
     existing_messages: List[Any] = []
@@ -370,7 +366,6 @@ async def process_chat_download(
                 )
                 await save_messages_with_status(
                     downloader, messages, output_file, args.sort, args.media,
-                    args.media_original_names,
                 )
             else:
                 output_path = Path(output_file)
@@ -380,7 +375,6 @@ async def process_chat_download(
                     split_file = output_path.with_name(f"{base_name}_{date_key}{ext}")
                     await save_messages_with_status(
                         downloader, msgs, str(split_file), args.sort, args.media,
-                        args.media_original_names,
                     )
                     downloader.logger.info(
                         f"Saved {len(msgs)} messages to {split_file}"
@@ -391,7 +385,6 @@ async def process_chat_download(
         else:
             await save_messages_with_status(
                 downloader, messages, output_file, args.sort, args.media,
-                args.media_original_names,
             )
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")

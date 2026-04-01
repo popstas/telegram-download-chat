@@ -189,11 +189,17 @@ async def save_messages_with_status(
     output_file: str,
     sort_order: str = "asc",
     download_media: bool = False,
+    export_html: bool = False,
+    export_pdf: bool = False,
 ) -> None:
     """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
         downloader.save_messages(
-            messages, output_file, sort_order=sort_order, download_media=download_media,
+            messages, output_file,
+            sort_order=sort_order,
+            download_media=download_media,
+            export_html=export_html,
+            export_pdf=export_pdf,
         ),
         downloader.logger,
     )
@@ -374,6 +380,7 @@ async def process_chat_download(
                 )
                 await save_messages_with_status(
                     downloader, messages, output_file, args.sort, args.media,
+                    export_html=args.export_html, export_pdf=args.export_pdf,
                 )
             else:
                 output_path = Path(output_file)
@@ -383,6 +390,7 @@ async def process_chat_download(
                     split_file = output_path.with_name(f"{base_name}_{date_key}{ext}")
                     await save_messages_with_status(
                         downloader, msgs, str(split_file), args.sort, args.media,
+                        export_html=args.export_html, export_pdf=args.export_pdf,
                     )
                     downloader.logger.info(
                         f"Saved {len(msgs)} messages to {split_file}"
@@ -393,6 +401,7 @@ async def process_chat_download(
         else:
             await save_messages_with_status(
                 downloader, messages, output_file, args.sort, args.media,
+                export_html=args.export_html, export_pdf=args.export_pdf,
             )
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")
@@ -422,6 +431,10 @@ async def process_chat_download(
     if args.media:
         attachments_dir = downloader.get_attachments_dir(Path(output_file))
         result["result_attachments"] = str(attachments_dir)
+    if args.export_html:
+        result["result_html"] = str(Path(output_file).with_suffix(".html"))
+    if args.export_pdf:
+        result["result_pdf"] = str(Path(output_file).with_suffix(".pdf"))
     return result
 
 

@@ -211,6 +211,8 @@ class MessagesMixin:
         save_txt: bool = True,
         sort_order: str = "asc",
         download_media: bool = False,
+        export_html: bool = False,
+        export_pdf: bool = False,
     ) -> None:
         output_path = Path(output_file)
 
@@ -263,6 +265,17 @@ class MessagesMixin:
             )
             txt_path_relative = get_relative_to_downloads_dir(txt_path)
             self.logger.info(f"Saved {saved} messages to {txt_path_relative}")
+
+        # HTML / PDF export
+        chat_title = output_path.parent.name
+        if export_html:
+            html_path = output_path.with_suffix(".html")
+            self.render_html(serializable_messages, html_path, attachments_dir, chat_title)
+            self.logger.info(f"Saved HTML to {get_relative_to_downloads_dir(html_path)}")
+        if export_pdf:
+            pdf_path = output_path.with_suffix(".pdf")
+            self.render_pdf(serializable_messages, pdf_path, attachments_dir, chat_title)
+            self.logger.info(f"Saved PDF to {get_relative_to_downloads_dir(pdf_path)}")
 
         # Download media attachments if requested
         if download_media:

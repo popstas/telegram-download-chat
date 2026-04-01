@@ -263,6 +263,14 @@ class DownloadTab(QWidget):
         self.media_chk = QCheckBox("Download images, videos, audio and all other files")
         settings_form.addRow("Download media:", self.media_chk)
 
+        # HTML export
+        self.html_chk = QCheckBox("Telegram-style interactive HTML")
+        settings_form.addRow("HTML export:", self.html_chk)
+
+        # PDF export
+        self.pdf_chk = QCheckBox("PDF document")
+        settings_form.addRow("PDF export:", self.pdf_chk)
+
         # Create a model for the tree
         model = QStandardItemModel()
         model.setHorizontalHeaderLabels(["Settings"])
@@ -484,6 +492,12 @@ class DownloadTab(QWidget):
             if "media" in settings:
                 self.media_chk.setChecked(settings["media"])
 
+            if "html" in settings:
+                self.html_chk.setChecked(settings["html"])
+
+            if "pdf" in settings:
+                self.pdf_chk.setChecked(settings["pdf"])
+
             sort_order = settings.get("sort", "asc")
             index = 0 if sort_order == "asc" else 1
             self.sort_combo.setCurrentIndex(index)
@@ -534,6 +548,8 @@ class DownloadTab(QWidget):
                     "debug": self.debug_chk.isChecked(),
                     "overwrite": self.overwrite_chk.isChecked(),
                     "media": self.media_chk.isChecked(),
+                    "html": self.html_chk.isChecked(),
+                    "pdf": self.pdf_chk.isChecked(),
                     "sort": self.sort_combo.currentData() or "asc",
                     "split": self.split_combo.currentData() or "",
                 }
@@ -638,6 +654,12 @@ class DownloadTab(QWidget):
 
         if self.media_chk.isChecked():
             cmd_args.append("--media")
+
+        if self.html_chk.isChecked():
+            cmd_args.append("--html")
+
+        if self.pdf_chk.isChecked():
+            cmd_args.append("--pdf")
 
         # Update UI for download start
         self._set_download_in_progress(True)
@@ -826,6 +848,8 @@ class DownloadTab(QWidget):
         settings["debug"] = self.debug_chk.isChecked()
         settings["overwrite"] = self.overwrite_chk.isChecked()
         settings["media"] = self.media_chk.isChecked()
+        settings["html"] = self.html_chk.isChecked()
+        settings["pdf"] = self.pdf_chk.isChecked()
         settings["sort"] = self.sort_combo.currentData() or "asc"
         settings["split"] = self.split_combo.currentData() or ""
 
@@ -854,6 +878,8 @@ class DownloadTab(QWidget):
         self.debug_chk.setChecked(bool(settings.get("debug", False)))
         self.overwrite_chk.setChecked(bool(settings.get("overwrite", False)))
         self.media_chk.setChecked(bool(settings.get("media", False)))
+        self.html_chk.setChecked(bool(settings.get("html", False)))
+        self.pdf_chk.setChecked(bool(settings.get("pdf", False)))
 
         sort_order = settings.get("sort", "asc")
         index = 0 if sort_order == "asc" else 1

@@ -34,6 +34,8 @@ class CLIOptions:
     preset: Optional[str] = None
     media: bool = False
     overwrite: bool = False
+    export_html: bool = False
+    export_pdf: bool = False
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -146,6 +148,18 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--overwrite",
         action="store_true",
         help="Replace existing output files instead of resuming",
+    )
+    parser.add_argument(
+        "--html",
+        dest="export_html",
+        action="store_true",
+        help="Export chat as a Telegram-style HTML file",
+    )
+    parser.add_argument(
+        "--pdf",
+        dest="export_pdf",
+        action="store_true",
+        help="Export chat as a PDF document",
     )
 
     args = parser.parse_args(argv)

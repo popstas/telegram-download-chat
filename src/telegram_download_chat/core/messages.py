@@ -199,10 +199,10 @@ class MessagesMixin:
     def get_attachments_dir(self, output_file: Path) -> Path:
         """Get the attachments directory path for a given output file.
 
-        Creates a name <output_file_without_extension>_attachments in the same
-        directory as the output file.
+        Returns <output_file_parent>/attachments — a sibling of the message
+        files inside the chat's own directory.
         """
-        return output_file.parent / f"{output_file.stem}_attachments"
+        return output_file.parent / "attachments"
 
     async def save_messages(
         self,
@@ -211,10 +211,10 @@ class MessagesMixin:
         save_txt: bool = True,
         sort_order: str = "asc",
         download_media: bool = False,
-        media_original_names: bool = False,
     ) -> None:
         output_path = Path(output_file)
 
+        attachments_dir = self.get_attachments_dir(output_path)
         serializable_messages = []
         for msg in messages:
             try:
@@ -225,6 +225,15 @@ class MessagesMixin:
                     if sender_id
                     else "Unknown"
                 )
+                if download_media:
+                    raw_media = getattr(msg, "media", None)
+                    raw_id = str(getattr(msg, "id", None) or "")
+                    if raw_media and raw_id:
+                        msg_dict["attachment_path"] = self.get_predicted_attachment_path(
+                            raw_media, raw_id, attachments_dir
+                        )
+                    else:
+                        msg_dict["attachment_path"] = None
                 serializable_messages.append(self.make_serializable(msg_dict))
             except Exception as e:
                 self.logger.warning(f"Failed to serialize message: {e}")
@@ -244,10 +253,7 @@ class MessagesMixin:
         # Download media attachments if requested
         if download_media:
             self.logger.info("Downloading media attachments...")
-            await self.download_all_media(
-                messages, self.get_attachments_dir(output_path),
-                use_original_names=media_original_names,
-            )
+            await self.download_all_media(messages, attachments_dir)
 
         partial = self.get_temp_file_path(output_path)
         if partial.exists() and not self._stop_requested:

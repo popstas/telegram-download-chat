@@ -305,14 +305,13 @@ class MainWindow(QMainWindow):
             self.log_viewer.clear()
 
             # Snapshot existing files before download
-            self._files_before_download = set()
             scan_dir = Path(output_dir) if output_dir else get_downloads_dir()
+            self._files_before_download = set()
             if scan_dir.exists():
-                self._files_before_download = {
-                    str(f.absolute())
-                    for f in scan_dir.iterdir()
-                    if f.is_file() and f.suffix.lower() in (".txt", ".json")
-                }
+                for ext in ("*.json", "*.txt"):
+                    self._files_before_download.update(
+                        str(f.absolute()) for f in scan_dir.rglob(ext) if f.is_file()
+                    )
 
             # Create and start worker thread
             self.worker_thread = WorkerThread(cmd_args, output_dir)

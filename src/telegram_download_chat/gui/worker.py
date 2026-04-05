@@ -208,11 +208,9 @@ class WorkerThread(QThread):
             p = Path(self.output_dir)
             if p.exists():
                 # Get list of files with full paths and sort by modification time, newest first
-                all_files = [
-                    f
-                    for f in p.iterdir()
-                    if f.is_file() and f.suffix.lower() in (".txt", ".json")
-                ]
+                all_files = []
+                for ext in ("*.json", "*.txt"):
+                    all_files.extend(f for f in p.rglob(ext) if f.is_file())
                 files.extend(
                     str(f.absolute())
                     for f in sorted(

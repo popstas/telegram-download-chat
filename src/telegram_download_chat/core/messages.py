@@ -216,6 +216,7 @@ class MessagesMixin:
 
         attachments_dir = self.get_attachments_dir(output_path)
         serializable_messages = []
+        preserved_ids: set = set()  # IDs whose attachment_path was kept from prior run
         for msg in messages:
             try:
                 msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
@@ -226,14 +227,27 @@ class MessagesMixin:
                     else "Unknown"
                 )
                 if download_media:
-                    raw_media = getattr(msg, "media", None)
-                    raw_id = str(getattr(msg, "id", None) or "")
-                    if raw_media and raw_id:
-                        msg_dict["attachment_path"] = self.get_predicted_attachment_path(
-                            raw_media, raw_id, attachments_dir
-                        )
+                    # For dict messages (e.g. from resume), preserve existing
+                    # attachment_path rather than recalculating from media
+                    # (dicts have no Telethon media attribute).
+                    if isinstance(msg, dict) and msg.get("attachment_path"):
+                        existing = attachments_dir / msg["attachment_path"]
+                        if existing.exists():
+                            msg_dict["attachment_path"] = msg["attachment_path"]
+                            mid = str(msg.get("id", ""))
+                            if mid:
+                                preserved_ids.add(mid)
+                        else:
+                            msg_dict["attachment_path"] = None
                     else:
-                        msg_dict["attachment_path"] = None
+                        raw_media = getattr(msg, "media", None)
+                        raw_id = str(getattr(msg, "id", None) or "")
+                        if raw_media and raw_id:
+                            msg_dict["attachment_path"] = self.get_predicted_attachment_path(
+                                raw_media, raw_id, attachments_dir
+                            )
+                        else:
+                            msg_dict["attachment_path"] = None
                 serializable_messages.append(self.make_serializable(msg_dict))
             except Exception as e:
                 self.logger.warning(f"Failed to serialize message: {e}")
@@ -253,7 +267,31 @@ class MessagesMixin:
         # Download media attachments if requested
         if download_media:
             self.logger.info("Downloading media attachments...")
-            await self.download_all_media(messages, attachments_dir)
+            download_results = await self.download_all_media(messages, attachments_dir)
+            # Reconcile predicted paths with actual download results:
+            # - null out attachment_path for messages whose downloads failed
+            # - update attachment_path when Telethon used a different filename
+            ids_with_predicted_path = {
+                str(m.get("id", ""))
+                for m in serializable_messages
+                if m.get("attachment_path") is not None and m.get("id")
+            }
+            if ids_with_predicted_path:
+                changed = False
+                for m in serializable_messages:
+                    mid = str(m.get("id", ""))
+                    if mid in preserved_ids:
+                        continue
+                    if m.get("attachment_path") is not None:
+                        if mid not in download_results:
+                            m["attachment_path"] = None
+                            changed = True
+                        elif m["attachment_path"] != download_results[mid]:
+                            m["attachment_path"] = download_results[mid]
+                            changed = True
+                if changed:
+                    with open(output_path, "w", encoding="utf-8") as f:
+                        json.dump(serializable_messages, f, ensure_ascii=False, indent=2)
 
         partial = self.get_temp_file_path(output_path)
         if partial.exists() and not self._stop_requested:

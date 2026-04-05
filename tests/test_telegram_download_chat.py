@@ -558,7 +558,9 @@ class TestSplitMessagesByDate:
         from datetime import datetime
 
         existing = [{"id": 10, "date": "2025-07-10T12:00:00"}]
-        output_file = tmp_path / "chat.json"
+        chat_dir = tmp_path / "chat"
+        chat_dir.mkdir()
+        output_file = chat_dir / "messages.json"
         output_file.write_text(json.dumps(existing))
 
         mock_downloader = AsyncMock()
@@ -1434,7 +1436,7 @@ async def test_folder_download(tmp_path):
     assert result == 0
     mock_downloader.list_folders.assert_awaited_once()
     mock_downloader.download_chat.assert_awaited_once()
-    expected = tmp_path / folder_name / "Chat1.json"
+    expected = tmp_path / folder_name / "Chat1" / "messages.json"
     args, kwargs = mock_downloader.download_chat.call_args
     assert kwargs.get("output_file") == str(expected)
 

@@ -101,6 +101,7 @@ python main.py  # Launches GUI by default
 - Supports resume from interruption using temporary files
 - Can filter by date ranges, specific users, or message threads
 - Outputs JSON (full metadata) and TXT (human-readable) formats
+- Output is organized per-chat: `<chat_name>/messages.json`, `<chat_name>/messages.txt`, and `<chat_name>/attachments/`
 
 ### Authentication
 - Uses Telethon sessions for persistent login
@@ -113,7 +114,7 @@ python main.py  # Launches GUI by default
 - `--user`: Filter by specific sender
 - `--max-date`: Messages on or before this date
 - `--min-date`: Messages on or after this date
-- `--media`: Download media attachments (photos, videos, documents, etc.)
+- `--media`: Download all media types with organized category directories (images/, videos/, documents/, audio/, stickers/, contacts/, locations/, polls/, etc.) and concurrent downloads (5 simultaneous). Supports photos, videos, documents, audio, stickers, contacts (VCF), geo locations (JSON), polls, dice, and games.
 
 ### PyInstaller Integration
 - Custom hooks in `_pyinstaller/` for bundling

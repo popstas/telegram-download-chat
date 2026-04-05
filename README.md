@@ -308,7 +308,7 @@ telegram-download-chat --gui
 
 The tool generates the following files for each chat:
 
-### JSON Output (`[chat_name].json`)
+### JSON Output (`[chat_name]/messages.json`)
 Contains complete message data including metadata like:
 - Message IDs and timestamps
 - Sender information
@@ -317,28 +317,39 @@ Contains complete message data including metadata like:
 - Reply information
 - Media and file attachments
 - Reactions and views
+- `attachment_path` — relative path to the downloaded media file (when `--media` is used)
 
-### Text Output (`[chat_name].txt`)
+### Text Output (`[chat_name]/messages.txt`)
 A human-readable version of the chat with:
 - Formatted timestamps
 - Display names from your `users_map`, `sender name` -> `recipient name`
 - Message content with basic formatting
 - Reply indicators
 
-### Media Attachments (`[chat_name]_attachments/`)
-When using the `--media` flag, media files are downloaded to a separate folder with the following structure:
+### Media Attachments (`[chat_name]/attachments/`)
+When using the `--media` flag, media files are downloaded alongside the message files, organized by media type:
 
 ```
-[chat_name]_attachments/
-├── 12345/                    # Message ID
-│   └── 123456789000.jpg      # Downloaded media file
-├── 12346/
-│   └── 2937458923.pdf
-└── 12347/
-    └── 9832749823498723.mp4
+[chat_name]/
+├── messages.json
+├── messages.txt
+└── attachments/
+    ├── images/
+    │   └── 12345_123456789000.jpg
+    ├── videos/
+    │   └── 12346_2937458923.mp4
+    ├── documents/
+    │   └── 12347_report.pdf
+    ├── audio/
+    ├── stickers/
+    ├── archives/
+    ├── contacts/
+    ├── locations/
+    ├── polls/
+    └── other/
 ```
 
-Each message's media is stored in a directory named after the message ID.
+Files are named `<message_id>_<original_filename>` and sorted into category subdirectories.
 
 Supported media types:
 - **Photos**: Downloaded as JPG files
@@ -347,6 +358,9 @@ Supported media types:
 - **Audio**: Music files and audio messages
 - **Voice messages**: Voice recordings
 - **Stickers**: Including animated stickers
+- **Contacts**: Saved as VCF files
+- **Locations**: Geo coordinates saved as JSON
+- **Polls**: Poll data saved as JSON
 
 ### Example Output Structure
 

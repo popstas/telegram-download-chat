@@ -189,7 +189,6 @@ async def save_messages_with_status(
     output_file: str,
     sort_order: str = "asc",
     download_media: bool = False,
-    media_original_names: bool = False,
 ) -> None:
     """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
@@ -239,13 +238,11 @@ async def process_chat_download(
             else output_path_user
         )
     else:
-        output_file = str(output_dir / f"{safe_chat_name}.json")
-        if args.subchat:
-            output_file = str(
-                Path(output_file).with_stem(
-                    f"{Path(output_file).stem}_subchat_{args.subchat}"
-                )
-            )
+        chat_dir = output_dir / safe_chat_name
+        stem = f"messages_subchat_{args.subchat}" if args.subchat else "messages"
+        output_file = str(chat_dir / f"{stem}.json")
+        # Ensure the chat directory exists early so partial files can be written
+        chat_dir.mkdir(parents=True, exist_ok=True)
 
     since_id = args.since_id
     existing_messages: List[Any] = []
@@ -298,7 +295,15 @@ async def process_chat_download(
     if args.from_date:
         download_kwargs["from_date"] = args.from_date
     if since_id is not None:
-        download_kwargs["since_id"] = since_id
+        # If total_limit is set and we haven't reached it yet, skip since_id
+        # so the download continues backwards from the oldest existing message
+        if args.limit > 0 and len(existing_messages) < args.limit:
+            downloader.logger.info(
+                f"Need {args.limit - len(existing_messages)} more message(s), "
+                f"continuing backwards"
+            )
+        else:
+            download_kwargs["since_id"] = since_id
 
     messages = await downloader.download_chat(**download_kwargs)
     downloader.logger.debug(f"Downloaded {len(messages)} messages")

@@ -63,6 +63,97 @@ _DOCUMENT_MIMES = {
     "application/xml",
 }
 
+_MIME_TO_EXT = {
+    # Images
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+    "image/tiff": ".tiff",
+    "image/bmp": ".bmp",
+    "image/heic": ".heic",
+    "image/heif": ".heif",
+    "image/avif": ".avif",
+    "image/jxl": ".jxl",
+    "image/x-icon": ".ico",
+    # Video
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/quicktime": ".mov",
+    "video/x-matroska": ".mkv",
+    "video/x-msvideo": ".avi",
+    "video/x-flv": ".flv",
+    "video/x-ms-wmv": ".wmv",
+    "video/3gpp": ".3gp",
+    "video/3gpp2": ".3g2",
+    "video/ogg": ".ogv",
+    "video/mpeg": ".mpg",
+    # Audio
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/ogg": ".ogg",
+    "audio/mp4": ".m4a",
+    "audio/x-m4a": ".m4a",
+    "audio/aac": ".aac",
+    "audio/x-aac": ".aac",
+    "audio/x-wav": ".wav",
+    "audio/wav": ".wav",
+    "audio/flac": ".flac",
+    "audio/x-flac": ".flac",
+    "audio/opus": ".opus",
+    "audio/webm": ".weba",
+    "audio/amr": ".amr",
+    # Documents / text
+    "application/pdf": ".pdf",
+    "text/plain": ".txt",
+    "text/csv": ".csv",
+    "text/html": ".html",
+    "text/css": ".css",
+    "text/javascript": ".js",
+    "application/javascript": ".js",
+    "application/json": ".json",
+    "application/xml": ".xml",
+    "text/xml": ".xml",
+    "text/markdown": ".md",
+    "application/x-yaml": ".yaml",
+    "text/yaml": ".yaml",
+    "application/rtf": ".rtf",
+    # Microsoft Office
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.ms-powerpoint": ".ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    # OpenDocument
+    "application/vnd.oasis.opendocument.text": ".odt",
+    "application/vnd.oasis.opendocument.spreadsheet": ".ods",
+    "application/vnd.oasis.opendocument.presentation": ".odp",
+    # E-books
+    "application/epub+zip": ".epub",
+    "application/x-mobipocket-ebook": ".mobi",
+    # Archives
+    "application/zip": ".zip",
+    "application/x-zip-compressed": ".zip",
+    "application/x-rar-compressed": ".rar",
+    "application/x-rar": ".rar",
+    "application/x-7z-compressed": ".7z",
+    "application/x-bzip2": ".bz2",
+    "application/gzip": ".gz",
+    "application/x-tar": ".tar",
+    # Executables / packages
+    "application/vnd.android.package-archive": ".apk",
+    "application/x-apple-diskimage": ".dmg",
+    "application/x-ms-dos-executable": ".exe",
+    "application/x-sh": ".sh",
+    # Telegram-specific
+    "application/x-tgsticker": ".tgs",
+    # Database
+    "application/x-sqlite3": ".db",
+}
+
 
 class MediaMixin:
     """Mixin class for downloading media from Telegram messages."""
@@ -83,7 +174,8 @@ class MediaMixin:
             if isinstance(doc, Document):
                 for attr in doc.attributes:
                     if isinstance(attr, DocumentAttributeFilename):
-                        return attr.file_name
+                        # Sanitize: strip path components to prevent traversal
+                        return Path(attr.file_name).name or f"{doc.id}.bin"
                 return f"{doc.id}{self._get_extension_from_mime(doc.mime_type)}"
 
         elif isinstance(media, MessageMediaWebPage):
@@ -93,7 +185,7 @@ class MediaMixin:
                     doc = webpage.document
                     for attr in doc.attributes:
                         if isinstance(attr, DocumentAttributeFilename):
-                            return attr.file_name
+                            return Path(attr.file_name).name or f"{doc.id}.bin"
                     return f"{doc.id}{self._get_extension_from_mime(doc.mime_type)}"
                 elif webpage.photo and isinstance(webpage.photo, Photo):
                     return f"{webpage.photo.id}.jpg"
@@ -106,13 +198,13 @@ class MediaMixin:
         elif isinstance(media, MessageMediaGeo):
             geo = media.geo
             if isinstance(geo, GeoPoint):
-                return f"location_{geo.lat}_{geo.long}.json"
+                return f"location_{geo.lat:.6f}_{geo.long:.6f}.json"
             return None
 
         elif isinstance(media, MessageMediaGeoLive):
             geo = media.geo
             if isinstance(geo, GeoPoint):
-                return f"live_location_{geo.lat}_{geo.long}.json"
+                return f"live_location_{geo.lat:.6f}_{geo.long:.6f}.json"
             return None
 
         elif isinstance(media, MessageMediaVenue):
@@ -124,7 +216,8 @@ class MediaMixin:
             return f"poll_{poll_id}.json"
 
         elif isinstance(media, MessageMediaDice):
-            return f"dice_{media.emoticon}_{media.value}.json"
+            char = media.emoticon[0] if media.emoticon else "unknown"
+            return f"dice_{ord(char):x}_{media.value}.json" if char != "unknown" else f"dice_unknown_{media.value}.json"
 
         elif isinstance(media, MessageMediaGame):
             game_id = getattr(media.game, "id", "unknown")
@@ -176,6 +269,7 @@ class MediaMixin:
         message_id = str(
             getattr(message, "id", None)
             or (message.get("id") if isinstance(message, dict) else None)
+            or ""
         )
         if not message_id:
             return None
@@ -187,6 +281,8 @@ class MediaMixin:
         if download_to.exists():
             self.logger.debug(f"Skipping already-downloaded: {download_to}")
             return download_to
+
+        download_to.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             # Synthetic types: write directly without a network call
@@ -235,6 +331,8 @@ class MediaMixin:
             if self._stop_requested:
                 return
             async with semaphore:
+                if self._stop_requested:
+                    return
                 path = await self.download_message_media(msg, attachments_dir)
                 msg_id = str(
                     getattr(msg, "id", None)
@@ -253,7 +351,12 @@ class MediaMixin:
                         f"Media download progress: {completed}/{total} ({pct}%)"
                     )
 
-        await asyncio.gather(*[download_one(msg) for msg in messages])
+        gather_results = await asyncio.gather(
+            *[download_one(msg) for msg in messages], return_exceptions=True
+        )
+        for r in gather_results:
+            if isinstance(r, Exception):
+                self.logger.warning(f"Media download task failed: {r}")
         self.logger.info(f"Downloaded {len(results)} media files to {attachments_dir}")
         return results
 
@@ -321,99 +424,7 @@ class MediaMixin:
         """Derive a file extension from a MIME type string."""
         if not mime_type:
             return ".bin"
-
-        mime_to_ext = {
-            # Images
-            "image/jpeg": ".jpg",
-            "image/jpg": ".jpg",
-            "image/png": ".png",
-            "image/gif": ".gif",
-            "image/webp": ".webp",
-            "image/svg+xml": ".svg",
-            "image/tiff": ".tiff",
-            "image/bmp": ".bmp",
-            "image/heic": ".heic",
-            "image/heif": ".heif",
-            "image/avif": ".avif",
-            "image/jxl": ".jxl",
-            "image/x-icon": ".ico",
-            # Video
-            "video/mp4": ".mp4",
-            "video/webm": ".webm",
-            "video/quicktime": ".mov",
-            "video/x-matroska": ".mkv",
-            "video/x-msvideo": ".avi",
-            "video/x-flv": ".flv",
-            "video/x-ms-wmv": ".wmv",
-            "video/3gpp": ".3gp",
-            "video/3gpp2": ".3g2",
-            "video/ogg": ".ogv",
-            "video/mpeg": ".mpg",
-            # Audio
-            "audio/mpeg": ".mp3",
-            "audio/mp3": ".mp3",
-            "audio/ogg": ".ogg",
-            "audio/mp4": ".m4a",
-            "audio/x-m4a": ".m4a",
-            "audio/aac": ".aac",
-            "audio/x-aac": ".aac",
-            "audio/x-wav": ".wav",
-            "audio/wav": ".wav",
-            "audio/flac": ".flac",
-            "audio/x-flac": ".flac",
-            "audio/opus": ".opus",
-            "audio/webm": ".weba",
-            "audio/amr": ".amr",
-            # Documents / text
-            "application/pdf": ".pdf",
-            "text/plain": ".txt",
-            "text/csv": ".csv",
-            "text/html": ".html",
-            "text/css": ".css",
-            "text/javascript": ".js",
-            "application/javascript": ".js",
-            "application/json": ".json",
-            "application/xml": ".xml",
-            "text/xml": ".xml",
-            "text/markdown": ".md",
-            "application/x-yaml": ".yaml",
-            "text/yaml": ".yaml",
-            "application/rtf": ".rtf",
-            # Microsoft Office
-            "application/msword": ".doc",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-            "application/vnd.ms-excel": ".xls",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
-            "application/vnd.ms-powerpoint": ".ppt",
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
-            # OpenDocument
-            "application/vnd.oasis.opendocument.text": ".odt",
-            "application/vnd.oasis.opendocument.spreadsheet": ".ods",
-            "application/vnd.oasis.opendocument.presentation": ".odp",
-            # E-books
-            "application/epub+zip": ".epub",
-            "application/x-mobipocket-ebook": ".mobi",
-            # Archives
-            "application/zip": ".zip",
-            "application/x-zip-compressed": ".zip",
-            "application/x-rar-compressed": ".rar",
-            "application/x-rar": ".rar",
-            "application/x-7z-compressed": ".7z",
-            "application/x-bzip2": ".bz2",
-            "application/gzip": ".gz",
-            "application/x-tar": ".tar",
-            # Executables / packages
-            "application/vnd.android.package-archive": ".apk",
-            "application/x-apple-diskimage": ".dmg",
-            "application/x-ms-dos-executable": ".exe",
-            "application/x-sh": ".sh",
-            # Telegram-specific
-            "application/x-tgsticker": ".tgs",
-            # Database
-            "application/x-sqlite3": ".db",
-        }
-
-        return mime_to_ext.get(mime_type, ".bin")
+        return _MIME_TO_EXT.get(mime_type, ".bin")
 
     def _serialize_synthetic_media(self, media: Any, target_path: Path) -> bool:
         """Write vCard/JSON for non-binary media types directly to disk.

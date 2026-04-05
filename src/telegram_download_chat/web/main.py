@@ -93,7 +93,7 @@ async def run_download(options: CLIOptions) -> Path:
         output_file = (
             Path(options.output)
             if options.output
-            else downloads_dir / f"{chat_name}.json"
+            else downloads_dir / chat_name / "messages.json"
         )
 
         # Resume logic: mirrors cli/commands.py
@@ -152,7 +152,6 @@ async def run_download(options: CLIOptions) -> Path:
         await downloader.save_messages(
             messages, str(output_file), sort_order=options.sort,
             download_media=options.media,
-            media_original_names=options.media_original_names,
         )
 
     downloader.logger.removeHandler(handler)
@@ -190,7 +189,6 @@ def build_options() -> CLIOptions | None:
         "preset": "",
         "overwrite": False,
         "media": False,
-        "media_original_names": False,
     }
     defaults.update(load_form_state())
 
@@ -285,7 +283,6 @@ def build_options() -> CLIOptions | None:
         keywords = st.text_input("Keywords (comma separated)", key="form_keywords")
         overwrite = st.checkbox("Overwrite existing files", key="form_overwrite")
         media = st.checkbox("Download media attachments", key="form_media")
-        media_original_names = st.checkbox("Use original filenames for media", key="form_media_original_names")
 
         col_update, col_save, col_del = st.columns(3)
         update_clicked = (
@@ -313,7 +310,6 @@ def build_options() -> CLIOptions | None:
         "preset": st.session_state.get("form_preset", ""),
         "overwrite": overwrite,
         "media": media,
-        "media_original_names": media_original_names,
     }
 
     if update_clicked and is_preset_modified(
@@ -364,7 +360,6 @@ def build_options() -> CLIOptions | None:
         preset=st.session_state.get("form_preset") or None,
         overwrite=overwrite,
         media=media,
-        media_original_names=media_original_names,
     )
 
 

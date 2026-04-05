@@ -291,7 +291,15 @@ async def process_chat_download(
     if args.from_date:
         download_kwargs["from_date"] = args.from_date
     if since_id is not None:
-        download_kwargs["since_id"] = since_id
+        # If total_limit is set and we haven't reached it yet, skip since_id
+        # so the download continues backwards from the oldest existing message
+        if args.limit > 0 and len(existing_messages) < args.limit:
+            downloader.logger.info(
+                f"Need {args.limit - len(existing_messages)} more message(s), "
+                f"continuing backwards"
+            )
+        else:
+            download_kwargs["since_id"] = since_id
 
     messages = await downloader.download_chat(**download_kwargs)
     downloader.logger.debug(f"Downloaded {len(messages)} messages")

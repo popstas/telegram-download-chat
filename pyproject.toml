@@ -55,7 +55,7 @@ mcp = [
 ]
 
 [tool.bumpversion]
-current_version = "0.6.0"
+current_version = "0.7.0"
 
 [tool.setuptools_scm]
 # Use git tags for versioning

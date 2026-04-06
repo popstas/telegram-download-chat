@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ..paths import get_relative_to_downloads_dir
 
@@ -74,6 +74,7 @@ class MessagesMixin:
                     "date": message.get("date"),
                     "message": text,
                     "from_id": {"_": "PeerUser", "user_id": user_id},
+                    "user_display_name": message.get("from") or message.get("from_id") or "",
                 }
 
                 if "reply_to_message_id" in message:
@@ -211,6 +212,9 @@ class MessagesMixin:
         save_txt: bool = True,
         sort_order: str = "asc",
         download_media: bool = False,
+        export_html: bool = False,
+        export_pdf: bool = False,
+        chat_title: Optional[str] = None,
     ) -> None:
         output_path = Path(output_file)
 
@@ -292,6 +296,24 @@ class MessagesMixin:
                 if changed:
                     with open(output_path, "w", encoding="utf-8") as f:
                         json.dump(serializable_messages, f, ensure_ascii=False, indent=2)
+
+        # HTML / PDF export (after media download so attachment paths are final)
+        if not chat_title:
+            chat_title = output_path.parent.name
+        if export_html:
+            html_path = output_path.with_suffix(".html")
+            try:
+                self.render_html(serializable_messages, html_path, attachments_dir, chat_title)
+                self.logger.info(f"Saved HTML to {get_relative_to_downloads_dir(html_path)}")
+            except Exception as exc:
+                self.logger.error(f"HTML export failed: {exc}")
+        if export_pdf:
+            pdf_path = output_path.with_suffix(".pdf")
+            try:
+                self.render_pdf(serializable_messages, pdf_path, attachments_dir, chat_title)
+                self.logger.info(f"Saved PDF to {get_relative_to_downloads_dir(pdf_path)}")
+            except Exception as exc:
+                self.logger.error(f"PDF export failed: {exc}")
 
         partial = self.get_temp_file_path(output_path)
         if partial.exists() and not self._stop_requested:

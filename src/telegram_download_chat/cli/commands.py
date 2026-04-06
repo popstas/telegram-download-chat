@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from telethon.tl.types import Channel, Chat, User
 
@@ -55,7 +55,9 @@ def split_messages_by_date(messages: List[Any], split_by: str) -> Dict[str, List
             continue
 
         try:
-            key = parsed_date.strftime("%Y-%m" if split_by == "month" else "%Y")
+            # Convert to local timezone for consistent bucketing with render display
+            local_date = parsed_date.astimezone()
+            key = local_date.strftime("%Y-%m" if split_by == "month" else "%Y")
         except (ValueError, AttributeError):
             continue
 
@@ -189,6 +191,9 @@ async def save_messages_with_status(
     output_file: str,
     sort_order: str = "asc",
     download_media: bool = False,
+    export_html: bool = False,
+    export_pdf: bool = False,
+    chat_title: Optional[str] = None,
 ) -> None:
     """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
@@ -197,7 +202,9 @@ async def save_messages_with_status(
             output_file,
             sort_order=sort_order,
             download_media=download_media,
-            media_original_names=media_original_names,
+            export_html=export_html,
+            export_pdf=export_pdf,
+            chat_title=chat_title,
         ),
         downloader.logger,
     )
@@ -369,6 +376,9 @@ async def process_chat_download(
             "keywords": [],
         }
 
+    full_chat_title = await downloader.get_entity_full_name(chat_identifier)
+
+    split_messages: Dict[str, List[Any]] = {}
     try:
         if args.split:
             split_messages = split_messages_by_date(messages, args.split)
@@ -382,7 +392,10 @@ async def process_chat_download(
                     output_file,
                     args.sort,
                     args.media,
-                    args.media_original_names,
+
+                    export_html=args.export_html,
+                    export_pdf=args.export_pdf,
+                    chat_title=full_chat_title,
                 )
             else:
                 output_path = Path(output_file)
@@ -396,7 +409,10 @@ async def process_chat_download(
                         str(split_file),
                         args.sort,
                         args.media,
-                        args.media_original_names,
+    
+                        export_html=args.export_html,
+                        export_pdf=args.export_pdf,
+                        chat_title=full_chat_title,
                     )
                     downloader.logger.info(
                         f"Saved {len(msgs)} messages to {split_file}"
@@ -411,7 +427,9 @@ async def process_chat_download(
                 output_file,
                 args.sort,
                 args.media,
-                args.media_original_names,
+                export_html=args.export_html,
+                export_pdf=args.export_pdf,
+                chat_title=full_chat_title,
             )
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")
@@ -426,21 +444,69 @@ async def process_chat_download(
     elif isinstance(entity, Channel):
         chat_type = "channel" if getattr(entity, "broadcast", False) else "supergroup"
 
+    # In split mode, list the actual per-period files instead of the unsuffixed base.
+    if args.split and split_messages:
+        output_path = Path(output_file)
+        base_name = output_path.stem
+        ext = output_path.suffix
+        json_paths = [
+            str(output_path.with_name(f"{base_name}_{dk}{ext}"))
+            for dk in split_messages
+        ]
+        txt_paths = [
+            str(output_path.with_name(f"{base_name}_{dk}.txt")) for dk in split_messages
+        ]
+        result_json_value = json_paths
+        result_txt_value = txt_paths
+    else:
+        result_json_value = output_file
+        result_txt_value = str(Path(output_file).with_suffix(".txt"))
+
     result = {
         "chat_id": getattr(entity, "id", chat_identifier),
-        "chat_title": await downloader.get_entity_full_name(chat_identifier),
+        "chat_title": full_chat_title,
         "chat_type": chat_type,
         "args": {"limit": args.limit} if args.limit else {},
         "messages": len(messages),
         "from": first_date,
         "to": last_date,
-        "result_json": output_file,
-        "result_txt": str(Path(output_file).with_suffix(".txt")),
+        "result_json": result_json_value,
+        "result_txt": result_txt_value,
         "keywords": keywords_data,
     }
     if args.media:
         attachments_dir = downloader.get_attachments_dir(Path(output_file))
         result["result_attachments"] = str(attachments_dir)
+    if args.export_html:
+        if args.split and split_messages:
+            output_path = Path(output_file)
+            base_name = output_path.stem
+            html_paths = [
+                str(output_path.with_name(f"{base_name}_{dk}.html"))
+                for dk in split_messages
+                if output_path.with_name(f"{base_name}_{dk}.html").exists()
+            ]
+            if html_paths:
+                result["result_html"] = html_paths
+        else:
+            html_path = Path(output_file).with_suffix(".html")
+            if html_path.exists():
+                result["result_html"] = str(html_path)
+    if args.export_pdf:
+        if args.split and split_messages:
+            output_path = Path(output_file)
+            base_name = output_path.stem
+            pdf_paths = [
+                str(output_path.with_name(f"{base_name}_{dk}.pdf"))
+                for dk in split_messages
+                if output_path.with_name(f"{base_name}_{dk}.pdf").exists()
+            ]
+            if pdf_paths:
+                result["result_pdf"] = pdf_paths
+        else:
+            pdf_path = Path(output_file).with_suffix(".pdf")
+            if pdf_path.exists():
+                result["result_pdf"] = str(pdf_path)
     return result
 
 
@@ -453,7 +519,7 @@ async def convert(
         json_path = downloads_dir / json_path
     if not json_path.exists():
         downloader.logger.error(f"File not found: {json_path}")
-        return 1
+        return {"error": f"File not found: {json_path}"}
 
     downloader.logger.debug(f"Loading messages from JSON file: {json_path}")
     with open(json_path, "r", encoding="utf-8") as f:
@@ -491,6 +557,7 @@ async def convert(
         kw_list = [k.strip() for k in args.keywords.split(",") if k.strip()]
         keywords_data = analyze_keywords(kw_list, messages)
 
+    split_messages: Dict[str, List[Any]] = {}
     if args.split:
         split_messages = split_messages_by_date(messages, args.split)
         if not split_messages:
@@ -520,19 +587,117 @@ async def convert(
         saved_relative = get_relative_to_downloads_dir(txt_path)
         downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
 
+    # HTML / PDF export
+    # Use parent directory name when JSON lives inside a chat folder (covers
+    # messages.json, messages_2026-04.json, messages_subchat_123.json).
+    # Fall back to the file stem for standalone JSON files.
+    if json_path.stem == "messages" or json_path.stem.startswith("messages_"):
+        chat_title = json_path.parent.name
+    else:
+        chat_title = json_path.stem
+    # When running from inside the chat folder (e.g. `convert messages.json`),
+    # parent.name is empty — fall back to the current working directory name.
+    if not chat_title:
+        chat_title = Path.cwd().name
+    # Derive attachments_dir relative to the output HTML/PDF location,
+    # not the input JSON, so media links work when --subchat redirects output.
+    output_parent = txt_path.parent
+    attachments_dir = output_parent / "attachments"
+    if not attachments_dir.is_dir():
+        # Fall back to JSON source directory if output dir has no attachments
+        attachments_dir = json_path.parent / "attachments"
+        if not attachments_dir.is_dir():
+            attachments_dir = None
+    html_ok = False
+    pdf_ok = False
+
+    # Build list of (messages, base_path) pairs for export.
+    # When --split produced per-period TXT files, generate per-period HTML/PDF too.
+    if args.split and split_messages:
+        base_name = txt_path.stem
+        export_pairs = [
+            (msgs, txt_path.with_name(f"{base_name}_{date_key}.txt"))
+            for date_key, msgs in split_messages.items()
+        ]
+    else:
+        export_pairs = [(messages, txt_path)]
+
+    for export_msgs, export_base in export_pairs:
+        if args.export_html:
+            html_path = export_base.with_suffix(".html")
+            try:
+                downloader.render_html(
+                    export_msgs, html_path, attachments_dir, chat_title
+                )
+                downloader.logger.info(
+                    f"Saved HTML to {get_relative_to_downloads_dir(html_path)}"
+                )
+                html_ok = True
+            except Exception as exc:
+                downloader.logger.error(f"HTML export failed: {exc}")
+        if args.export_pdf:
+            pdf_path = export_base.with_suffix(".pdf")
+            try:
+                downloader.render_pdf(
+                    export_msgs, pdf_path, attachments_dir, chat_title
+                )
+                downloader.logger.info(
+                    f"Saved PDF to {get_relative_to_downloads_dir(pdf_path)}"
+                )
+                pdf_ok = True
+            except Exception as exc:
+                downloader.logger.error(f"PDF export failed: {exc}")
+
     downloader.logger.debug("Conversion completed successfully")
-    return {
+    # In split mode, list per-period TXT files instead of the unsuffixed base.
+    if args.split and split_messages:
+        base_name = txt_path.stem
+        txt_paths = [
+            str(txt_path.with_name(f"{base_name}_{dk}.txt")) for dk in split_messages
+        ]
+        result_txt_value = txt_paths
+    else:
+        result_txt_value = str(txt_path)
+
+    result = {
         "chat_id": None,
-        "chat_title": json_path.stem,
+        "chat_title": chat_title,
         "chat_type": "json",
         "args": {},
         "messages": len(messages),
         "from": first_date,
         "to": last_date,
         "result_json": str(json_path),
-        "result_txt": str(txt_path),
+        "result_txt": result_txt_value,
         "keywords": keywords_data,
     }
+    if html_ok:
+        if args.split and split_messages:
+            base_name = txt_path.stem
+            html_paths = [
+                str(txt_path.with_name(f"{base_name}_{dk}.html"))
+                for dk in split_messages
+                if txt_path.with_name(f"{base_name}_{dk}.html").exists()
+            ]
+            result["result_html"] = (
+                html_paths if html_paths else str(txt_path.with_suffix(".html"))
+            )
+        else:
+            result["result_html"] = str(txt_path.with_suffix(".html"))
+    if pdf_ok:
+        if args.split and split_messages:
+            base_name = txt_path.stem
+            pdf_paths = [
+                str(txt_path.with_name(f"{base_name}_{dk}.pdf"))
+                for dk in split_messages
+                if txt_path.with_name(f"{base_name}_{dk}.pdf").exists()
+            ]
+            result["result_pdf"] = (
+                pdf_paths if pdf_paths else str(txt_path.with_suffix(".pdf"))
+            )
+        else:
+            result["result_pdf"] = str(txt_path.with_suffix(".pdf"))
+    return result
 
 
 async def folder(

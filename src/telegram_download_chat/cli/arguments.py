@@ -35,6 +35,8 @@ class CLIOptions:
     media: bool = False
     overwrite: bool = False
     proxy_url: Optional[str] = None
+    export_html: bool = False
+    export_pdf: bool = False
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -153,6 +155,18 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         type=str,
         default=None,
         help="Proxy URL for Telegram connection (e.g. socks5://host:1080, http://host:8080)",
+    )
+    parser.add_argument(
+        "--html",
+        dest="export_html",
+        action="store_true",
+        help="Export chat as a Telegram-style HTML file",
+    )
+    parser.add_argument(
+        "--pdf",
+        dest="export_pdf",
+        action="store_true",
+        help="Export chat as a PDF document",
     )
 
     args = parser.parse_args(argv)

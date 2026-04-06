@@ -8,7 +8,7 @@ Telegram Download Chat is a Python CLI utility that downloads and analyzes Teleg
 
 ### Key Components
 
-- **Core Engine** (`core/` package): Contains `TelegramChatDownloader` plus helper modules (`auth`, `config`, `download`, `entities`, `media`, `messages`, `context`) built on Telethon
+- **Core Engine** (`core/` package): Contains `TelegramChatDownloader` plus helper modules (`auth`, `config`, `download`, `entities`, `media`, `messages`, `context`, `render`) built on Telethon
 - **CLI Interface** (`cli.py`): Command-line interface with argument parsing and async message processing
 - **GUI Interface** (`gui_app.py`): PySide6-based graphical interface with threading for async operations
 - **MCP Server** (`mcp/` package): Model Context Protocol server exposing Telegram chat tools for AI assistants
@@ -100,8 +100,8 @@ python main.py  # Launches GUI by default
 - Downloads via Telethon's `iter_messages()` with pagination
 - Supports resume from interruption using temporary files
 - Can filter by date ranges, specific users, or message threads
-- Outputs JSON (full metadata) and TXT (human-readable) formats
-- Output is organized per-chat: `<chat_name>/messages.json`, `<chat_name>/messages.txt`, and `<chat_name>/attachments/`
+- Outputs JSON (full metadata), TXT (human-readable), and optionally HTML/PDF formats
+- Output is organized per-chat: `<chat_name>/messages.json`, `<chat_name>/messages.txt`, optionally `messages.html`/`messages.pdf`, and `<chat_name>/attachments/`
 
 ### Authentication
 - Uses Telethon sessions for persistent login
@@ -115,6 +115,11 @@ python main.py  # Launches GUI by default
 - `--max-date`: Messages on or before this date
 - `--min-date`: Messages on or after this date
 - `--media`: Download all media types with organized category directories (images/, videos/, documents/, audio/, stickers/, contacts/, locations/, polls/, etc.) and concurrent downloads (5 simultaneous). Supports photos, videos, documents, audio, stickers, contacts (VCF), geo locations (JSON), polls, dice, and games.
+
+### Export Formats
+- `--html`: Render a Telegram Web-style HTML page (uses Jinja2 templates)
+- `--pdf`: Render a PDF document (uses ReportLab)
+- Both flags work alongside existing JSON/TXT output and can be combined with `--media` for inline images
 
 ### PyInstaller Integration
 - Custom hooks in `_pyinstaller/` for bundling

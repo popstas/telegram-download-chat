@@ -74,6 +74,7 @@ class MessagesMixin:
                     "date": message.get("date"),
                     "message": text,
                     "from_id": {"_": "PeerUser", "user_id": user_id},
+                    "user_display_name": message.get("from") or message.get("from_id") or "",
                 }
 
                 if "reply_to_message_id" in message:

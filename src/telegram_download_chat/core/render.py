@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from jinja2 import BaseLoader, Environment
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -243,6 +241,8 @@ class RenderMixin:
         chat_title: str = "Chat",
     ) -> None:
         """Render messages as a Telegram Web-style self-contained HTML file."""
+        from jinja2 import BaseLoader, Environment
+
         items = self._preprocess_messages(messages, attachments_dir)
         env = Environment(loader=BaseLoader(), autoescape=True)
         env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
@@ -474,6 +474,8 @@ def _fmt_date_sep(date_str: str) -> str:
     dt = _parse_dt(date_str)
     if not dt:
         return date_str or ""
+    # Convert to local timezone to stay consistent with _fmt_time
+    dt = dt.astimezone()
     # "March 5, 2024" — no leading zero on day
     return dt.strftime("%B {day}, %Y").format(day=dt.day)
 

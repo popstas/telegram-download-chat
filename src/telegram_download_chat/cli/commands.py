@@ -514,10 +514,34 @@ async def convert(
         saved_relative = get_relative_to_downloads_dir(txt_path)
         downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
 
+    # HTML / PDF export
+    chat_title = json_path.stem
+    attachments_dir = json_path.parent / "attachments"
+    if not attachments_dir.is_dir():
+        attachments_dir = None
+    if getattr(args, "export_html", False):
+        html_path = txt_path.with_suffix(".html")
+        try:
+            downloader.render_html(messages, html_path, attachments_dir, chat_title)
+            downloader.logger.info(
+                f"Saved HTML to {get_relative_to_downloads_dir(html_path)}"
+            )
+        except Exception as exc:
+            downloader.logger.error(f"HTML export failed: {exc}")
+    if getattr(args, "export_pdf", False):
+        pdf_path = txt_path.with_suffix(".pdf")
+        try:
+            downloader.render_pdf(messages, pdf_path, attachments_dir, chat_title)
+            downloader.logger.info(
+                f"Saved PDF to {get_relative_to_downloads_dir(pdf_path)}"
+            )
+        except Exception as exc:
+            downloader.logger.error(f"PDF export failed: {exc}")
+
     downloader.logger.debug("Conversion completed successfully")
-    return {
+    result = {
         "chat_id": None,
-        "chat_title": json_path.stem,
+        "chat_title": chat_title,
         "chat_type": "json",
         "args": {},
         "messages": len(messages),
@@ -527,6 +551,11 @@ async def convert(
         "result_txt": str(txt_path),
         "keywords": keywords_data,
     }
+    if getattr(args, "export_html", False):
+        result["result_html"] = str(txt_path.with_suffix(".html"))
+    if getattr(args, "export_pdf", False):
+        result["result_pdf"] = str(txt_path.with_suffix(".pdf"))
+    return result
 
 
 async def folder(

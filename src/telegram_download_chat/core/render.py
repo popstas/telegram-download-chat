@@ -146,7 +146,7 @@ a:hover{text-decoration:underline}
 <body>
 <div class="wrap">
 <div class="hdr">
-  <div class="hdr-av">{{ chat_title[0] | upper | e }}</div>
+  <div class="hdr-av">{{ (chat_title[0:1] or "?") | upper | e }}</div>
   <div class="hdr-info">
     <div class="name">{{ chat_title | e }}</div>
     <div class="sub">{{ message_count }} messages &middot; Exported by telegram-download-chat</div>
@@ -263,11 +263,7 @@ class RenderMixin:
         chat_title: str = "Chat",
     ) -> None:
         """Render messages as a PDF document using ReportLab."""
-        try:
-            _render_pdf_reportlab(self, messages, output_file, attachments_dir, chat_title)
-        except Exception as exc:
-            _log(self).error(f"PDF export failed: {exc}")
-            raise
+        _render_pdf_reportlab(self, messages, output_file, attachments_dir, chat_title)
 
     # ------------------------------------------------------------------
     # Message preprocessing — shared by HTML and PDF
@@ -365,8 +361,11 @@ class RenderMixin:
             loc_lng: float = 0.0
 
             if att_path:
-                # Validate path stays within attachments directory
-                if attachments_dir:
+                # Reject paths with traversal segments unconditionally
+                if '..' in Path(att_path).parts or Path(att_path).is_absolute():
+                    att_path = None
+                # Also validate resolved path stays within attachments directory
+                elif attachments_dir:
                     resolved = (attachments_dir / att_path).resolve()
                     if not resolved.is_relative_to(attachments_dir.resolve()):
                         att_path = None
@@ -618,19 +617,19 @@ def _render_pdf_reportlab(
                             parts.append(Paragraph(
                                 f"[Image: {_xml_escape(msg_data.get('attachment_filename',''))}]", s_fname))
                     elif att_cat in ("documents", "archives", "audio", "videos", "contacts"):
-                        icons = {"archives": "\U0001f5dc", "audio": "\U0001f3b5",
-                                 "videos": "\U0001f3ac", "contacts": "\U0001f464"}
-                        icon = icons.get(att_cat, "\U0001f4c4")
+                        icons = {"archives": "[ZIP]", "audio": "[Audio]",
+                                 "videos": "[Video]", "contacts": "[Contact]"}
+                        icon = icons.get(att_cat, "[File]")
                         parts.append(Paragraph(
                             f"{icon} {_xml_escape(msg_data.get('attachment_filename',''))}", s_fname))
                     elif att_cat == "locations":
                         parts.append(Paragraph(
-                            f"\U0001f4cd Location ({msg_data.get('location_lat',0):.4f}, "
+                            f"[Location] ({msg_data.get('location_lat',0):.4f}, "
                             f"{msg_data.get('location_lng',0):.4f})", s_text))
                     elif att_cat == "polls" and msg_data.get("poll_data"):
                         pd = msg_data["poll_data"]
                         parts.append(Paragraph(
-                            f"\U0001f4ca <b>{_xml_escape(pd.get('question',''))}</b>", s_text))
+                            f"[Poll] <b>{_xml_escape(pd.get('question',''))}</b>", s_text))
                         for ans in pd.get("answers", []):
                             voters = f" ({ans['voters']})" if ans.get("voters") is not None else ""
                             parts.append(Paragraph(

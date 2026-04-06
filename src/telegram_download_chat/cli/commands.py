@@ -515,11 +515,11 @@ async def convert(
         downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
 
     # HTML / PDF export
-    chat_title = json_path.stem
+    chat_title = json_path.parent.name
     attachments_dir = json_path.parent / "attachments"
     if not attachments_dir.is_dir():
         attachments_dir = None
-    if getattr(args, "export_html", False):
+    if args.export_html:
         html_path = txt_path.with_suffix(".html")
         try:
             downloader.render_html(messages, html_path, attachments_dir, chat_title)
@@ -528,7 +528,7 @@ async def convert(
             )
         except Exception as exc:
             downloader.logger.error(f"HTML export failed: {exc}")
-    if getattr(args, "export_pdf", False):
+    if args.export_pdf:
         pdf_path = txt_path.with_suffix(".pdf")
         try:
             downloader.render_pdf(messages, pdf_path, attachments_dir, chat_title)
@@ -551,9 +551,9 @@ async def convert(
         "result_txt": str(txt_path),
         "keywords": keywords_data,
     }
-    if getattr(args, "export_html", False):
+    if args.export_html:
         result["result_html"] = str(txt_path.with_suffix(".html"))
-    if getattr(args, "export_pdf", False):
+    if args.export_pdf:
         result["result_pdf"] = str(txt_path.with_suffix(".pdf"))
     return result
 

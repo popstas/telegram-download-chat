@@ -613,7 +613,8 @@ def _render_pdf_reportlab(
                             img = RLImage(str(abs_path), width=max_w, height=max_w, kind="proportional")
                             img.hAlign = "LEFT"
                             parts.append(img)
-                        except Exception:
+                        except Exception as exc:
+                            _log(mixin).warning("Failed to load image %s: %s", abs_path, exc)
                             parts.append(Paragraph(
                                 f"[Image: {_xml_escape(msg_data.get('attachment_filename',''))}]", s_fname))
                     elif att_cat in ("documents", "archives", "audio", "videos", "contacts"):

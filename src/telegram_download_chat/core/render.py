@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -197,9 +198,9 @@ a:hover{text-decoration:underline}
         <div class="media-loc">&#128205; <a href="https://maps.google.com/?q={{ msg.location_lat }},{{ msg.location_lng }}" target="_blank" rel="noopener">View on map</a></div>
         {%- elif msg.media_category == "polls" and msg.poll_data %}
         <div class="poll-wrap">
-          <div class="poll-q">&#128202; {{ msg.poll_data.question | e }}</div>
-          {%- for ans in msg.poll_data.answers %}
-          <div class="poll-opt"><span>{{ ans.text | e }}</span>{% if ans.voters is not none %}<span class="votes">{{ ans.voters }}</span>{% endif %}</div>
+          <div class="poll-q">&#128202; {{ msg.poll_data.question | default('', true) | e }}</div>
+          {%- for ans in msg.poll_data.answers | default([], true) %}
+          <div class="poll-opt"><span>{{ ans.text | default('', true) | e }}</span>{% if ans.voters is not none %}<span class="votes">{{ ans.voters }}</span>{% endif %}</div>
           {%- endfor %}
           {%- if msg.poll_data.total_voters is not none %}
           <div class="poll-total">{{ msg.poll_data.total_voters }} total votes</div>
@@ -531,8 +532,6 @@ def _service_text(action: Dict[str, Any], msg: Dict[str, Any]) -> Optional[str]:
 
 def _xml_escape(text: str) -> str:
     """Escape for ReportLab Paragraph XML content."""
-    import re
-
     # Strip control characters (except \n, \t) that break ReportLab's XML parser
     cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text))
     return (
@@ -626,8 +625,15 @@ def _find_unicode_ttf_oblique() -> Optional[str]:
     return None
 
 
+_font_cache: Optional[Dict[str, str]] = None
+
+
 def _register_unicode_fonts() -> Dict[str, str]:
     """Register Unicode TTF fonts with ReportLab. Returns font name mapping."""
+    global _font_cache
+    if _font_cache is not None:
+        return _font_cache
+
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
@@ -640,11 +646,12 @@ def _register_unicode_fonts() -> Dict[str, str]:
             "(CJK, Cyrillic and emoji characters may render as tofu). "
             "Install fonts-noto or fonts-noto-cjk for full Unicode support."
         )
-        return {
+        _font_cache = {
             "regular": "Helvetica",
             "bold": "Helvetica-Bold",
             "oblique": "Helvetica-Oblique",
         }
+        return _font_cache
 
     # Warn if the selected font has limited Unicode coverage (no CJK/emoji)
     _limited_fonts = {
@@ -675,7 +682,8 @@ def _register_unicode_fonts() -> Dict[str, str]:
         pdfmetrics.registerFont(TTFont("UnicodeSans-Oblique", oblique))
         font_map["oblique"] = "UnicodeSans-Oblique"
 
-    return font_map
+    _font_cache = font_map
+    return _font_cache
 
 
 def _render_pdf_reportlab(

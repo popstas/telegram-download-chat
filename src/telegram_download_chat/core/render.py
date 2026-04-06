@@ -261,7 +261,7 @@ class RenderMixin:
 
         items = self._preprocess_messages(messages, attachments_dir)
         env = Environment(loader=BaseLoader(), autoescape=True)
-        env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
+        env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/:")
         tmpl = env.from_string(HTML_TEMPLATE)
         html = tmpl.render(
             chat_title=chat_title,
@@ -298,7 +298,10 @@ class RenderMixin:
         prev_sender_id: Any = None
         prev_msg_time: Optional[datetime] = None
 
-        sorted_msgs = sorted(messages, key=lambda m: m.get("date") or "")
+        _epoch = datetime.min.replace(tzinfo=timezone.utc)
+        sorted_msgs = sorted(
+            messages, key=lambda m: _parse_dt(m.get("date") or "") or _epoch
+        )
 
         def flush() -> None:
             nonlocal current_group
@@ -528,8 +531,12 @@ def _service_text(action: Dict[str, Any], msg: Dict[str, Any]) -> Optional[str]:
 
 def _xml_escape(text: str) -> str:
     """Escape for ReportLab Paragraph XML content."""
+    import re
+
+    # Strip control characters (except \n, \t) that break ReportLab's XML parser
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text))
     return (
-        str(text)
+        cleaned
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
@@ -735,20 +742,27 @@ def _render_pdf_reportlab(
     )
     s_fname = style(fontSize=10, textColor=colors.darkblue)
 
+    _sender_style_cache: Dict[str, ParagraphStyle] = {}
+    _av_bg_cache: Dict[str, colors.Color] = {}
+
     def sender_style(hex_color: str) -> ParagraphStyle:
-        hx = hex_color.lstrip("#")
-        r, g, b = int(hx[0:2], 16) / 255, int(hx[2:4], 16) / 255, int(hx[4:6], 16) / 255
-        return style(
-            fontSize=10,
-            fontName=FONT_BOLD,
-            textColor=colors.Color(r, g, b),
-            spaceAfter=1,
-        )
+        if hex_color not in _sender_style_cache:
+            hx = hex_color.lstrip("#")
+            r, g, b = int(hx[0:2], 16) / 255, int(hx[2:4], 16) / 255, int(hx[4:6], 16) / 255
+            _sender_style_cache[hex_color] = style(
+                fontSize=10,
+                fontName=FONT_BOLD,
+                textColor=colors.Color(r, g, b),
+                spaceAfter=1,
+            )
+        return _sender_style_cache[hex_color]
 
     def av_bg_color(hex_color: str) -> colors.Color:
-        hx = hex_color.lstrip("#")
-        r, g, b = int(hx[0:2], 16) / 255, int(hx[2:4], 16) / 255, int(hx[4:6], 16) / 255
-        return colors.Color(r, g, b)
+        if hex_color not in _av_bg_cache:
+            hx = hex_color.lstrip("#")
+            r, g, b = int(hx[0:2], 16) / 255, int(hx[2:4], 16) / 255, int(hx[4:6], 16) / 255
+            _av_bg_cache[hex_color] = colors.Color(r, g, b)
+        return _av_bg_cache[hex_color]
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     doc = SimpleDocTemplate(

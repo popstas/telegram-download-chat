@@ -378,6 +378,7 @@ async def process_chat_download(
 
     full_chat_title = await downloader.get_entity_full_name(chat_identifier)
 
+    split_messages: Dict[str, List[Any]] = {}
     try:
         if args.split:
             split_messages = split_messages_by_date(messages, args.split)
@@ -554,6 +555,7 @@ async def convert(
         kw_list = [k.strip() for k in args.keywords.split(",") if k.strip()]
         keywords_data = analyze_keywords(kw_list, messages)
 
+    split_messages: Dict[str, List[Any]] = {}
     if args.split:
         split_messages = split_messages_by_date(messages, args.split)
         if not split_messages:

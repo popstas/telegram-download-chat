@@ -243,7 +243,7 @@ class RenderMixin:
     ) -> None:
         """Render messages as a Telegram Web-style self-contained HTML file."""
         items = self._preprocess_messages(messages, attachments_dir)
-        env = Environment(loader=BaseLoader(), autoescape=False)
+        env = Environment(loader=BaseLoader(), autoescape=True)
         tmpl = env.from_string(HTML_TEMPLATE)
         html = tmpl.render(
             chat_title=chat_title,
@@ -252,7 +252,6 @@ class RenderMixin:
         )
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(html, encoding="utf-8")
-        _log(self).info(f"Saved HTML export → {output_file.name}")
 
     def render_pdf(
         self,
@@ -362,10 +361,20 @@ class RenderMixin:
             loc_lng: float = 0.0
 
             if att_path:
-                parts = att_path.split("/")
-                att_cat = parts[0] if parts else None
-                att_filename = Path(att_path).name
+                # Validate path stays within attachments directory
+                if attachments_dir:
+                    resolved = (attachments_dir / att_path).resolve()
+                    if not str(resolved).startswith(str(attachments_dir.resolve())):
+                        att_path = None
+                if att_path:
+                    parts_split = att_path.split("/")
+                    att_cat = parts_split[0] if parts_split else None
+                    att_filename = Path(att_path).name
+                else:
+                    att_cat = None
+                    att_filename = None
 
+            if att_path and att_cat:
                 if att_cat == "polls" and attachments_dir:
                     poll_file = attachments_dir / att_path
                     if poll_file.exists():
@@ -418,15 +427,6 @@ class RenderMixin:
         flush()
         return items
 
-    # ------------------------------------------------------------------
-    # Private helpers (instance methods for color/initials)
-    # ------------------------------------------------------------------
-
-    def _sender_color(self, name: str) -> str:
-        return _sender_color(name)
-
-    def _sender_initials(self, name: str) -> str:
-        return _sender_initials(name)
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +438,7 @@ def _log(obj: Any) -> logging.Logger:
 
 
 def _sender_color(name: str) -> str:
-    idx = int(hashlib.md5(name.encode("utf-8", errors="replace")).hexdigest(), 16)
+    idx = int(hashlib.md5(name.encode("utf-8", errors="replace"), usedforsecurity=False).hexdigest(), 16)
     return AVATAR_COLORS[idx % len(AVATAR_COLORS)]
 
 
@@ -607,7 +607,7 @@ def _render_pdf_reportlab(
                     if att_cat in ("images", "stickers") and abs_path.exists():
                         try:
                             max_w = min(BUBBLE_MAX_W - 10 * mm, 110 * mm)
-                            img = RLImage(str(abs_path), width=max_w, height=max_w * 0.6)
+                            img = RLImage(str(abs_path), width=max_w, height=max_w, kind="proportional")
                             img.hAlign = "LEFT"
                             parts.append(img)
                         except Exception:
@@ -692,4 +692,3 @@ def _render_pdf_reportlab(
                 story.append(Spacer(1, 1.5 * mm))
 
     doc.build(story)
-    _log(mixin).info(f"Saved PDF export \u2192 {output_file.name}")

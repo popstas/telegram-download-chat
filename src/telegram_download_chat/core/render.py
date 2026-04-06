@@ -248,7 +248,13 @@ class RenderMixin:
         chat_title: str = "Chat",
     ) -> None:
         """Render messages as a Telegram Web-style self-contained HTML file."""
-        from jinja2 import BaseLoader, Environment
+        try:
+            from jinja2 import BaseLoader, Environment
+        except ImportError:
+            raise ImportError(
+                "jinja2 is required for HTML export. "
+                "Install it with: pip install telegram-download-chat[export]"
+            )
 
         # Compute relative path from the HTML file to the attachments directory
         media_prefix = "attachments/"
@@ -262,7 +268,7 @@ class RenderMixin:
 
         items = self._preprocess_messages(messages, attachments_dir)
         env = Environment(loader=BaseLoader(), autoescape=True)
-        env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/:")
+        env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
         tmpl = env.from_string(HTML_TEMPLATE)
         html = tmpl.render(
             chat_title=chat_title,
@@ -697,19 +703,25 @@ def _render_pdf_reportlab(
     attachments_dir: Optional[Path],
     chat_title: str,
 ) -> None:
-    from reportlab.lib import colors
-    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.units import mm
-    from reportlab.platypus import Image as RLImage
-    from reportlab.platypus import (
-        Paragraph,
-        SimpleDocTemplate,
-        Spacer,
-        Table,
-        TableStyle,
-    )
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Image as RLImage
+        from reportlab.platypus import (
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+    except ImportError:
+        raise ImportError(
+            "reportlab is required for PDF export. "
+            "Install it with: pip install telegram-download-chat[export]"
+        )
 
     fonts = _register_unicode_fonts()
     FONT = fonts["regular"]

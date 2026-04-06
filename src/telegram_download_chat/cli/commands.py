@@ -432,9 +432,13 @@ async def process_chat_download(
         attachments_dir = downloader.get_attachments_dir(Path(output_file))
         result["result_attachments"] = str(attachments_dir)
     if args.export_html:
-        result["result_html"] = str(Path(output_file).with_suffix(".html"))
+        html_path = Path(output_file).with_suffix(".html")
+        if html_path.exists():
+            result["result_html"] = str(html_path)
     if args.export_pdf:
-        result["result_pdf"] = str(Path(output_file).with_suffix(".pdf"))
+        pdf_path = Path(output_file).with_suffix(".pdf")
+        if pdf_path.exists():
+            result["result_pdf"] = str(pdf_path)
     return result
 
 
@@ -516,9 +520,17 @@ async def convert(
 
     # HTML / PDF export
     chat_title = json_path.parent.name
-    attachments_dir = json_path.parent / "attachments"
+    # Derive attachments_dir relative to the output HTML/PDF location,
+    # not the input JSON, so media links work when --subchat redirects output.
+    output_parent = txt_path.parent
+    attachments_dir = output_parent / "attachments"
     if not attachments_dir.is_dir():
-        attachments_dir = None
+        # Fall back to JSON source directory if output dir has no attachments
+        attachments_dir = json_path.parent / "attachments"
+        if not attachments_dir.is_dir():
+            attachments_dir = None
+    html_ok = False
+    pdf_ok = False
     if args.export_html:
         html_path = txt_path.with_suffix(".html")
         try:
@@ -526,6 +538,7 @@ async def convert(
             downloader.logger.info(
                 f"Saved HTML to {get_relative_to_downloads_dir(html_path)}"
             )
+            html_ok = True
         except Exception as exc:
             downloader.logger.error(f"HTML export failed: {exc}")
     if args.export_pdf:
@@ -535,6 +548,7 @@ async def convert(
             downloader.logger.info(
                 f"Saved PDF to {get_relative_to_downloads_dir(pdf_path)}"
             )
+            pdf_ok = True
         except Exception as exc:
             downloader.logger.error(f"PDF export failed: {exc}")
 
@@ -551,9 +565,9 @@ async def convert(
         "result_txt": str(txt_path),
         "keywords": keywords_data,
     }
-    if args.export_html:
+    if html_ok:
         result["result_html"] = str(txt_path.with_suffix(".html"))
-    if args.export_pdf:
+    if pdf_ok:
         result["result_pdf"] = str(txt_path.with_suffix(".pdf"))
     return result
 

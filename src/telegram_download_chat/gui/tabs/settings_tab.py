@@ -487,8 +487,10 @@ class SettingsTab(QWidget):
             session_path.parent.mkdir(parents=True, exist_ok=True)
             self.config.set("session_path", str(session_path))
 
+        proxy_url = self.config.get("settings.proxy_url") or None
         self.telegram_auth = TelegramAuth(
-            api_id=int(api_id), api_hash=api_hash, session_path=session_path
+            api_id=int(api_id), api_hash=api_hash, session_path=session_path,
+            proxy_url=proxy_url,
         )
 
     async def _request_code_async(self, phone):

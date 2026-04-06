@@ -392,6 +392,7 @@ async def process_chat_download(
                     output_file,
                     args.sort,
                     args.media,
+
                     export_html=args.export_html,
                     export_pdf=args.export_pdf,
                     chat_title=full_chat_title,
@@ -408,6 +409,7 @@ async def process_chat_download(
                         str(split_file),
                         args.sort,
                         args.media,
+    
                         export_html=args.export_html,
                         export_pdf=args.export_pdf,
                         chat_title=full_chat_title,

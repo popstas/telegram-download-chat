@@ -57,6 +57,9 @@ dev = [
 mcp = [
     "mcp>=1.0.0"
 ]
+proxy = [
+    "python-socks[asyncio]>=2.0.0"
+]
 
 [tool.bumpversion]
 current_version = "0.7.0"

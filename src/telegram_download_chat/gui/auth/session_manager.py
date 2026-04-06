@@ -188,10 +188,12 @@ class SessionManager:
                 api_id = tab.config.get("settings.api_id")
                 api_hash = tab.config.get("settings.api_hash")
                 if api_id and api_hash:
+                    proxy_url = tab.config.get("settings.proxy_url") or None
                     telegram_auth = TelegramAuth(
                         api_id=int(api_id),
                         api_hash=api_hash,
                         session_path=session_path,
+                        proxy_url=proxy_url,
                     )
                     try:
                         await telegram_auth.initialize()

@@ -1,4 +1,5 @@
 """Handle OS-specific paths for the application."""
+
 import os
 import sys
 from pathlib import Path
@@ -41,7 +42,11 @@ def get_default_config() -> Dict[str, Any]:
         dict: Default configuration
     """
     return {
-        "settings": {"api_id": "YOUR_API_ID", "api_hash": "YOUR_API_HASH"},
+        "settings": {
+            "api_id": "YOUR_API_ID",
+            "api_hash": "YOUR_API_HASH",
+            "proxy_url": "",
+        },
         "presets": [],
     }
 

@@ -24,6 +24,10 @@ settings:
   # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
   log_level: INFO
 
+  # Optional proxy URL for Telegram connections
+  # Supported schemes: socks5, socks4, http, https
+  # proxy_url: socks5://user:password@proxy-host:1080
+
 # Optional mapping for overriding user and bot full names
 # Names are fetched automatically and stored here
 users_map:

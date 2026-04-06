@@ -517,7 +517,7 @@ async def convert(
         json_path = downloads_dir / json_path
     if not json_path.exists():
         downloader.logger.error(f"File not found: {json_path}")
-        return 1
+        return {"error": f"File not found: {json_path}"}
 
     downloader.logger.debug(f"Loading messages from JSON file: {json_path}")
     with open(json_path, "r", encoding="utf-8") as f:

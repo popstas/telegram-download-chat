@@ -388,7 +388,11 @@ class RenderMixin:
                 # Normalize Windows backslashes to forward slashes
                 att_path = att_path.replace("\\", "/")
                 # Reject paths with traversal segments unconditionally
-                if ".." in Path(att_path).parts or Path(att_path).is_absolute():
+                if (
+                    ".." in Path(att_path).parts
+                    or Path(att_path).is_absolute()
+                    or ":" in att_path
+                ):
                     att_path = None
                 # Also validate resolved path stays within attachments directory
                 elif attachments_dir:

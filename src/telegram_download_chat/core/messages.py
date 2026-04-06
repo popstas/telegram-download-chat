@@ -299,12 +299,18 @@ class MessagesMixin:
         chat_title = output_path.parent.name
         if export_html:
             html_path = output_path.with_suffix(".html")
-            self.render_html(serializable_messages, html_path, attachments_dir, chat_title)
-            self.logger.info(f"Saved HTML to {get_relative_to_downloads_dir(html_path)}")
+            try:
+                self.render_html(serializable_messages, html_path, attachments_dir, chat_title)
+                self.logger.info(f"Saved HTML to {get_relative_to_downloads_dir(html_path)}")
+            except Exception as exc:
+                self.logger.error(f"HTML export failed: {exc}")
         if export_pdf:
             pdf_path = output_path.with_suffix(".pdf")
-            self.render_pdf(serializable_messages, pdf_path, attachments_dir, chat_title)
-            self.logger.info(f"Saved PDF to {get_relative_to_downloads_dir(pdf_path)}")
+            try:
+                self.render_pdf(serializable_messages, pdf_path, attachments_dir, chat_title)
+                self.logger.info(f"Saved PDF to {get_relative_to_downloads_dir(pdf_path)}")
+            except Exception as exc:
+                self.logger.error(f"PDF export failed: {exc}")
 
         partial = self.get_temp_file_path(output_path)
         if partial.exists() and not self._stop_requested:

@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from jinja2 import BaseLoader, Environment
 
@@ -177,7 +178,7 @@ a:hover{text-decoration:underline}
       <div class="rq">{{ msg.reply_text | e }}</div>
       {%- endif %}
       {%- if msg.attachment_path %}
-        {%- set src = "attachments/" + msg.attachment_path %}
+        {%- set src = ("attachments/" + msg.attachment_path) | urlencode_path %}
         {%- if msg.media_category == "stickers" %}
         <img class="media-stk" src="{{ src }}" alt="sticker" loading="lazy">
         {%- elif msg.media_category == "images" %}
@@ -244,6 +245,7 @@ class RenderMixin:
         """Render messages as a Telegram Web-style self-contained HTML file."""
         items = self._preprocess_messages(messages, attachments_dir)
         env = Environment(loader=BaseLoader(), autoescape=True)
+        env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
         tmpl = env.from_string(HTML_TEMPLATE)
         html = tmpl.render(
             chat_title=chat_title,
@@ -324,13 +326,15 @@ class RenderMixin:
                     or from_id.get("chat_id")
                     or 0
                 )
+            elif isinstance(from_id, int):
+                sender_id = from_id
             else:
                 sender_id = 0
 
             is_outgoing = bool(msg.get("out")) or (
                 self_id is not None and sender_id == self_id
             )
-            sender_name = msg.get("user_display_name") or str(sender_id) or "Unknown"
+            sender_name = msg.get("user_display_name") or (str(sender_id) if sender_id else "Unknown")
 
             # ── Grouping ─────────────────────────────────────────────
             same_group = (
@@ -364,7 +368,7 @@ class RenderMixin:
                 # Validate path stays within attachments directory
                 if attachments_dir:
                     resolved = (attachments_dir / att_path).resolve()
-                    if not str(resolved).startswith(str(attachments_dir.resolve())):
+                    if not resolved.is_relative_to(attachments_dir.resolve()):
                         att_path = None
                 if att_path:
                     parts_split = att_path.split("/")
@@ -464,7 +468,7 @@ def _fmt_time(date_str: str) -> str:
     dt = _parse_dt(date_str)
     if not dt:
         return ""
-    return dt.astimezone(timezone.utc).strftime("%H:%M")
+    return dt.astimezone().strftime("%H:%M")
 
 
 def _fmt_date_sep(date_str: str) -> str:
@@ -639,9 +643,6 @@ def _render_pdf_reportlab(
                 tick = " \u2713\u2713" if is_out else ""
                 edited = " (edited)" if msg_data.get("edited") else ""
                 parts.append(Paragraph(f"{msg_data['time']}{edited}{tick}", s_meta))
-
-                if not parts:
-                    parts.append(Spacer(1, 2 * mm))
 
                 # Avatar cell — only shown on first message in group (incoming)
                 if idx == 0 and not is_out:

@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-from jinja2 import BaseLoader, Environment
+from urllib.parse import quote
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -27,8 +28,8 @@ ACTION_LABELS: Dict[str, str] = {
     "MessageActionPinMessage": "pinned a message",
     "MessageActionChatMigrateTo": "group was upgraded to a supergroup",
     "MessageActionChannelCreate": "created the channel",
-    "MessageActionPhoneCall": "\U0001f4de Phone call",
-    "MessageActionGroupCall": "\U0001f4de Group call",
+    "MessageActionPhoneCall": "Phone call",
+    "MessageActionGroupCall": "Group call",
     "MessageActionInviteToGroupCall": "was invited to a voice chat",
     "MessageActionContactSignUp": "joined Telegram",
     "MessageActionHistoryClear": "cleared the history",
@@ -117,7 +118,7 @@ a:hover{text-decoration:underline}
 .media-stk{max-width:160px;max-height:160px}
 .media-vid{max-width:100%;max-height:280px;width:100%}
 .media-aud{width:260px;max-width:100%;margin-bottom:4px;display:block}
-.media-file{display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.04);
+.media-file{display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.04);text-decoration:none;color:inherit;
   border-radius:10px;padding:8px 10px;margin-bottom:4px}
 .media-file .ico{font-size:26px;line-height:1;flex-shrink:0}
 .media-file .fname{font-size:13px;font-weight:500;color:#333;word-break:break-all}
@@ -145,7 +146,7 @@ a:hover{text-decoration:underline}
 <body>
 <div class="wrap">
 <div class="hdr">
-  <div class="hdr-av">{{ chat_title[0] | upper | e }}</div>
+  <div class="hdr-av">{{ (chat_title[0:1] or "?") | upper | e }}</div>
   <div class="hdr-info">
     <div class="name">{{ chat_title | e }}</div>
     <div class="sub">{{ message_count }} messages &middot; Exported by telegram-download-chat</div>
@@ -177,7 +178,7 @@ a:hover{text-decoration:underline}
       <div class="rq">{{ msg.reply_text | e }}</div>
       {%- endif %}
       {%- if msg.attachment_path %}
-        {%- set src = "attachments/" + msg.attachment_path %}
+        {%- set src = (media_prefix + msg.attachment_path) | urlencode_path %}
         {%- if msg.media_category == "stickers" %}
         <img class="media-stk" src="{{ src }}" alt="sticker" loading="lazy">
         {%- elif msg.media_category == "images" %}
@@ -187,24 +188,29 @@ a:hover{text-decoration:underline}
         {%- elif msg.media_category == "audio" %}
         <audio class="media-aud" controls preload="none" src="{{ src }}"></audio>
         {%- elif msg.media_category in ("documents", "archives") %}
-        <div class="media-file">
+        <a class="media-file" href="{{ src }}" target="_blank" rel="noopener">
           <div class="ico">{% if msg.media_category == "archives" %}&#128736;{% else %}&#128196;{% endif %}</div>
           <div class="fname">{{ msg.attachment_filename | e }}</div>
-        </div>
+        </a>
         {%- elif msg.media_category == "contacts" %}
-        <div class="media-file"><div class="ico">&#128100;</div><div class="fname">{{ msg.attachment_filename | e }}</div></div>
+        <a class="media-file" href="{{ src }}" target="_blank" rel="noopener"><div class="ico">&#128100;</div><div class="fname">{{ msg.attachment_filename | e }}</div></a>
         {%- elif msg.media_category == "locations" %}
         <div class="media-loc">&#128205; <a href="https://maps.google.com/?q={{ msg.location_lat }},{{ msg.location_lng }}" target="_blank" rel="noopener">View on map</a></div>
         {%- elif msg.media_category == "polls" and msg.poll_data %}
         <div class="poll-wrap">
-          <div class="poll-q">&#128202; {{ msg.poll_data.question | e }}</div>
-          {%- for ans in msg.poll_data.answers %}
-          <div class="poll-opt"><span>{{ ans.text | e }}</span>{% if ans.voters is not none %}<span class="votes">{{ ans.voters }}</span>{% endif %}</div>
+          <div class="poll-q">&#128202; {{ msg.poll_data.question | default('', true) | e }}</div>
+          {%- for ans in msg.poll_data.answers | default([], true) %}
+          <div class="poll-opt"><span>{{ ans.text | default('', true) | e }}</span>{% if ans.voters is not none %}<span class="votes">{{ ans.voters }}</span>{% endif %}</div>
           {%- endfor %}
           {%- if msg.poll_data.total_voters is not none %}
           <div class="poll-total">{{ msg.poll_data.total_voters }} total votes</div>
           {%- endif %}
         </div>
+        {%- else %}
+        <a class="media-file" href="{{ src }}" target="_blank" rel="noopener">
+          <div class="ico">&#128206;</div>
+          <div class="fname">{{ msg.attachment_filename | e }}</div>
+        </a>
         {%- endif %}
       {%- endif %}
       {%- if msg.text %}
@@ -242,17 +248,36 @@ class RenderMixin:
         chat_title: str = "Chat",
     ) -> None:
         """Render messages as a Telegram Web-style self-contained HTML file."""
+        try:
+            from jinja2 import BaseLoader, Environment
+        except ImportError:
+            raise ImportError(
+                "jinja2 is required for HTML export. "
+                "Install it with: pip install telegram-download-chat[export]"
+            )
+
+        # Compute relative path from the HTML file to the attachments directory
+        media_prefix = "attachments/"
+        if attachments_dir:
+            try:
+                rel = os.path.relpath(attachments_dir, output_file.parent)
+                media_prefix = rel.replace("\\", "/") + "/"
+            except ValueError:
+                # Cross-drive on Windows — use absolute file:// URI
+                media_prefix = Path(attachments_dir).resolve().as_uri() + "/"
+
         items = self._preprocess_messages(messages, attachments_dir)
-        env = Environment(loader=BaseLoader(), autoescape=False)
+        env = Environment(loader=BaseLoader(), autoescape=True)
+        env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
         tmpl = env.from_string(HTML_TEMPLATE)
         html = tmpl.render(
             chat_title=chat_title,
             message_count=len(messages),
             items=items,
+            media_prefix=media_prefix,
         )
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(html, encoding="utf-8")
-        _log(self).info(f"Saved HTML export → {output_file.name}")
 
     def render_pdf(
         self,
@@ -262,11 +287,7 @@ class RenderMixin:
         chat_title: str = "Chat",
     ) -> None:
         """Render messages as a PDF document using ReportLab."""
-        try:
-            _render_pdf_reportlab(self, messages, output_file, attachments_dir, chat_title)
-        except Exception as exc:
-            _log(self).error(f"PDF export failed: {exc}")
-            raise
+        _render_pdf_reportlab(self, messages, output_file, attachments_dir, chat_title)
 
     # ------------------------------------------------------------------
     # Message preprocessing — shared by HTML and PDF
@@ -284,7 +305,10 @@ class RenderMixin:
         prev_sender_id: Any = None
         prev_msg_time: Optional[datetime] = None
 
-        sorted_msgs = sorted(messages, key=lambda m: m.get("date") or "")
+        _epoch = datetime.min.replace(tzinfo=timezone.utc)
+        sorted_msgs = sorted(
+            messages, key=lambda m: _parse_dt(m.get("date") or "") or _epoch
+        )
 
         def flush() -> None:
             nonlocal current_group
@@ -297,7 +321,8 @@ class RenderMixin:
         for msg in sorted_msgs:
             date_str = msg.get("date") or ""
             msg_dt = _parse_dt(date_str)
-            msg_date = msg_dt.strftime("%Y-%m-%d") if msg_dt else None
+            # Use local timezone for grouping, consistent with display formatting
+            msg_date = msg_dt.astimezone().strftime("%Y-%m-%d") if msg_dt else None
 
             # ── Date separator ──────────────────────────────────────
             if msg_date and msg_date != prev_date:
@@ -325,13 +350,17 @@ class RenderMixin:
                     or from_id.get("chat_id")
                     or 0
                 )
+            elif isinstance(from_id, int):
+                sender_id = from_id
             else:
                 sender_id = 0
 
             is_outgoing = bool(msg.get("out")) or (
                 self_id is not None and sender_id == self_id
             )
-            sender_name = msg.get("user_display_name") or str(sender_id) or "Unknown"
+            sender_name = msg.get("user_display_name") or (
+                str(sender_id) if sender_id else "Unknown"
+            )
 
             # ── Grouping ─────────────────────────────────────────────
             same_group = (
@@ -362,15 +391,38 @@ class RenderMixin:
             loc_lng: float = 0.0
 
             if att_path:
-                parts = att_path.split("/")
-                att_cat = parts[0] if parts else None
-                att_filename = Path(att_path).name
+                # Normalize Windows backslashes to forward slashes
+                att_path = att_path.replace("\\", "/")
+                # Reject paths with traversal segments unconditionally
+                if (
+                    ".." in Path(att_path).parts
+                    or Path(att_path).is_absolute()
+                    or ":" in att_path
+                ):
+                    att_path = None
+                # Also validate resolved path stays within attachments directory
+                elif attachments_dir:
+                    resolved = (attachments_dir / att_path).resolve()
+                    try:
+                        resolved.relative_to(attachments_dir.resolve())
+                    except ValueError:
+                        att_path = None
+                if att_path:
+                    parts_split = att_path.split("/")
+                    att_cat = parts_split[0] if parts_split else None
+                    att_filename = Path(att_path).name
+                else:
+                    att_cat = None
+                    att_filename = None
 
+            if att_path and att_cat:
                 if att_cat == "polls" and attachments_dir:
                     poll_file = attachments_dir / att_path
                     if poll_file.exists():
                         try:
-                            poll_data = json.loads(poll_file.read_text(encoding="utf-8"))
+                            poll_data = json.loads(
+                                poll_file.read_text(encoding="utf-8")
+                            )
                         except Exception:
                             pass
 
@@ -397,20 +449,22 @@ class RenderMixin:
             if isinstance(fwd_from, dict):
                 fwd_name = fwd_from.get("from_name") or "Unknown"
 
-            current_group["messages"].append({  # type: ignore[index]
-                "id": msg.get("id"),
-                "text": msg.get("message") or "",
-                "time": _fmt_time(date_str),
-                "edited": bool(msg.get("edit_date")),
-                "reply_text": reply_text,
-                "fwd_from_name": fwd_name,
-                "attachment_path": att_path,
-                "attachment_filename": att_filename,
-                "media_category": att_cat,
-                "poll_data": poll_data,
-                "location_lat": loc_lat,
-                "location_lng": loc_lng,
-            })
+            current_group["messages"].append(
+                {  # type: ignore[index]
+                    "id": msg.get("id"),
+                    "text": msg.get("message") or "",
+                    "time": _fmt_time(date_str),
+                    "edited": bool(msg.get("edit_date")),
+                    "reply_text": reply_text,
+                    "fwd_from_name": fwd_name,
+                    "attachment_path": att_path,
+                    "attachment_filename": att_filename,
+                    "media_category": att_cat,
+                    "poll_data": poll_data,
+                    "location_lat": loc_lat,
+                    "location_lng": loc_lng,
+                }
+            )
 
             prev_sender_id = sender_id
             prev_msg_time = msg_dt
@@ -418,27 +472,23 @@ class RenderMixin:
         flush()
         return items
 
-    # ------------------------------------------------------------------
-    # Private helpers (instance methods for color/initials)
-    # ------------------------------------------------------------------
-
-    def _sender_color(self, name: str) -> str:
-        return _sender_color(name)
-
-    def _sender_initials(self, name: str) -> str:
-        return _sender_initials(name)
-
 
 # ---------------------------------------------------------------------------
 # Module-level pure helpers (no self needed)
 # ---------------------------------------------------------------------------
+
 
 def _log(obj: Any) -> logging.Logger:
     return getattr(obj, "logger", logging.getLogger(__name__))
 
 
 def _sender_color(name: str) -> str:
-    idx = int(hashlib.md5(name.encode("utf-8", errors="replace")).hexdigest(), 16)
+    idx = int(
+        hashlib.md5(
+            name.encode("utf-8", errors="replace"), usedforsecurity=False
+        ).hexdigest(),
+        16,
+    )
     return AVATAR_COLORS[idx % len(AVATAR_COLORS)]
 
 
@@ -464,13 +514,15 @@ def _fmt_time(date_str: str) -> str:
     dt = _parse_dt(date_str)
     if not dt:
         return ""
-    return dt.astimezone(timezone.utc).strftime("%H:%M")
+    return dt.astimezone().strftime("%H:%M")
 
 
 def _fmt_date_sep(date_str: str) -> str:
     dt = _parse_dt(date_str)
     if not dt:
         return date_str or ""
+    # Convert to local timezone to stay consistent with _fmt_time
+    dt = dt.astimezone()
     # "March 5, 2024" — no leading zero on day
     return dt.strftime("%B {day}, %Y").format(day=dt.day)
 
@@ -484,14 +536,16 @@ def _service_text(action: Dict[str, Any], msg: Dict[str, Any]) -> Optional[str]:
     if action_type == "MessageActionChatEditTitle":
         new_title = action.get("title") or action.get("new_title") or ""
         if new_title:
-            label = f'changed the group name to \u201c{new_title}\u201d'
+            label = f"changed the group name to \u201c{new_title}\u201d"
     return f"{sender} {label}"
 
 
 def _xml_escape(text: str) -> str:
     """Escape for ReportLab Paragraph XML content."""
+    # Strip control characters (except \n, \t) that break ReportLab's XML parser
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text))
     return (
-        str(text)
+        cleaned
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
@@ -503,6 +557,145 @@ def _xml_escape(text: str) -> str:
 # PDF rendering — module-level to keep RenderMixin clean
 # ---------------------------------------------------------------------------
 
+
+def _find_unicode_ttf() -> Optional[str]:
+    """Find a Unicode-capable TTF font on the system.
+
+    Prefers fonts with broad Unicode coverage (CJK, Cyrillic, emoji)
+    over narrower fonts like DejaVu Sans.
+    """
+    candidates = [
+        # Noto Sans CJK — best CJK + broad Unicode coverage
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+        # Noto Sans — good Unicode coverage (Cyrillic, Latin, Greek, etc.)
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+        # DejaVu Sans — common on Linux, good Cyrillic but no CJK
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        # Liberation Sans
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
+        # macOS — Arial Unicode first (has CJK), then Helvetica (no CJK)
+        "/Library/Fonts/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        # Windows — CJK-capable fonts first
+        "C:/Windows/Fonts/msyh.ttc",  # Microsoft YaHei — CJK
+        "C:/Windows/Fonts/msgothic.ttc",  # MS Gothic — CJK
+        "C:/Windows/Fonts/malgun.ttf",  # Malgun Gothic — Korean
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+    ]
+    for path in candidates:
+        if Path(path).is_file():
+            return path
+    return None
+
+
+def _find_unicode_ttf_bold() -> Optional[str]:
+    """Find a bold variant of a Unicode-capable TTF font."""
+    candidates = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf",
+        "C:/Windows/Fonts/msyhbd.ttc",
+        "C:/Windows/Fonts/arialbd.ttf",
+        "C:/Windows/Fonts/segoeuib.ttf",
+    ]
+    for path in candidates:
+        if Path(path).is_file():
+            return path
+    return None
+
+
+def _find_unicode_ttf_oblique() -> Optional[str]:
+    """Find an oblique/italic variant of a Unicode-capable TTF font."""
+    candidates = [
+        "/usr/share/fonts/truetype/noto/NotoSans-Italic.ttf",
+        "/usr/share/fonts/noto/NotoSans-Italic.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Oblique.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+        "/usr/share/fonts/liberation-sans/LiberationSans-Italic.ttf",
+        "C:/Windows/Fonts/ariali.ttf",
+        "C:/Windows/Fonts/segoeuii.ttf",
+    ]
+    for path in candidates:
+        if Path(path).is_file():
+            return path
+    return None
+
+
+_font_cache: Optional[Dict[str, str]] = None
+
+
+def _register_unicode_fonts() -> Dict[str, str]:
+    """Register Unicode TTF fonts with ReportLab. Returns font name mapping."""
+    global _font_cache
+    if _font_cache is not None:
+        return _font_cache
+
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    logger = logging.getLogger(__name__)
+
+    regular = _find_unicode_ttf()
+    if not regular:
+        logger.warning(
+            "No Unicode TTF font found on system; PDF will use Helvetica "
+            "(CJK, Cyrillic and emoji characters may render as tofu). "
+            "Install fonts-noto or fonts-noto-cjk for full Unicode support."
+        )
+        _font_cache = {
+            "regular": "Helvetica",
+            "bold": "Helvetica-Bold",
+            "oblique": "Helvetica-Oblique",
+        }
+        return _font_cache
+
+    # Warn if the selected font has limited Unicode coverage (no CJK/emoji)
+    _limited_fonts = {
+        "DejaVuSans", "LiberationSans", "Helvetica",
+        "arial", "segoeui",
+    }
+    font_basename = Path(regular).stem.replace("-Regular", "")
+    if font_basename in _limited_fonts:
+        logger.warning(
+            f"Using {font_basename} for PDF — this font lacks CJK and emoji glyphs. "
+            "Install fonts-noto-cjk for full Unicode support."
+        )
+
+    pdfmetrics.registerFont(TTFont("UnicodeSans", regular))
+    font_map: Dict[str, str] = {
+        "regular": "UnicodeSans",
+        "bold": "UnicodeSans",
+        "oblique": "UnicodeSans",
+    }
+
+    bold = _find_unicode_ttf_bold()
+    if bold:
+        pdfmetrics.registerFont(TTFont("UnicodeSans-Bold", bold))
+        font_map["bold"] = "UnicodeSans-Bold"
+
+    oblique = _find_unicode_ttf_oblique()
+    if oblique:
+        pdfmetrics.registerFont(TTFont("UnicodeSans-Oblique", oblique))
+        font_map["oblique"] = "UnicodeSans-Oblique"
+
+    _font_cache = font_map
+    return _font_cache
+
+
 def _render_pdf_reportlab(
     mixin: Any,
     messages: List[Dict[str, Any]],
@@ -510,23 +703,34 @@ def _render_pdf_reportlab(
     attachments_dir: Optional[Path],
     chat_title: str,
 ) -> None:
-    from reportlab.lib import colors
-    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.units import mm
-    from reportlab.platypus import (
-        Image as RLImage,
-        Paragraph,
-        SimpleDocTemplate,
-        Spacer,
-        Table,
-        TableStyle,
-    )
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Image as RLImage
+        from reportlab.platypus import (
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+    except ImportError:
+        raise ImportError(
+            "reportlab is required for PDF export. "
+            "Install it with: pip install telegram-download-chat[export]"
+        )
 
-    OWN_BG = colors.Color(0.851, 0.992, 0.827)   # #d9fdd3
+    fonts = _register_unicode_fonts()
+    FONT = fonts["regular"]
+    FONT_BOLD = fonts["bold"]
+    FONT_OBLIQUE = fonts["oblique"]
+
+    OWN_BG = colors.Color(0.851, 0.992, 0.827)  # #d9fdd3
     OTHER_BG = colors.white
-    FWD_COLOR = colors.Color(0, 0.659, 0.518)     # #00a884
+    FWD_COLOR = colors.Color(0, 0.659, 0.518)  # #00a884
     PAGE_W, _ = A4
     MARGIN = 10 * mm
     USABLE_W = PAGE_W - 2 * MARGIN
@@ -534,41 +738,73 @@ def _render_pdf_reportlab(
     BUBBLE_MAX_W = USABLE_W * 0.72
 
     def style(**kw) -> ParagraphStyle:
-        base = dict(fontSize=11, fontName="Helvetica", leading=14)
+        base = dict(fontSize=11, fontName=FONT, leading=14)
         base.update(kw)
         return ParagraphStyle("_", **base)
 
-    s_title = style(fontSize=16, fontName="Helvetica-Bold", spaceAfter=2)
+    s_title = style(fontSize=16, fontName=FONT_BOLD, spaceAfter=2)
     s_subtitle = style(fontSize=9, textColor=colors.grey, spaceAfter=8)
-    s_datesep = style(fontSize=9, textColor=colors.grey, alignment=TA_CENTER, spaceBefore=6, spaceAfter=2)
-    s_service = style(fontSize=9, fontName="Helvetica-Oblique", textColor=colors.grey, alignment=TA_CENTER, spaceAfter=2)
+    s_datesep = style(
+        fontSize=9,
+        textColor=colors.grey,
+        alignment=TA_CENTER,
+        spaceBefore=6,
+        spaceAfter=2,
+    )
+    s_service = style(
+        fontSize=9,
+        fontName=FONT_OBLIQUE,
+        textColor=colors.grey,
+        alignment=TA_CENTER,
+        spaceAfter=2,
+    )
     s_text = style(fontSize=11, spaceAfter=0)
     s_meta = style(fontSize=8, textColor=colors.grey, alignment=TA_RIGHT)
-    s_fwd = style(fontSize=10, fontName="Helvetica-Bold", textColor=FWD_COLOR, spaceAfter=2)
-    s_reply = style(fontSize=9, fontName="Helvetica-Oblique", textColor=colors.grey, spaceAfter=2)
+    s_fwd = style(fontSize=10, fontName=FONT_BOLD, textColor=FWD_COLOR, spaceAfter=2)
+    s_reply = style(
+        fontSize=9, fontName=FONT_OBLIQUE, textColor=colors.grey, spaceAfter=2
+    )
     s_fname = style(fontSize=10, textColor=colors.darkblue)
 
+    _sender_style_cache: Dict[str, ParagraphStyle] = {}
+    _av_bg_cache: Dict[str, colors.Color] = {}
+
     def sender_style(hex_color: str) -> ParagraphStyle:
-        hx = hex_color.lstrip("#")
-        r, g, b = int(hx[0:2], 16) / 255, int(hx[2:4], 16) / 255, int(hx[4:6], 16) / 255
-        return style(fontSize=10, fontName="Helvetica-Bold", textColor=colors.Color(r, g, b), spaceAfter=1)
+        if hex_color not in _sender_style_cache:
+            hx = hex_color.lstrip("#")
+            r, g, b = int(hx[0:2], 16) / 255, int(hx[2:4], 16) / 255, int(hx[4:6], 16) / 255
+            _sender_style_cache[hex_color] = style(
+                fontSize=10,
+                fontName=FONT_BOLD,
+                textColor=colors.Color(r, g, b),
+                spaceAfter=1,
+            )
+        return _sender_style_cache[hex_color]
 
     def av_bg_color(hex_color: str) -> colors.Color:
-        hx = hex_color.lstrip("#")
-        r, g, b = int(hx[0:2], 16) / 255, int(hx[2:4], 16) / 255, int(hx[4:6], 16) / 255
-        return colors.Color(r, g, b)
+        if hex_color not in _av_bg_cache:
+            hx = hex_color.lstrip("#")
+            r, g, b = int(hx[0:2], 16) / 255, int(hx[2:4], 16) / 255, int(hx[4:6], 16) / 255
+            _av_bg_cache[hex_color] = colors.Color(r, g, b)
+        return _av_bg_cache[hex_color]
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     doc = SimpleDocTemplate(
-        str(output_file), pagesize=A4,
-        leftMargin=MARGIN, rightMargin=MARGIN,
-        topMargin=MARGIN, bottomMargin=MARGIN,
+        str(output_file),
+        pagesize=A4,
+        leftMargin=MARGIN,
+        rightMargin=MARGIN,
+        topMargin=MARGIN,
+        bottomMargin=MARGIN,
     )
 
     items = mixin._preprocess_messages(messages, attachments_dir)
     story = [
         Paragraph(_xml_escape(chat_title), s_title),
-        Paragraph(f"{len(messages)} messages \u00b7 Exported by telegram-download-chat", s_subtitle),
+        Paragraph(
+            f"{len(messages)} messages \u00b7 Exported by telegram-download-chat",
+            s_subtitle,
+        ),
     ]
 
     for item in items:
@@ -590,14 +826,30 @@ def _render_pdf_reportlab(
 
                 # Sender name (first incoming bubble in group only)
                 if idx == 0 and not is_out:
-                    parts.append(Paragraph(_xml_escape(item["sender_name"]), sender_style(item["sender_color"])))
+                    parts.append(
+                        Paragraph(
+                            _xml_escape(item["sender_name"]),
+                            sender_style(item["sender_color"]),
+                        )
+                    )
 
                 if msg_data.get("fwd_from_name"):
-                    parts.append(Paragraph(
-                        f"\u21b3 Forwarded from {_xml_escape(msg_data['fwd_from_name'])}", s_fwd))
+                    parts.append(
+                        Paragraph(
+                            f"\u21b3 Forwarded from {_xml_escape(msg_data['fwd_from_name'])}",
+                            s_fwd,
+                        )
+                    )
 
                 if msg_data.get("reply_text"):
-                    parts.append(Paragraph(_xml_escape(str(msg_data["reply_text"])[:100]), s_reply))
+                    parts.append(
+                        Paragraph(
+                            _xml_escape(str(msg_data["reply_text"])[:100]).replace(
+                                "\n", "<br/>"
+                            ),
+                            s_reply,
+                        )
+                    )
 
                 # Media
                 att_path = msg_data.get("attachment_path")
@@ -607,48 +859,100 @@ def _render_pdf_reportlab(
                     if att_cat in ("images", "stickers") and abs_path.exists():
                         try:
                             max_w = min(BUBBLE_MAX_W - 10 * mm, 110 * mm)
-                            img = RLImage(str(abs_path), width=max_w, height=max_w * 0.6)
+                            img = RLImage(
+                                str(abs_path),
+                                width=max_w,
+                                height=max_w,
+                                kind="proportional",
+                            )
                             img.hAlign = "LEFT"
                             parts.append(img)
-                        except Exception:
-                            parts.append(Paragraph(
-                                f"[Image: {_xml_escape(msg_data.get('attachment_filename',''))}]", s_fname))
-                    elif att_cat in ("documents", "archives", "audio", "videos", "contacts"):
-                        icons = {"archives": "\U0001f5dc", "audio": "\U0001f3b5",
-                                 "videos": "\U0001f3ac", "contacts": "\U0001f464"}
-                        icon = icons.get(att_cat, "\U0001f4c4")
-                        parts.append(Paragraph(
-                            f"{icon} {_xml_escape(msg_data.get('attachment_filename',''))}", s_fname))
+                        except Exception as exc:
+                            _log(mixin).warning(
+                                "Failed to load image %s: %s", abs_path, exc
+                            )
+                            parts.append(
+                                Paragraph(
+                                    f"[Image: {_xml_escape(msg_data.get('attachment_filename',''))}]",
+                                    s_fname,
+                                )
+                            )
+                    elif att_cat in (
+                        "documents",
+                        "archives",
+                        "audio",
+                        "videos",
+                        "contacts",
+                    ):
+                        icons = {
+                            "archives": "[ZIP]",
+                            "audio": "[Audio]",
+                            "videos": "[Video]",
+                            "contacts": "[Contact]",
+                        }
+                        icon = icons.get(att_cat, "[File]")
+                        parts.append(
+                            Paragraph(
+                                f"{icon} {_xml_escape(msg_data.get('attachment_filename',''))}",
+                                s_fname,
+                            )
+                        )
                     elif att_cat == "locations":
-                        parts.append(Paragraph(
-                            f"\U0001f4cd Location ({msg_data.get('location_lat',0):.4f}, "
-                            f"{msg_data.get('location_lng',0):.4f})", s_text))
+                        parts.append(
+                            Paragraph(
+                                f"[Location] ({msg_data.get('location_lat',0):.4f}, "
+                                f"{msg_data.get('location_lng',0):.4f})",
+                                s_text,
+                            )
+                        )
                     elif att_cat == "polls" and msg_data.get("poll_data"):
                         pd = msg_data["poll_data"]
-                        parts.append(Paragraph(
-                            f"\U0001f4ca <b>{_xml_escape(pd.get('question',''))}</b>", s_text))
+                        parts.append(
+                            Paragraph(
+                                f"[Poll] <b>{_xml_escape(pd.get('question',''))}</b>",
+                                s_text,
+                            )
+                        )
                         for ans in pd.get("answers", []):
-                            voters = f" ({ans['voters']})" if ans.get("voters") is not None else ""
-                            parts.append(Paragraph(
-                                f"  \u2022 {_xml_escape(ans.get('text',''))}{voters}", s_text))
+                            voters = (
+                                f" ({ans['voters']})"
+                                if ans.get("voters") is not None
+                                else ""
+                            )
+                            parts.append(
+                                Paragraph(
+                                    f"  \u2022 {_xml_escape(ans.get('text',''))}{voters}",
+                                    s_text,
+                                )
+                            )
+                    else:
+                        parts.append(
+                            Paragraph(
+                                f"[Attachment] {_xml_escape(msg_data.get('attachment_filename',''))}",
+                                s_fname,
+                            )
+                        )
 
                 text = msg_data.get("text") or ""
                 if text:
-                    parts.append(Paragraph(_xml_escape(text), s_text))
+                    parts.append(
+                        Paragraph(_xml_escape(text).replace("\n", "<br/>"), s_text)
+                    )
 
                 tick = " \u2713\u2713" if is_out else ""
                 edited = " (edited)" if msg_data.get("edited") else ""
                 parts.append(Paragraph(f"{msg_data['time']}{edited}{tick}", s_meta))
 
-                if not parts:
-                    parts.append(Spacer(1, 2 * mm))
-
                 # Avatar cell — only shown on first message in group (incoming)
                 if idx == 0 and not is_out:
                     av_cell: Any = Paragraph(
                         f"<b>{_xml_escape(item['initials'])}</b>",
-                        style(fontSize=9, fontName="Helvetica-Bold",
-                              textColor=colors.white, alignment=TA_CENTER)
+                        style(
+                            fontSize=9,
+                            fontName=FONT_BOLD,
+                            textColor=colors.white,
+                            alignment=TA_CENTER,
+                        ),
                     )
                     av_bg = av_col
                 else:
@@ -658,33 +962,37 @@ def _render_pdf_reportlab(
                 if is_out:
                     data = [["", parts]]
                     col_widths = [USABLE_W - BUBBLE_MAX_W, BUBBLE_MAX_W]
-                    ts = TableStyle([
-                        ("BACKGROUND", (1, 0), (1, 0), bubble_bg),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("LEFTPADDING", (1, 0), (1, 0), 8),
-                        ("RIGHTPADDING", (1, 0), (1, 0), 8),
-                        ("TOPPADDING", (1, 0), (1, 0), 6),
-                        ("BOTTOMPADDING", (1, 0), (1, 0), 5),
-                        ("LEFTPADDING", (0, 0), (0, 0), 0),
-                        ("RIGHTPADDING", (0, 0), (0, 0), 0),
-                    ])
+                    ts = TableStyle(
+                        [
+                            ("BACKGROUND", (1, 0), (1, 0), bubble_bg),
+                            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                            ("LEFTPADDING", (1, 0), (1, 0), 8),
+                            ("RIGHTPADDING", (1, 0), (1, 0), 8),
+                            ("TOPPADDING", (1, 0), (1, 0), 6),
+                            ("BOTTOMPADDING", (1, 0), (1, 0), 5),
+                            ("LEFTPADDING", (0, 0), (0, 0), 0),
+                            ("RIGHTPADDING", (0, 0), (0, 0), 0),
+                        ]
+                    )
                 else:
                     data = [[av_cell, parts]]
                     col_widths = [AV_COL_W + 3 * mm, BUBBLE_MAX_W]
-                    ts = TableStyle([
-                        ("BACKGROUND", (0, 0), (0, 0), av_bg),
-                        ("BACKGROUND", (1, 0), (1, 0), bubble_bg),
-                        ("VALIGN", (0, 0), (0, 0), "BOTTOM"),
-                        ("VALIGN", (1, 0), (1, 0), "TOP"),
-                        ("LEFTPADDING", (1, 0), (1, 0), 8),
-                        ("RIGHTPADDING", (1, 0), (1, 0), 8),
-                        ("TOPPADDING", (1, 0), (1, 0), 6),
-                        ("BOTTOMPADDING", (1, 0), (1, 0), 5),
-                        ("LEFTPADDING", (0, 0), (0, 0), 1),
-                        ("RIGHTPADDING", (0, 0), (0, 0), 2),
-                        ("TOPPADDING", (0, 0), (0, 0), 2),
-                        ("BOTTOMPADDING", (0, 0), (0, 0), 2),
-                    ])
+                    ts = TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (0, 0), av_bg),
+                            ("BACKGROUND", (1, 0), (1, 0), bubble_bg),
+                            ("VALIGN", (0, 0), (0, 0), "BOTTOM"),
+                            ("VALIGN", (1, 0), (1, 0), "TOP"),
+                            ("LEFTPADDING", (1, 0), (1, 0), 8),
+                            ("RIGHTPADDING", (1, 0), (1, 0), 8),
+                            ("TOPPADDING", (1, 0), (1, 0), 6),
+                            ("BOTTOMPADDING", (1, 0), (1, 0), 5),
+                            ("LEFTPADDING", (0, 0), (0, 0), 1),
+                            ("RIGHTPADDING", (0, 0), (0, 0), 2),
+                            ("TOPPADDING", (0, 0), (0, 0), 2),
+                            ("BOTTOMPADDING", (0, 0), (0, 0), 2),
+                        ]
+                    )
 
                 tbl = Table(data, colWidths=col_widths)
                 tbl.setStyle(ts)
@@ -692,4 +1000,3 @@ def _render_pdf_reportlab(
                 story.append(Spacer(1, 1.5 * mm))
 
     doc.build(story)
-    _log(mixin).info(f"Saved PDF export \u2192 {output_file.name}")

@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ..paths import get_relative_to_downloads_dir
 
@@ -214,6 +214,7 @@ class MessagesMixin:
         download_media: bool = False,
         export_html: bool = False,
         export_pdf: bool = False,
+        chat_title: Optional[str] = None,
     ) -> None:
         output_path = Path(output_file)
 
@@ -297,7 +298,8 @@ class MessagesMixin:
                         json.dump(serializable_messages, f, ensure_ascii=False, indent=2)
 
         # HTML / PDF export (after media download so attachment paths are final)
-        chat_title = output_path.parent.name
+        if not chat_title:
+            chat_title = output_path.parent.name
         if export_html:
             html_path = output_path.with_suffix(".html")
             try:

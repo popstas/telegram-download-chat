@@ -217,7 +217,11 @@ class MediaMixin:
 
         elif isinstance(media, MessageMediaDice):
             char = media.emoticon[0] if media.emoticon else "unknown"
-            return f"dice_{ord(char):x}_{media.value}.json" if char != "unknown" else f"dice_unknown_{media.value}.json"
+            return (
+                f"dice_{ord(char):x}_{media.value}.json"
+                if char != "unknown"
+                else f"dice_unknown_{media.value}.json"
+            )
 
         elif isinstance(media, MessageMediaGame):
             game_id = getattr(media.game, "id", "unknown")
@@ -239,7 +243,7 @@ class MediaMixin:
         if not filename:
             return None
         category = self._get_media_category(media)
-        return str(Path(category) / f"{message_id}_{filename}")
+        return f"{category}/{message_id}_{filename}"
 
     # ------------------------------------------------------------------
     # Download methods
@@ -341,7 +345,9 @@ class MediaMixin:
                 )
                 if path and msg_id:
                     try:
-                        results[msg_id] = str(path.relative_to(attachments_dir))
+                        results[msg_id] = str(
+                            path.relative_to(attachments_dir)
+                        ).replace("\\", "/")
                     except ValueError:
                         results[msg_id] = str(path)
                 completed += 1
@@ -392,7 +398,9 @@ class MediaMixin:
         elif isinstance(media, MessageMediaContact):
             return _CAT_CONTACTS
 
-        elif isinstance(media, (MessageMediaGeo, MessageMediaGeoLive, MessageMediaVenue)):
+        elif isinstance(
+            media, (MessageMediaGeo, MessageMediaGeoLive, MessageMediaVenue)
+        ):
             return _CAT_LOCATIONS
 
         elif isinstance(media, MessageMediaPoll):
@@ -475,7 +483,7 @@ class MediaMixin:
             poll = media.poll
             results = media.results
             answers = []
-            for ans in (poll.answers or []):
+            for ans in poll.answers or []:
                 text_val = ans.text
                 if hasattr(text_val, "text"):
                     text_val = text_val.text

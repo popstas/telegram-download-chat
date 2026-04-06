@@ -89,30 +89,45 @@ jobs:
       actions: read    # Required for downloading artifacts
     
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
     - name: Download Windows artifact
       uses: actions/download-artifact@v4
       with:
         name: telegram-download-chat-windows
         path: artifacts/windows
-    
+
     # - name: Download macOS artifact
     #   uses: actions/download-artifact@v4
     #   with:
     #     name: telegram-download-chat-macos
     #     path: artifacts/macos
-    
+
     - name: Get version from tag
       id: get_version
       run: |
         VERSION=${GITHUB_REF#refs/tags/v}
         echo "version=$VERSION" >> $GITHUB_OUTPUT
-    
+
+    - name: Generate release notes
+      id: release_notes
+      uses: orhun/git-cliff-action@v4
+      with:
+        config: cliff.toml
+        args: --latest --strip header
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Create Release
       id: create_release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.ref }}
         name: Release v${{ steps.get_version.outputs.version }}
+        body: ${{ steps.release_notes.outputs.content }}
         draft: false
         prerelease: false
         files: |

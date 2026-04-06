@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: generate-changelog
         name: Generate changelog
-        entry: python generate_changelog.py
+        entry: git-cliff -o CHANGELOG.md
         language: system
         pass_filenames: false
   - repo: https://github.com/psf/black

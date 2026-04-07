@@ -121,12 +121,21 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Generate release title
+      id: release_title
+      run: |
+        RAW=$(git-cliff --latest --strip all --body '{% for group, commits in commits | group_by(attribute="group") %}{% if group is containing("Features") %}{% for commit in commits %}{% if commit.scope %}{{ commit.scope | upper_first }}{% else %}{{ commit.message | upper_first }}{% endif %}|{% endfor %}{% endif %}{% endfor %}' 2>/dev/null || true)
+        TITLE=$(echo "$RAW" | tr '|' '\n' | grep -v '^$' | awk '!seen[$0]++' | head -4 | paste -sd '&' | sed 's/&/ \& /g')
+        if [ ${#TITLE} -gt 60 ]; then TITLE="${TITLE:0:57}..."; fi
+        if [ -z "$TITLE" ]; then TITLE="Bugfix Release"; fi
+        echo "title=$TITLE" >> $GITHUB_OUTPUT
+
     - name: Create Release
       id: create_release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.ref }}
-        name: Release v${{ steps.get_version.outputs.version }}
+        name: "v${{ steps.get_version.outputs.version }}: ${{ steps.release_title.outputs.title }}"
         body: ${{ steps.release_notes.outputs.content }}
         draft: false
         prerelease: false

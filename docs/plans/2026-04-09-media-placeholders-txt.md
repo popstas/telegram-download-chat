@@ -19,17 +19,17 @@ Add `--media-placeholders` CLI flag that inserts media type indicators in TXT ou
 ## Implementation Steps
 
 ### Task 1: Add CLI flag and plumb through options
-- [ ] Add `media_placeholders: bool = False` to `CLIOptions` in `cli/arguments.py`
-- [ ] Add `--media-placeholders` argument to `parse_args()` in `cli/arguments.py`
-- [ ] Add `media_placeholders` param to `save_messages_with_status()` in `cli/commands.py`
-- [ ] Pass `args.media_placeholders` at all 4 call sites in `commands.py` (lines ~389, ~406, ~424, and convert path)
-- [ ] Add `media_placeholders` param to `save_messages()` in `core/messages.py`
-- [ ] Pass it through to `save_messages_as_txt()` call
-- [ ] Write tests for CLI flag parsing (on/off)
-- [ ] Run tests - must pass before next task
+- [x] Add `media_placeholders: bool = False` to `CLIOptions` in `cli/arguments.py`
+- [x] Add `--media-placeholders` argument to `parse_args()` in `cli/arguments.py`
+- [x] Add `media_placeholders` param to `save_messages_with_status()` in `cli/commands.py`
+- [x] Pass `args.media_placeholders` at all 4 call sites in `commands.py` (lines ~389, ~406, ~424, and convert path)
+- [x] Add `media_placeholders` param to `save_messages()` in `core/messages.py`
+- [x] Pass it through to `save_messages_as_txt()` call
+- [x] Write tests for CLI flag parsing (on/off)
+- [x] Run tests - must pass before next task
 
 ### Task 2: Implement media placeholder generation
-- [ ] Add `_get_media_placeholder(media_dict: dict) -> Optional[str]` method to `MessagesMixin` in `core/messages.py`
+- [x] Add `_get_media_placeholder(media_dict: dict) -> Optional[str]` method to `MessagesMixin` in `core/messages.py`
   - `MessageMediaPhoto` → `[photo]`
   - `MessageMediaDocument` → `[file=filename]` (extract from `document.attributes` where `_=DocumentAttributeFilename`), fall back to `[file]`
   - Check `DocumentAttributeVideo` → `[video]`, `DocumentAttributeAudio` → `[audio]`, `DocumentAttributeSticker` → `[sticker]`
@@ -41,22 +41,22 @@ Add `--media-placeholders` CLI flag that inserts media type indicators in TXT ou
   - `MessageMediaGame` → `[game]`
   - `MessageMediaWebPage` → `None` (web previews are not attachments)
   - Unknown media → `[media]`
-- [ ] In `save_messages_as_txt()`, when `media_placeholders=True`, call `_get_media_placeholder(msg.get("media"))` and append on a new line after the text
-- [ ] Write unit tests for `_get_media_placeholder` with all media types
-- [ ] Write tests for `save_messages_as_txt` with media_placeholders enabled
-- [ ] Run tests - must pass before next task
+- [x] In `save_messages_as_txt()`, when `media_placeholders=True`, call `_get_media_placeholder(msg.get("media"))` and append on a new line after the text
+- [x] Write unit tests for `_get_media_placeholder` with all media types
+- [x] Write tests for `save_messages_as_txt` with media_placeholders enabled
+- [x] Run tests - must pass before next task
 
 ### Task 3: Verify acceptance criteria
-- [ ] Verify: flag off by default (no change to existing output)
-- [ ] Verify: `[photo]`, `[file=filename.ext]`, `[video]`, `[audio]`, `[sticker]` etc. all work
-- [ ] Verify: placeholder appears on separate line after text
-- [ ] Verify: media-only messages show just the placeholder
-- [ ] Run full test suite
-- [ ] Run linter (`black`, `isort`)
+- [x] Verify: flag off by default (no change to existing output)
+- [x] Verify: `[photo]`, `[file=filename.ext]`, `[video]`, `[audio]`, `[sticker]` etc. all work
+- [x] Verify: placeholder appears on separate line after text
+- [x] Verify: media-only messages show just the placeholder
+- [x] Run full test suite
+- [x] Run linter (`black`, `isort`)
 
 ### Task 4: [Final] Update documentation
-- [ ] Update README.md CLI flags section if it lists all flags
-- [ ] Update CLAUDE.md if needed
+- [x] Update README.md CLI flags section if it lists all flags
+- [x] Update CLAUDE.md if needed
 
 ## Technical Details
 

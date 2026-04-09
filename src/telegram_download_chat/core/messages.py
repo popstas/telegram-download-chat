@@ -64,18 +64,26 @@ class MessagesMixin:
                 formatted = {
                     "id": message.get("id"),
                     "peer_id": {
-                        "_": "PeerChat"
-                        if chat.get("type") == "group"
-                        else "PeerChannel",
-                        "channel_id"
-                        if chat.get("type") in ["channel", "public_supergroup"]
-                        else "user_id": chat_id,
+                        "_": (
+                            "PeerChat" if chat.get("type") == "group" else "PeerChannel"
+                        ),
+                        (
+                            "channel_id"
+                            if chat.get("type") in ["channel", "public_supergroup"]
+                            else "user_id"
+                        ): chat_id,
                     },
                     "date": message.get("date"),
                     "message": text,
                     "from_id": {"_": "PeerUser", "user_id": user_id},
-                    "user_display_name": message.get("from") or message.get("from_id") or "",
+                    "user_display_name": message.get("from")
+                    or message.get("from_id")
+                    or "",
                 }
+
+                media = self._convert_archive_media(message)
+                if media:
+                    formatted["media"] = media
 
                 if "reply_to_message_id" in message:
                     formatted["reply_to_msg_id"] = message["reply_to_message_id"]
@@ -83,6 +91,62 @@ class MessagesMixin:
                 messages.append(formatted)
 
         return messages
+
+    @staticmethod
+    def _convert_archive_media(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Convert Telegram Desktop export media fields to Telethon-style media dict."""
+        if "photo" in message:
+            return {"_": "MessageMediaPhoto"}
+
+        media_type = message.get("media_type", "")
+        file_name = message.get("file", "")
+        if file_name:
+            # Telegram Desktop exports use this sentinel when media wasn't downloaded
+            if file_name.startswith("(File not included"):
+                file_name = ""
+            else:
+                file_name = (
+                    file_name.rsplit("/", 1)[-1] if "/" in file_name else file_name
+                )
+
+        if media_type == "sticker":
+            return {
+                "_": "MessageMediaDocument",
+                "document": {
+                    "attributes": [{"_": "DocumentAttributeSticker"}],
+                },
+            }
+
+        if media_type in ("video_message", "video_file", "animation"):
+            attrs = [{"_": "DocumentAttributeVideo"}]
+            if file_name:
+                attrs.append({"_": "DocumentAttributeFilename", "file_name": file_name})
+            return {"_": "MessageMediaDocument", "document": {"attributes": attrs}}
+
+        if media_type in ("voice_message", "audio_file"):
+            attrs = [{"_": "DocumentAttributeAudio"}]
+            if file_name:
+                attrs.append({"_": "DocumentAttributeFilename", "file_name": file_name})
+            return {"_": "MessageMediaDocument", "document": {"attributes": attrs}}
+
+        if "contact_information" in message or "contact_vcard" in message:
+            return {"_": "MessageMediaContact"}
+
+        if "location_information" in message:
+            return {"_": "MessageMediaGeo"}
+
+        if "poll" in message:
+            return {"_": "MessageMediaPoll"}
+
+        # Generic file with no specific media_type
+        if file_name:
+            attrs = [{"_": "DocumentAttributeFilename", "file_name": file_name}]
+            return {"_": "MessageMediaDocument", "document": {"attributes": attrs}}
+
+        if media_type:
+            return {"_": "MessageMediaDocument", "document": {"attributes": []}}
+
+        return None
 
     def prepare_messages_for_txt(
         self, messages: List[Dict[str, Any]], sort_order: str = "asc"
@@ -128,8 +192,80 @@ class MessagesMixin:
 
         return ordered_messages
 
+    @staticmethod
+    def _get_media_placeholder(
+        media_dict: Optional[Dict[str, Any]],
+    ) -> Optional[str]:
+        if not media_dict or not isinstance(media_dict, dict):
+            return None
+
+        media_type = media_dict.get("_", "")
+
+        if media_type == "MessageMediaPhoto":
+            return "[photo]"
+
+        if media_type == "MessageMediaDocument":
+            doc = media_dict.get("document")
+            if isinstance(doc, dict):
+                attributes = doc.get("attributes", [])
+                filename = None
+                has_video = False
+                has_audio = False
+                has_sticker = False
+                for attr in attributes:
+                    if not isinstance(attr, dict):
+                        continue
+                    attr_type = attr.get("_", "")
+                    if attr_type == "DocumentAttributeFilename":
+                        filename = attr.get("file_name")
+                    elif attr_type == "DocumentAttributeVideo":
+                        has_video = True
+                    elif attr_type == "DocumentAttributeAudio":
+                        has_audio = True
+                    elif attr_type == "DocumentAttributeSticker":
+                        has_sticker = True
+
+                if has_sticker:
+                    return "[sticker]"
+                if has_video:
+                    return "[video]"
+                if has_audio:
+                    return "[audio]"
+                if filename:
+                    safe_name = filename.replace("[", "(").replace("]", ")").replace("\n", " ")
+                    return f"[file={safe_name}]"
+            return "[file]"
+
+        if media_type == "MessageMediaContact":
+            return "[contact]"
+
+        if media_type in (
+            "MessageMediaGeo",
+            "MessageMediaGeoLive",
+            "MessageMediaVenue",
+        ):
+            return "[location]"
+
+        if media_type == "MessageMediaPoll":
+            return "[poll]"
+
+        if media_type == "MessageMediaDice":
+            return "[dice]"
+
+        if media_type == "MessageMediaGame":
+            return "[game]"
+
+        if media_type == "MessageMediaWebPage":
+            return None
+
+        return "[media]"
+
     async def save_messages_as_txt(
-        self, messages: List[Dict[str, Any]], txt_path: Path, sort_order: str = "asc"
+        self,
+        messages: List[Dict[str, Any]],
+        txt_path: Path,
+        sort_order: str = "asc",
+        media_placeholders: bool = False,
     ) -> int:
         saved = 0
         txt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,7 +278,7 @@ class MessagesMixin:
                 date_str = msg.get("date", "")
                 if date_str:
                     try:
-                        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                        dt = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
                         date_fmt = dt.strftime("%Y-%m-%d %H:%M:%S")
                     except (ValueError, TypeError):
                         date_fmt = ""
@@ -157,6 +293,14 @@ class MessagesMixin:
                 text = msg.get("text", "")
                 if not text and "message" in msg:
                     text = msg["message"]
+
+                if media_placeholders:
+                    placeholder = self._get_media_placeholder(msg.get("media"))
+                    if placeholder:
+                        if text:
+                            text = f"{text}\n{placeholder}"
+                        else:
+                            text = placeholder
 
                 recipient_name = ""
                 recipient_id = self._get_recipient_id(msg)
@@ -215,6 +359,7 @@ class MessagesMixin:
         export_html: bool = False,
         export_pdf: bool = False,
         chat_title: Optional[str] = None,
+        media_placeholders: bool = False,
     ) -> None:
         output_path = Path(output_file)
 
@@ -247,8 +392,10 @@ class MessagesMixin:
                         raw_media = getattr(msg, "media", None)
                         raw_id = str(getattr(msg, "id", None) or "")
                         if raw_media and raw_id:
-                            msg_dict["attachment_path"] = self.get_predicted_attachment_path(
-                                raw_media, raw_id, attachments_dir
+                            msg_dict["attachment_path"] = (
+                                self.get_predicted_attachment_path(
+                                    raw_media, raw_id, attachments_dir
+                                )
                             )
                         else:
                             msg_dict["attachment_path"] = None
@@ -263,7 +410,10 @@ class MessagesMixin:
         if save_txt:
             txt_path = output_path.with_suffix(".txt")
             saved = await self.save_messages_as_txt(
-                serializable_messages, txt_path, sort_order
+                serializable_messages,
+                txt_path,
+                sort_order,
+                media_placeholders=media_placeholders,
             )
             txt_path_relative = get_relative_to_downloads_dir(txt_path)
             self.logger.info(f"Saved {saved} messages to {txt_path_relative}")
@@ -295,7 +445,9 @@ class MessagesMixin:
                             changed = True
                 if changed:
                     with open(output_path, "w", encoding="utf-8") as f:
-                        json.dump(serializable_messages, f, ensure_ascii=False, indent=2)
+                        json.dump(
+                            serializable_messages, f, ensure_ascii=False, indent=2
+                        )
 
         # HTML / PDF export (after media download so attachment paths are final)
         if not chat_title:
@@ -303,15 +455,23 @@ class MessagesMixin:
         if export_html:
             html_path = output_path.with_suffix(".html")
             try:
-                self.render_html(serializable_messages, html_path, attachments_dir, chat_title)
-                self.logger.info(f"Saved HTML to {get_relative_to_downloads_dir(html_path)}")
+                self.render_html(
+                    serializable_messages, html_path, attachments_dir, chat_title
+                )
+                self.logger.info(
+                    f"Saved HTML to {get_relative_to_downloads_dir(html_path)}"
+                )
             except Exception as exc:
                 self.logger.error(f"HTML export failed: {exc}")
         if export_pdf:
             pdf_path = output_path.with_suffix(".pdf")
             try:
-                self.render_pdf(serializable_messages, pdf_path, attachments_dir, chat_title)
-                self.logger.info(f"Saved PDF to {get_relative_to_downloads_dir(pdf_path)}")
+                self.render_pdf(
+                    serializable_messages, pdf_path, attachments_dir, chat_title
+                )
+                self.logger.info(
+                    f"Saved PDF to {get_relative_to_downloads_dir(pdf_path)}"
+                )
             except Exception as exc:
                 self.logger.error(f"PDF export failed: {exc}")
 

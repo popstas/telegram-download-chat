@@ -114,6 +114,7 @@ python main.py  # Launches GUI by default
 - `--user`: Filter by specific sender
 - `--max-date`: Messages on or before this date
 - `--min-date`: Messages on or after this date
+- `--media-placeholders`: Insert media type indicators (e.g. `[photo]`, `[file=name.pdf]`) in TXT output
 - `--media`: Download all media types with organized category directories (images/, videos/, documents/, audio/, stickers/, contacts/, locations/, polls/, etc.) and concurrent downloads (5 simultaneous). Supports photos, videos, documents, audio, stickers, contacts (VCF), geo locations (JSON), polls, dice, and games.
 
 ### Export Formats

@@ -173,6 +173,9 @@ telegram-download-chat username --debug
 # Download messages with media attachments (photos, videos, documents, etc.)
 telegram-download-chat username --media
 
+# Include media type indicators in TXT output (e.g. [photo], [file=report.pdf])
+telegram-download-chat username --media-placeholders
+
 # Show current configuration
 telegram-download-chat --show-config
 
@@ -219,6 +222,7 @@ options:
   --keywords KEYWORDS  Only save messages containing these keywords (comma-separated)
   --preset PRESET     Use preset from config
   --media               Download media attachments to a separate folder
+  --media-placeholders  Insert media type indicators (e.g. [photo], [file=name.pdf]) in TXT output
   --overwrite           Replace existing output files instead of resuming
   --proxy-url URL       Proxy URL for Telegram connection (socks5://host:1080, http://host:8080)
   -v, --version         Show program's version number and exit
@@ -325,6 +329,7 @@ A human-readable version of the chat with:
 - Display names from your `users_map`, `sender name` -> `recipient name`
 - Message content with basic formatting
 - Reply indicators
+- Optional media type indicators with `--media-placeholders` (e.g. `[photo]`, `[video]`, `[file=report.pdf]`)
 
 ### Media Attachments (`[chat_name]/attachments/`)
 When using the `--media` flag, media files are downloaded alongside the message files, organized by media type:

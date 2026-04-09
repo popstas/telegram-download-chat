@@ -27,6 +27,7 @@ from telegram_download_chat.cli import (
     split_messages_by_date,
 )
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
+from telegram_download_chat.core.messages import MessagesMixin
 
 
 @pytest.fixture
@@ -134,6 +135,18 @@ class TestCLIArgumentParsing:
             args = parse_args()
             assert args.proxy_url == "http://user:pass@proxy:8080"
 
+    def test_media_placeholders_flag(self):
+        """Test --media-placeholders flag parsing."""
+        with patch("sys.argv", ["script_name", "chat", "--media-placeholders"]):
+            args = parse_args()
+            assert args.media_placeholders is True
+
+    def test_media_placeholders_default_off(self):
+        """Test that media_placeholders defaults to False."""
+        with patch("sys.argv", ["script_name", "chat"]):
+            args = parse_args()
+            assert args.media_placeholders is False
+
 
 class TestProxyUrlCLIOverride:
     """Tests for --proxy-url overriding config file value."""
@@ -141,9 +154,11 @@ class TestProxyUrlCLIOverride:
     @pytest.mark.asyncio
     async def test_proxy_url_injected_into_config(self):
         """Test that --proxy-url CLI arg overrides config settings."""
-        with patch("telegram_download_chat.cli.parse_args") as mock_parse, \
-             patch("telegram_download_chat.cli.TelegramChatDownloader") as mock_cls, \
-             patch("telegram_download_chat.cli.DownloaderContext") as mock_ctx_cls:
+        with patch("telegram_download_chat.cli.parse_args") as mock_parse, patch(
+            "telegram_download_chat.cli.TelegramChatDownloader"
+        ) as mock_cls, patch(
+            "telegram_download_chat.cli.DownloaderContext"
+        ) as mock_ctx_cls:
 
             mock_args = CLIOptions(
                 chat="test_chat",
@@ -170,14 +185,19 @@ class TestProxyUrlCLIOverride:
 
             await async_main()
 
-            assert mock_instance.config["settings"]["proxy_url"] == "socks5://cli-proxy:1080"
+            assert (
+                mock_instance.config["settings"]["proxy_url"]
+                == "socks5://cli-proxy:1080"
+            )
 
     @pytest.mark.asyncio
     async def test_no_proxy_url_preserves_config(self):
         """Test that without --proxy-url, config proxy_url is not overridden."""
-        with patch("telegram_download_chat.cli.parse_args") as mock_parse, \
-             patch("telegram_download_chat.cli.TelegramChatDownloader") as mock_cls, \
-             patch("telegram_download_chat.cli.DownloaderContext") as mock_ctx_cls:
+        with patch("telegram_download_chat.cli.parse_args") as mock_parse, patch(
+            "telegram_download_chat.cli.TelegramChatDownloader"
+        ) as mock_cls, patch(
+            "telegram_download_chat.cli.DownloaderContext"
+        ) as mock_ctx_cls:
 
             mock_args = CLIOptions(
                 chat="test_chat",
@@ -187,7 +207,11 @@ class TestProxyUrlCLIOverride:
 
             mock_instance = mock_cls.return_value
             mock_instance.config = {
-                "settings": {"api_id": "123", "api_hash": "abc", "proxy_url": "socks5://config-proxy:1080"}
+                "settings": {
+                    "api_id": "123",
+                    "api_hash": "abc",
+                    "proxy_url": "socks5://config-proxy:1080",
+                }
             }
             mock_instance.logger = MagicMock()
             mock_instance.set_stop_file = MagicMock()
@@ -206,7 +230,250 @@ class TestProxyUrlCLIOverride:
             await async_main()
 
             # Config value should be preserved, not overridden
-            assert mock_instance.config["settings"]["proxy_url"] == "socks5://config-proxy:1080"
+            assert (
+                mock_instance.config["settings"]["proxy_url"]
+                == "socks5://config-proxy:1080"
+            )
+
+
+class TestGetMediaPlaceholder:
+    """Tests for _get_media_placeholder method."""
+
+    def setup_method(self):
+        self.mixin = MessagesMixin()
+
+    def test_none_media(self):
+        assert self.mixin._get_media_placeholder(None) is None
+
+    def test_empty_dict(self):
+        assert self.mixin._get_media_placeholder({}) is None
+
+    def test_non_dict(self):
+        assert self.mixin._get_media_placeholder("not a dict") is None
+
+    def test_photo(self):
+        media = {"_": "MessageMediaPhoto", "photo": {"_": "Photo", "id": 123}}
+        assert self.mixin._get_media_placeholder(media) == "[photo]"
+
+    def test_document_with_filename(self):
+        media = {
+            "_": "MessageMediaDocument",
+            "document": {
+                "_": "Document",
+                "attributes": [
+                    {"_": "DocumentAttributeFilename", "file_name": "report.pdf"}
+                ],
+            },
+        }
+        assert self.mixin._get_media_placeholder(media) == "[file=report.pdf]"
+
+    def test_document_no_filename(self):
+        media = {
+            "_": "MessageMediaDocument",
+            "document": {"_": "Document", "attributes": []},
+        }
+        assert self.mixin._get_media_placeholder(media) == "[file]"
+
+    def test_document_no_document_key(self):
+        media = {"_": "MessageMediaDocument"}
+        assert self.mixin._get_media_placeholder(media) == "[file]"
+
+    def test_video(self):
+        media = {
+            "_": "MessageMediaDocument",
+            "document": {
+                "_": "Document",
+                "attributes": [{"_": "DocumentAttributeVideo"}],
+            },
+        }
+        assert self.mixin._get_media_placeholder(media) == "[video]"
+
+    def test_audio(self):
+        media = {
+            "_": "MessageMediaDocument",
+            "document": {
+                "_": "Document",
+                "attributes": [{"_": "DocumentAttributeAudio"}],
+            },
+        }
+        assert self.mixin._get_media_placeholder(media) == "[audio]"
+
+    def test_sticker(self):
+        media = {
+            "_": "MessageMediaDocument",
+            "document": {
+                "_": "Document",
+                "attributes": [{"_": "DocumentAttributeSticker"}],
+            },
+        }
+        assert self.mixin._get_media_placeholder(media) == "[sticker]"
+
+    def test_sticker_priority_over_video(self):
+        """Sticker attribute takes priority over video."""
+        media = {
+            "_": "MessageMediaDocument",
+            "document": {
+                "_": "Document",
+                "attributes": [
+                    {"_": "DocumentAttributeSticker"},
+                    {"_": "DocumentAttributeVideo"},
+                ],
+            },
+        }
+        assert self.mixin._get_media_placeholder(media) == "[sticker]"
+
+    def test_video_priority_over_filename(self):
+        """Video attribute takes priority over filename."""
+        media = {
+            "_": "MessageMediaDocument",
+            "document": {
+                "_": "Document",
+                "attributes": [
+                    {"_": "DocumentAttributeFilename", "file_name": "movie.mp4"},
+                    {"_": "DocumentAttributeVideo"},
+                ],
+            },
+        }
+        assert self.mixin._get_media_placeholder(media) == "[video]"
+
+    def test_audio_priority_over_filename(self):
+        """Audio attribute takes priority over filename."""
+        media = {
+            "_": "MessageMediaDocument",
+            "document": {
+                "_": "Document",
+                "attributes": [
+                    {"_": "DocumentAttributeFilename", "file_name": "song.mp3"},
+                    {"_": "DocumentAttributeAudio"},
+                ],
+            },
+        }
+        assert self.mixin._get_media_placeholder(media) == "[audio]"
+
+    def test_contact(self):
+        media = {"_": "MessageMediaContact"}
+        assert self.mixin._get_media_placeholder(media) == "[contact]"
+
+    def test_geo(self):
+        media = {"_": "MessageMediaGeo"}
+        assert self.mixin._get_media_placeholder(media) == "[location]"
+
+    def test_geo_live(self):
+        media = {"_": "MessageMediaGeoLive"}
+        assert self.mixin._get_media_placeholder(media) == "[location]"
+
+    def test_venue(self):
+        media = {"_": "MessageMediaVenue"}
+        assert self.mixin._get_media_placeholder(media) == "[location]"
+
+    def test_poll(self):
+        media = {"_": "MessageMediaPoll"}
+        assert self.mixin._get_media_placeholder(media) == "[poll]"
+
+    def test_dice(self):
+        media = {"_": "MessageMediaDice"}
+        assert self.mixin._get_media_placeholder(media) == "[dice]"
+
+    def test_game(self):
+        media = {"_": "MessageMediaGame"}
+        assert self.mixin._get_media_placeholder(media) == "[game]"
+
+    def test_webpage_returns_none(self):
+        media = {"_": "MessageMediaWebPage"}
+        assert self.mixin._get_media_placeholder(media) is None
+
+    def test_unknown_media(self):
+        media = {"_": "MessageMediaUnknown"}
+        assert self.mixin._get_media_placeholder(media) == "[media]"
+
+
+class TestSaveMessagesAsTxtMediaPlaceholders:
+    """Tests for save_messages_as_txt with media_placeholders enabled."""
+
+    @pytest.fixture
+    def mixin(self):
+        m = MessagesMixin()
+        m._fetched_usernames_count = 0
+        m._fetched_chatnames_count = 0
+        m._get_sender_id = lambda msg: msg.get("from_id")
+        m._get_recipient_id = lambda msg: None
+        m._get_user_display_name = AsyncMock(return_value="Alice")
+        m._save_config = MagicMock()
+        return m
+
+    @pytest.mark.asyncio
+    async def test_photo_placeholder_after_text(self, mixin, tmp_path):
+        messages = [
+            {
+                "date": "2024-01-15T12:30:00+00:00",
+                "from_id": 123,
+                "text": "Check this out",
+                "media": {"_": "MessageMediaPhoto", "photo": {"_": "Photo"}},
+            }
+        ]
+        txt_path = tmp_path / "out.txt"
+        await mixin.save_messages_as_txt(messages, txt_path, media_placeholders=True)
+        content = txt_path.read_text()
+        assert "Check this out\n[photo]" in content
+
+    @pytest.mark.asyncio
+    async def test_media_only_message(self, mixin, tmp_path):
+        messages = [
+            {
+                "date": "2024-01-15T12:31:00+00:00",
+                "from_id": 123,
+                "text": "",
+                "media": {
+                    "_": "MessageMediaDocument",
+                    "document": {
+                        "_": "Document",
+                        "attributes": [
+                            {
+                                "_": "DocumentAttributeFilename",
+                                "file_name": "report.pdf",
+                            }
+                        ],
+                    },
+                },
+            }
+        ]
+        txt_path = tmp_path / "out.txt"
+        await mixin.save_messages_as_txt(messages, txt_path, media_placeholders=True)
+        content = txt_path.read_text()
+        assert "[file=report.pdf]" in content
+        # Should not have empty line before placeholder
+        lines = content.strip().split("\n")
+        assert lines[-1] == "[file=report.pdf]"
+
+    @pytest.mark.asyncio
+    async def test_placeholders_off_by_default(self, mixin, tmp_path):
+        messages = [
+            {
+                "date": "2024-01-15T12:30:00+00:00",
+                "from_id": 123,
+                "text": "Hello",
+                "media": {"_": "MessageMediaPhoto"},
+            }
+        ]
+        txt_path = tmp_path / "out.txt"
+        await mixin.save_messages_as_txt(messages, txt_path)
+        content = txt_path.read_text()
+        assert "[photo]" not in content
+
+    @pytest.mark.asyncio
+    async def test_no_media_no_placeholder(self, mixin, tmp_path):
+        messages = [
+            {
+                "date": "2024-01-15T12:30:00+00:00",
+                "from_id": 123,
+                "text": "Just text",
+            }
+        ]
+        txt_path = tmp_path / "out.txt"
+        await mixin.save_messages_as_txt(messages, txt_path, media_placeholders=True)
+        content = txt_path.read_text()
+        assert "[" not in content
+        assert "Just text" in content
 
 
 class TestFilterMessagesBySubchat:
@@ -272,6 +539,202 @@ class TestFilterMessagesBySubchat:
         filtered = filter_messages_by_subchat(messages, "123")
         assert len(filtered) == 1
         assert filtered[0]["id"] == 3
+
+
+class TestConvertArchiveMedia:
+    """Tests for _convert_archive_media method."""
+
+    def setup_method(self):
+        self.mixin = MessagesMixin()
+
+    def test_plain_text_message(self):
+        msg = {"id": 1, "type": "message", "text": "hello"}
+        assert self.mixin._convert_archive_media(msg) is None
+
+    def test_photo(self):
+        msg = {"id": 1, "photo": "photos/photo_1.jpg"}
+        result = self.mixin._convert_archive_media(msg)
+        assert result == {"_": "MessageMediaPhoto"}
+
+    def test_sticker(self):
+        msg = {"id": 1, "media_type": "sticker", "file": "stickers/sticker.webp"}
+        result = self.mixin._convert_archive_media(msg)
+        assert result["_"] == "MessageMediaDocument"
+        attrs = result["document"]["attributes"]
+        assert any(a["_"] == "DocumentAttributeSticker" for a in attrs)
+
+    def test_video_file(self):
+        msg = {"id": 1, "media_type": "video_file", "file": "videos/vid.mp4"}
+        result = self.mixin._convert_archive_media(msg)
+        assert result["_"] == "MessageMediaDocument"
+        attrs = result["document"]["attributes"]
+        assert any(a["_"] == "DocumentAttributeVideo" for a in attrs)
+
+    def test_voice_message(self):
+        msg = {"id": 1, "media_type": "voice_message", "file": "voice/msg.ogg"}
+        result = self.mixin._convert_archive_media(msg)
+        assert result["_"] == "MessageMediaDocument"
+        attrs = result["document"]["attributes"]
+        assert any(a["_"] == "DocumentAttributeAudio" for a in attrs)
+
+    def test_audio_file(self):
+        msg = {"id": 1, "media_type": "audio_file", "file": "audio/song.mp3"}
+        result = self.mixin._convert_archive_media(msg)
+        assert result["_"] == "MessageMediaDocument"
+        attrs = result["document"]["attributes"]
+        assert any(a["_"] == "DocumentAttributeAudio" for a in attrs)
+
+    def test_animation(self):
+        msg = {"id": 1, "media_type": "animation", "file": "animations/anim.mp4"}
+        result = self.mixin._convert_archive_media(msg)
+        assert result["_"] == "MessageMediaDocument"
+        attrs = result["document"]["attributes"]
+        assert any(a["_"] == "DocumentAttributeVideo" for a in attrs)
+
+    def test_video_message(self):
+        msg = {"id": 1, "media_type": "video_message", "file": "round/vid.mp4"}
+        result = self.mixin._convert_archive_media(msg)
+        assert result["_"] == "MessageMediaDocument"
+        attrs = result["document"]["attributes"]
+        assert any(a["_"] == "DocumentAttributeVideo" for a in attrs)
+
+    def test_contact(self):
+        msg = {"id": 1, "contact_information": {"first_name": "John"}}
+        result = self.mixin._convert_archive_media(msg)
+        assert result == {"_": "MessageMediaContact"}
+
+    def test_contact_vcard(self):
+        msg = {"id": 1, "contact_vcard": "contacts/contact.vcf"}
+        result = self.mixin._convert_archive_media(msg)
+        assert result == {"_": "MessageMediaContact"}
+
+    def test_location(self):
+        msg = {"id": 1, "location_information": {"latitude": 1.0, "longitude": 2.0}}
+        result = self.mixin._convert_archive_media(msg)
+        assert result == {"_": "MessageMediaGeo"}
+
+    def test_poll(self):
+        msg = {"id": 1, "poll": {"question": "test?"}}
+        result = self.mixin._convert_archive_media(msg)
+        assert result == {"_": "MessageMediaPoll"}
+
+    def test_generic_file(self):
+        msg = {"id": 1, "file": "files/doc.pdf"}
+        result = self.mixin._convert_archive_media(msg)
+        assert result["_"] == "MessageMediaDocument"
+        attrs = result["document"]["attributes"]
+        assert any(a.get("file_name") == "doc.pdf" for a in attrs)
+
+    def test_file_name_extracted_from_path(self):
+        msg = {"id": 1, "media_type": "audio_file", "file": "audio/deep/song.mp3"}
+        result = self.mixin._convert_archive_media(msg)
+        attrs = result["document"]["attributes"]
+        filenames = [a for a in attrs if a["_"] == "DocumentAttributeFilename"]
+        assert filenames[0]["file_name"] == "song.mp3"
+
+    def test_photo_takes_precedence(self):
+        """Photo field should produce MessageMediaPhoto even if media_type is set."""
+        msg = {"id": 1, "photo": "photos/photo.jpg", "media_type": "sticker"}
+        result = self.mixin._convert_archive_media(msg)
+        assert result["_"] == "MessageMediaPhoto"
+
+    def test_sentinel_file_not_included_treated_as_no_media(self):
+        """Telegram Desktop sentinel text should not produce a media dict."""
+        msg = {
+            "id": 1,
+            "file": "(File not included. Change data exporting settings to download.)",
+        }
+        result = self.mixin._convert_archive_media(msg)
+        assert result is None
+
+
+class TestConvertArchiveToMessagesMedia:
+    """Tests that convert_archive_to_messages preserves media for placeholders."""
+
+    def setup_method(self):
+        self.mixin = MessagesMixin()
+        self.mixin.logger = logging.getLogger("test")
+
+    def test_archive_photo_message_has_media(self):
+        archive = {
+            "about": "test",
+            "chats": {
+                "list": [
+                    {
+                        "id": 1,
+                        "type": "group",
+                        "messages": [
+                            {
+                                "id": 10,
+                                "type": "message",
+                                "date": "2024-01-01T00:00:00",
+                                "text": "",
+                                "from_id": "user123",
+                                "photo": "photos/p.jpg",
+                            }
+                        ],
+                    }
+                ]
+            },
+        }
+        msgs = self.mixin.convert_archive_to_messages(archive)
+        assert len(msgs) == 1
+        assert "media" in msgs[0]
+        assert msgs[0]["media"]["_"] == "MessageMediaPhoto"
+
+    def test_archive_text_only_no_media(self):
+        archive = {
+            "about": "test",
+            "chats": {
+                "list": [
+                    {
+                        "id": 1,
+                        "type": "group",
+                        "messages": [
+                            {
+                                "id": 10,
+                                "type": "message",
+                                "date": "2024-01-01T00:00:00",
+                                "text": "hello",
+                                "from_id": "user123",
+                            }
+                        ],
+                    }
+                ]
+            },
+        }
+        msgs = self.mixin.convert_archive_to_messages(archive)
+        assert len(msgs) == 1
+        assert "media" not in msgs[0]
+
+    def test_archive_sticker_message_has_media(self):
+        archive = {
+            "about": "test",
+            "chats": {
+                "list": [
+                    {
+                        "id": 1,
+                        "type": "group",
+                        "messages": [
+                            {
+                                "id": 10,
+                                "type": "message",
+                                "date": "2024-01-01T00:00:00",
+                                "text": "",
+                                "from_id": "user123",
+                                "media_type": "sticker",
+                                "file": "stickers/sticker.webp",
+                            }
+                        ],
+                    }
+                ]
+            },
+        }
+        msgs = self.mixin.convert_archive_to_messages(archive)
+        assert len(msgs) == 1
+        assert "media" in msgs[0]
+        placeholder = MessagesMixin._get_media_placeholder(msgs[0]["media"])
+        assert placeholder == "[sticker]"
 
     def test_empty_messages_list(self):
         """Test filtering with empty messages list."""

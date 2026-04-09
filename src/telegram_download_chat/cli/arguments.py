@@ -37,6 +37,7 @@ class CLIOptions:
     proxy_url: Optional[str] = None
     export_html: bool = False
     export_pdf: bool = False
+    media_placeholders: bool = False
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -167,6 +168,11 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         dest="export_pdf",
         action="store_true",
         help="Export chat as a PDF document",
+    )
+    parser.add_argument(
+        "--media-placeholders",
+        action="store_true",
+        help="Insert media type indicators (e.g. [photo], [file=name.pdf]) in TXT output",
     )
 
     args = parser.parse_args(argv)

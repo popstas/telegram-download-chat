@@ -38,6 +38,7 @@ class CLIOptions:
     export_html: bool = False
     export_pdf: bool = False
     media_placeholders: bool = False
+    no_fast_download: bool = False
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -145,6 +146,14 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--media",
         action="store_true",
         help="Download all media attachments (images, videos, audio, documents, etc.)",
+    )
+    parser.add_argument(
+        "--no-fast-download",
+        action="store_true",
+        help=(
+            "Disable parallel multi-connection media downloads "
+            "(use single-stream Telethon downloader)"
+        ),
     )
     parser.add_argument(
         "--overwrite",

@@ -30,3 +30,7 @@ class TelegramChatDownloader(
         self._self_name: Optional[str] = None
         self._stop_requested = False
         self._stop_file = None
+        self._no_fast_download = False
+        self._is_premium = False
+        self._premium_checked = False
+        self._fast_dl_settings = None

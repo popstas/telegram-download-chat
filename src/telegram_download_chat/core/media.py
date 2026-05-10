@@ -3,7 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from telethon.tl.types import (
     Document,
@@ -23,6 +23,8 @@ from telethon.tl.types import (
     Photo,
     WebPage,
 )
+
+from .fast_download import download_file as fast_download_file
 
 # ---------------------------------------------------------------------------
 # Category constants — these become the subdirectory names under attachments/
@@ -293,25 +295,159 @@ class MediaMixin:
             if self._serialize_synthetic_media(media, download_to):
                 return download_to
 
-            # Binary types: pass full message so Telethon resolves WebPage internally
-            downloaded_path = await self.client.download_media(
-                message, file=download_to
+            downloaded_path = await self._download_binary_media(
+                message, media, download_to, message_id
             )
             if downloaded_path:
                 self.logger.debug(
                     f"Downloaded media for message {message_id}: {downloaded_path}"
                 )
                 return Path(downloaded_path)
-            else:
-                self.logger.warning(
-                    f"Failed to download media for message {message_id}"
-                )
-                return None
+            self.logger.warning(
+                f"Failed to download media for message {message_id}"
+            )
+            return None
         except Exception as e:
             self.logger.warning(
                 f"Failed to download media for message {message_id}: {e}"
             )
             return None
+
+    async def _download_binary_media(
+        self,
+        message: Any,
+        media: Any,
+        download_to: Path,
+        message_id: str,
+    ) -> Optional[Path]:
+        """Download binary media, preferring the parallel multi-connection path.
+
+        Falls back to the standard single-stream Telethon downloader for small
+        files, when fast download is disabled, or when the fast path raises.
+        """
+        enabled, connections, threshold_bytes = self._resolve_fast_download_settings()
+        binary_obj, file_size = self._extract_binary_object(media)
+
+        if (
+            enabled
+            and binary_obj is not None
+            and file_size is not None
+            and file_size >= threshold_bytes
+        ):
+            try:
+                self.logger.debug(
+                    "Fast download for message %s: size=%d connections=%d",
+                    message_id,
+                    file_size,
+                    connections,
+                )
+                with download_to.open("wb") as fh:
+                    await fast_download_file(
+                        self.client,
+                        binary_obj,
+                        fh,
+                        file_size=file_size,
+                        connection_count=connections,
+                    )
+                return download_to
+            except Exception as e:
+                self.logger.warning(
+                    "Fast download failed for message %s (%s); "
+                    "falling back to standard downloader",
+                    message_id,
+                    e,
+                )
+                # Clean up any partial file before retrying via Telethon.
+                try:
+                    if download_to.exists():
+                        download_to.unlink()
+                except OSError:
+                    pass
+
+        # Standard path: pass full message so Telethon resolves WebPage internally.
+        self.logger.debug("Standard download for message %s", message_id)
+        downloaded_path = await self.client.download_media(message, file=download_to)
+        return Path(downloaded_path) if downloaded_path else None
+
+    def _resolve_fast_download_settings(self) -> Tuple[bool, int, int]:
+        """Return (enabled, connection_count, threshold_bytes), cached per run."""
+        cached = getattr(self, "_fast_dl_settings", None)
+        if cached is not None:
+            return cached
+
+        settings = (self.config or {}).get("settings", {}) or {}
+        cli_disabled = bool(getattr(self, "_no_fast_download", False))
+        config_enabled = bool(settings.get("fast_download", True))
+        enabled = (not cli_disabled) and config_enabled
+
+        configured = settings.get("media_parallel_connections")
+        if configured is not None:
+            try:
+                connections = max(1, min(16, int(configured)))
+            except (TypeError, ValueError):
+                connections = 4
+        else:
+            connections = 8 if getattr(self, "_is_premium", False) else 4
+
+        threshold_mb = settings.get("media_parallel_threshold_mb", 1)
+        try:
+            threshold_bytes = max(0, int(float(threshold_mb) * 1024 * 1024))
+        except (TypeError, ValueError):
+            threshold_bytes = 1024 * 1024
+
+        result = (enabled, connections, threshold_bytes)
+        self._fast_dl_settings = result
+        return result
+
+    def _extract_binary_object(
+        self, media: Any
+    ) -> Tuple[Optional[Union[Document, Photo]], Optional[int]]:
+        """Return (Document|Photo, file_size) for fast-downloadable media, or (None, None)."""
+        if isinstance(media, MessageMediaDocument) and isinstance(
+            media.document, Document
+        ):
+            return media.document, getattr(media.document, "size", None)
+
+        if isinstance(media, MessageMediaPhoto) and isinstance(media.photo, Photo):
+            return media.photo, self._largest_photo_size(media.photo)
+
+        if isinstance(media, MessageMediaWebPage):
+            webpage = media.webpage
+            if isinstance(webpage, WebPage):
+                if webpage.document and isinstance(webpage.document, Document):
+                    return webpage.document, getattr(webpage.document, "size", None)
+                if webpage.photo and isinstance(webpage.photo, Photo):
+                    return webpage.photo, self._largest_photo_size(webpage.photo)
+
+        return None, None
+
+    async def _detect_premium_once(self) -> None:
+        """Cache `self._is_premium` from the authenticated user, once per run.
+
+        Premium accounts get a higher per-account download bandwidth ceiling,
+        so we open more parallel chunk connections for them by default.
+        """
+        if getattr(self, "_premium_checked", False):
+            return
+        self._premium_checked = True
+        try:
+            me = await self.client.get_me()
+            self._is_premium = bool(getattr(me, "premium", False))
+        except Exception as e:
+            self.logger.debug("Premium detection failed: %s", e)
+            self._is_premium = False
+        # Invalidate cached settings so the connection count picks up Premium status.
+        self._fast_dl_settings = None
+
+    @staticmethod
+    def _largest_photo_size(photo: Photo) -> Optional[int]:
+        """Largest known byte size across a Photo's available sizes."""
+        sizes = [
+            getattr(s, "size", None)
+            for s in (getattr(photo, "sizes", None) or [])
+        ]
+        sizes = [s for s in sizes if isinstance(s, int)]
+        return max(sizes) if sizes else None
 
     async def download_all_media(
         self,
@@ -323,6 +459,7 @@ class MediaMixin:
         Returns dict mapping str(message_id) -> relative path (from attachments_dir)
         for each successfully downloaded file.
         """
+        await self._detect_premium_once()
         CONCURRENCY = 5
         semaphore = asyncio.Semaphore(CONCURRENCY)
         results: Dict[str, str] = {}

@@ -129,6 +129,7 @@ async def async_main() -> int:
         apply_preset(preset_config, args)
     if args.proxy_url:
         downloader.config.setdefault("settings", {})["proxy_url"] = args.proxy_url
+    downloader._no_fast_download = bool(args.no_fast_download)
 
     ctx = DownloaderContext(downloader, cli=True)
     _downloader_ctx = ctx

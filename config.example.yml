@@ -28,6 +28,13 @@ settings:
   # Supported schemes: socks5, socks4, http, https
   # proxy_url: socks5://user:password@proxy-host:1080
 
+  # Parallel media download tuning (default on for files above the threshold).
+  # Multiple MTProto connections per file dramatically increase per-file
+  # download speed, especially for Telegram Premium accounts.
+  # fast_download: true
+  # media_parallel_connections: 4   # auto-detected if omitted (Premium=8, free=4)
+  # media_parallel_threshold_mb: 1  # smaller files use the single-stream path
+
 # Optional mapping for overriding user and bot full names
 # Names are fetched automatically and stored here
 users_map:

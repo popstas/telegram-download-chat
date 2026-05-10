@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -151,14 +151,19 @@ class MessagesMixin:
     def prepare_messages_for_txt(
         self, messages: List[Dict[str, Any]], sort_order: str = "asc"
     ) -> List[Dict[str, Any]]:
+        epoch = datetime.min.replace(tzinfo=timezone.utc)
+
         def parse_dt(msg: Dict[str, Any]) -> datetime:
             date_str = msg.get("date")
             if not date_str:
-                return datetime.min
+                return epoch
             try:
-                return datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+                dt = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
             except Exception:
-                return datetime.min
+                return epoch
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
 
         id_map: Dict[Any, Dict[str, Any]] = {
             m.get("id"): m for m in messages if m.get("id") is not None

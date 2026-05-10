@@ -1862,6 +1862,18 @@ def test_prepare_messages_for_txt_ordering_desc():
     ]
 
 
+def test_prepare_messages_for_txt_handles_mixed_naive_and_aware_dates():
+    downloader = TelegramChatDownloader()
+    messages = [
+        {"id": 1, "date": "2025-07-01 10:00:00+00:00", "text": "aware"},
+        {"id": 2, "date": "2025-07-01 11:00:00", "text": "naive"},
+        {"id": 3, "date": "", "text": "empty"},
+    ]
+
+    ordered = downloader.prepare_messages_for_txt(messages, "asc")
+    assert [m["id"] for m in ordered] == [3, 1, 2]
+
+
 @pytest.mark.asyncio
 async def test_folder_download(tmp_path):
     """Test downloading all chats from a folder."""

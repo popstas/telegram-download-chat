@@ -63,7 +63,7 @@ proxy = [
 ]
 
 [tool.bumpversion]
-current_version = "0.8.0"
+current_version = "0.8.1"
 
 [tool.setuptools_scm]
 # Use git tags for versioning

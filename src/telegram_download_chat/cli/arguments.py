@@ -36,6 +36,7 @@ class CLIOptions:
     overwrite: bool = False
     proxy_url: Optional[str] = None
     export_html: bool = False
+    html_media_links: bool = False
     export_pdf: bool = False
     media_placeholders: bool = False
     no_fast_download: bool = False
@@ -171,6 +172,12 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         dest="export_html",
         action="store_true",
         help="Export chat as a Telegram-style HTML file",
+    )
+    parser.add_argument(
+        "--html-media-links",
+        dest="html_media_links",
+        action="store_true",
+        help="Show clickable file path captions under each media element in HTML export",
     )
     parser.add_argument(
         "--pdf",

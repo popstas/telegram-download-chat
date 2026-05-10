@@ -195,6 +195,7 @@ async def save_messages_with_status(
     export_pdf: bool = False,
     chat_title: Optional[str] = None,
     media_placeholders: bool = False,
+    html_media_links: bool = False,
 ) -> None:
     """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
@@ -207,6 +208,7 @@ async def save_messages_with_status(
             export_pdf=export_pdf,
             chat_title=chat_title,
             media_placeholders=media_placeholders,
+            html_media_links=html_media_links,
         ),
         downloader.logger,
     )
@@ -401,6 +403,7 @@ async def process_chat_download(
                     export_pdf=args.export_pdf,
                     chat_title=full_chat_title,
                     media_placeholders=args.media_placeholders,
+                    html_media_links=args.html_media_links,
                 )
             else:
                 output_path = Path(output_file)
@@ -418,6 +421,7 @@ async def process_chat_download(
                         export_pdf=args.export_pdf,
                         chat_title=full_chat_title,
                         media_placeholders=args.media_placeholders,
+                        html_media_links=args.html_media_links,
                     )
                     downloader.logger.info(
                         f"Saved {len(msgs)} messages to {split_file}"
@@ -436,6 +440,7 @@ async def process_chat_download(
                 export_pdf=args.export_pdf,
                 chat_title=full_chat_title,
                 media_placeholders=args.media_placeholders,
+                html_media_links=args.html_media_links,
             )
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")
@@ -647,7 +652,11 @@ async def convert(
             html_path = export_base.with_suffix(".html")
             try:
                 downloader.render_html(
-                    export_msgs, html_path, attachments_dir, chat_title
+                    export_msgs,
+                    html_path,
+                    attachments_dir,
+                    chat_title,
+                    media_links=args.html_media_links,
                 )
                 downloader.logger.info(
                     f"Saved HTML to {get_relative_to_downloads_dir(html_path)}"

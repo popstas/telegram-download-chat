@@ -1988,3 +1988,83 @@ async def test_download_chat_function(tmp_path):
 
     assert result == 0
     mock_download.assert_awaited_once_with(downloader, args, tmp_path)
+
+
+class TestHtmlMediaLinks:
+    """Tests for the --html-media-links opt-in caption under media elements."""
+
+    @staticmethod
+    def _renderer():
+        from telegram_download_chat.core.render import RenderMixin
+
+        return RenderMixin()
+
+    @staticmethod
+    def _sample_messages() -> List[Dict[str, Any]]:
+        # Two messages: one image, one document. Both have attachment_path
+        # so _preprocess_messages will derive media_category from the first
+        # path segment (images / documents).
+        return [
+            {
+                "id": 100,
+                "date": "2026-01-01T10:00:00+00:00",
+                "from_id": {"user_id": 1},
+                "user_display_name": "Alice",
+                "message": "look at this",
+                "attachment_path": "images/100_photo.jpg",
+            },
+            {
+                "id": 101,
+                "date": "2026-01-01T10:05:00+00:00",
+                "from_id": {"user_id": 1},
+                "user_display_name": "Alice",
+                "message": "and the file",
+                "attachment_path": "documents/101_report.pdf",
+            },
+        ]
+
+    def test_html_media_links_off_omits_caption(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        attachments = tmp_path / "attachments"
+        attachments.mkdir()
+
+        renderer.render_html(
+            self._sample_messages(),
+            out,
+            attachments_dir=attachments,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+
+        # Image still renders inline.
+        assert 'class="media-img"' in html
+        assert "images/100_photo.jpg" in html  # inside src=
+        # Caption span must NOT be present anywhere.
+        assert 'class="media-ref"' not in html
+
+    def test_html_media_links_on_includes_caption_for_image(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        attachments = tmp_path / "attachments"
+        attachments.mkdir()
+
+        renderer.render_html(
+            self._sample_messages(),
+            out,
+            attachments_dir=attachments,
+            chat_title="t",
+            media_links=True,
+        )
+        html = out.read_text(encoding="utf-8")
+
+        # Image still renders inline AND a clickable caption appears below it.
+        assert 'class="media-img"' in html
+        assert 'class="media-ref"' in html
+        # Caption text is the relative path under attachments/.
+        assert ">images/100_photo.jpg<" in html
+
+        # Documents already show the filename label, so no caption is added.
+        # The .media-ref count therefore equals the number of image/sticker/
+        # video/audio messages — exactly one in this fixture.
+        assert html.count('class="media-ref"') == 1

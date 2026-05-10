@@ -365,6 +365,7 @@ class MessagesMixin:
         export_pdf: bool = False,
         chat_title: Optional[str] = None,
         media_placeholders: bool = False,
+        html_media_links: bool = False,
     ) -> None:
         output_path = Path(output_file)
 
@@ -461,7 +462,11 @@ class MessagesMixin:
             html_path = output_path.with_suffix(".html")
             try:
                 self.render_html(
-                    serializable_messages, html_path, attachments_dir, chat_title
+                    serializable_messages,
+                    html_path,
+                    attachments_dir,
+                    chat_title,
+                    media_links=html_media_links,
                 )
                 self.logger.info(
                     f"Saved HTML to {get_relative_to_downloads_dir(html_path)}"

@@ -123,6 +123,9 @@ a:hover{text-decoration:underline}
 .media-file .ico{font-size:26px;line-height:1;flex-shrink:0}
 .media-file .fname{font-size:13px;font-weight:500;color:#333;word-break:break-all}
 .media-loc{margin-bottom:4px;font-size:13px}
+.media-ref{display:block;margin-top:-2px;margin-bottom:4px;font-size:11px;color:#8b8b8b;word-break:break-all}
+.media-ref a{color:inherit;text-decoration:none}
+.media-ref a:hover{text-decoration:underline}
 .poll-wrap{margin-bottom:4px}
 .poll-q{font-weight:600;margin-bottom:5px;font-size:13.5px}
 .poll-opt{display:flex;justify-content:space-between;align-items:center;
@@ -181,12 +184,16 @@ a:hover{text-decoration:underline}
         {%- set src = (media_prefix + msg.attachment_path) | urlencode_path %}
         {%- if msg.media_category == "stickers" %}
         <img class="media-stk" src="{{ src }}" alt="sticker" loading="lazy">
+        {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- elif msg.media_category == "images" %}
         <img class="media-img" src="{{ src }}" alt="" loading="lazy">
+        {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- elif msg.media_category == "videos" %}
         <video class="media-vid" controls preload="none" src="{{ src }}"></video>
+        {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- elif msg.media_category == "audio" %}
         <audio class="media-aud" controls preload="none" src="{{ src }}"></audio>
+        {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- elif msg.media_category in ("documents", "archives") %}
         <a class="media-file" href="{{ src }}" target="_blank" rel="noopener">
           <div class="ico">{% if msg.media_category == "archives" %}&#128736;{% else %}&#128196;{% endif %}</div>
@@ -211,6 +218,7 @@ a:hover{text-decoration:underline}
           <div class="ico">&#128206;</div>
           <div class="fname">{{ msg.attachment_filename | e }}</div>
         </a>
+        {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- endif %}
       {%- endif %}
       {%- if msg.text %}
@@ -246,6 +254,7 @@ class RenderMixin:
         output_file: Path,
         attachments_dir: Optional[Path] = None,
         chat_title: str = "Chat",
+        media_links: bool = False,
     ) -> None:
         """Render messages as a Telegram Web-style self-contained HTML file."""
         try:
@@ -275,6 +284,7 @@ class RenderMixin:
             message_count=len(messages),
             items=items,
             media_prefix=media_prefix,
+            media_links=media_links,
         )
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(html, encoding="utf-8")

@@ -12,6 +12,12 @@ from typing import Any, Dict, List, Optional
 from telethon.tl.types import Channel, Chat, User
 
 from telegram_download_chat.core import TelegramChatDownloader
+from telegram_download_chat.core.topics import (
+    GENERAL_KEY,
+    fetch_forum_topics,
+    group_messages_by_topic,
+    slugify_topic,
+)
 from telegram_download_chat.paths import get_relative_to_downloads_dir
 
 from .arguments import CLIOptions
@@ -386,8 +392,57 @@ async def process_chat_download(
     full_chat_title = await downloader.get_entity_full_name(chat_identifier)
 
     split_messages: Dict[str, List[Any]] = {}
+    topic_dirs: Dict[str, Path] = {}
     try:
-        if args.split:
+        if args.split == "topics":
+            if args.subchat:
+                raise ValueError(
+                    "--split topics is incompatible with --subchat"
+                )
+
+            entity = await downloader.get_entity(chat_identifier)
+            topics_map = await fetch_forum_topics(downloader, entity)
+            grouped = group_messages_by_topic(messages, topics_map)
+            output_path = Path(output_file)
+            ext = output_path.suffix or ".json"
+
+            for key, (title, msgs) in grouped.items():
+                slug = (
+                    GENERAL_KEY
+                    if key == GENERAL_KEY
+                    else slugify_topic(title, int(key))
+                )
+                topic_dir = output_path.parent / slug
+                topic_dirs[key] = topic_dir
+                split_file = topic_dir / f"messages{ext}"
+                await save_messages_with_status(
+                    downloader,
+                    msgs,
+                    str(split_file),
+                    args.sort,
+                    args.media,
+                    export_html=args.export_html,
+                    export_pdf=args.export_pdf,
+                    chat_title=f"{full_chat_title} / {title}",
+                    media_placeholders=args.media_placeholders,
+                    html_media_links=args.html_media_links,
+                )
+                downloader.logger.info(
+                    f"Saved {len(msgs)} messages to {split_file}"
+                )
+            downloader.logger.info(
+                f"Saved {len(topic_dirs)} topic folders in {output_path.parent}"
+            )
+            # save_messages() cleans up only the per-topic partials; the
+            # chat-level partial created during download is never paired
+            # with a save_messages() call in topic mode, so clear it here.
+            chat_partial = downloader.get_temp_file_path(output_path)
+            if chat_partial.exists() and not getattr(downloader, "_stop_requested", False):
+                try:
+                    chat_partial.unlink()
+                except OSError:
+                    pass
+        elif args.split:
             split_messages = split_messages_by_date(messages, args.split)
             if not split_messages:
                 downloader.logger.warning(
@@ -455,8 +510,16 @@ async def process_chat_download(
     elif isinstance(entity, Channel):
         chat_type = "channel" if getattr(entity, "broadcast", False) else "supergroup"
 
-    # In split mode, list the actual per-period files instead of the unsuffixed base.
-    if args.split and split_messages:
+    # In split mode, list the actual per-period (or per-topic) files
+    # instead of the unsuffixed base.
+    if topic_dirs:
+        output_path = Path(output_file)
+        ext = output_path.suffix or ".json"
+        json_paths = [str(d / f"messages{ext}") for d in topic_dirs.values()]
+        txt_paths = [str(d / "messages.txt") for d in topic_dirs.values()]
+        result_json_value = json_paths
+        result_txt_value = txt_paths
+    elif args.split and split_messages:
         output_path = Path(output_file)
         base_name = output_path.stem
         ext = output_path.suffix
@@ -485,11 +548,26 @@ async def process_chat_download(
         "result_txt": result_txt_value,
         "keywords": keywords_data,
     }
+    if topic_dirs:
+        result["result_topics"] = [str(d) for d in topic_dirs.values()]
     if args.media:
-        attachments_dir = downloader.get_attachments_dir(Path(output_file))
-        result["result_attachments"] = str(attachments_dir)
+        if topic_dirs:
+            result["result_attachments"] = [
+                str(d / "attachments") for d in topic_dirs.values()
+            ]
+        else:
+            attachments_dir = downloader.get_attachments_dir(Path(output_file))
+            result["result_attachments"] = str(attachments_dir)
     if args.export_html:
-        if args.split and split_messages:
+        if topic_dirs:
+            html_paths = [
+                str(d / "messages.html")
+                for d in topic_dirs.values()
+                if (d / "messages.html").exists()
+            ]
+            if html_paths:
+                result["result_html"] = html_paths
+        elif args.split and split_messages:
             output_path = Path(output_file)
             base_name = output_path.stem
             html_paths = [
@@ -504,7 +582,15 @@ async def process_chat_download(
             if html_path.exists():
                 result["result_html"] = str(html_path)
     if args.export_pdf:
-        if args.split and split_messages:
+        if topic_dirs:
+            pdf_paths = [
+                str(d / "messages.pdf")
+                for d in topic_dirs.values()
+                if (d / "messages.pdf").exists()
+            ]
+            if pdf_paths:
+                result["result_pdf"] = pdf_paths
+        elif args.split and split_messages:
             output_path = Path(output_file)
             base_name = output_path.stem
             pdf_paths = [

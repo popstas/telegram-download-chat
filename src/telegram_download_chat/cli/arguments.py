@@ -117,7 +117,12 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         help="Only download messages on or after this date (format: YYYY-MM-DD)",
     )
     parser.add_argument(
-        "--split", choices=["month", "year"], help="Split output files by month or year"
+        "--split",
+        choices=["month", "year", "topics"],
+        help=(
+            "Split output: by month, by year, or by forum topic "
+            "(one <chat>/<topic_slug>/ subdirectory per topic)"
+        ),
     )
     parser.add_argument(
         "--sort",

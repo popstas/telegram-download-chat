@@ -28,6 +28,12 @@ from telegram_download_chat.cli import (
 )
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
 from telegram_download_chat.core.messages import MessagesMixin
+from telegram_download_chat.core.topics import (
+    GENERAL_KEY,
+    GENERAL_TITLE,
+    group_messages_by_topic,
+    slugify_topic,
+)
 
 
 @pytest.fixture
@@ -539,6 +545,96 @@ class TestFilterMessagesBySubchat:
         filtered = filter_messages_by_subchat(messages, "123")
         assert len(filtered) == 1
         assert filtered[0]["id"] == 3
+
+
+class TestGroupMessagesByTopic:
+    """Tests for group_messages_by_topic and slugify_topic."""
+
+    def test_buckets_by_reply_to_top_id(self):
+        topics = {10: "General Discussion", 22: "Bugs"}
+        messages = [
+            {"id": 1, "reply_to": {"reply_to_top_id": 10}},
+            {"id": 2, "reply_to": {"reply_to_top_id": 22}},
+            {"id": 3, "reply_to": {"reply_to_top_id": 22}},
+            {"id": 4, "reply_to": None},
+            {"id": 5, "reply_to": {"reply_to_msg_id": 99}},
+        ]
+        grouped = group_messages_by_topic(messages, topics)
+
+        assert set(grouped.keys()) == {"10", "22", GENERAL_KEY}
+        assert grouped["10"][0] == "General Discussion"
+        assert [m["id"] for m in grouped["10"][1]] == [1]
+        assert grouped["22"][0] == "Bugs"
+        assert [m["id"] for m in grouped["22"][1]] == [2, 3]
+        assert grouped[GENERAL_KEY][0] == GENERAL_TITLE
+        assert [m["id"] for m in grouped[GENERAL_KEY][1]] == [4, 5]
+
+    def test_unknown_topic_id_falls_back_to_general(self):
+        topics = {10: "Known"}
+        messages = [
+            {"id": 1, "reply_to": {"reply_to_top_id": 10}},
+            {"id": 2, "reply_to": {"reply_to_top_id": 999}},
+        ]
+        grouped = group_messages_by_topic(messages, topics)
+
+        assert set(grouped.keys()) == {"10", GENERAL_KEY}
+        assert [m["id"] for m in grouped[GENERAL_KEY][1]] == [2]
+
+    def test_forum_topic_reply_without_top_id(self):
+        """A reply header marked forum_topic uses reply_to_msg_id as the topic key."""
+        topics = {42: "Feature requests"}
+        messages = [
+            {
+                "id": 1,
+                "reply_to": {"reply_to_msg_id": 42, "forum_topic": True},
+            },
+            {
+                "id": 2,
+                "reply_to": {"reply_to_msg_id": 7, "forum_topic": False},
+            },
+        ]
+        grouped = group_messages_by_topic(messages, topics)
+
+        assert set(grouped.keys()) == {"42", GENERAL_KEY}
+        assert [m["id"] for m in grouped["42"][1]] == [1]
+        assert [m["id"] for m in grouped[GENERAL_KEY][1]] == [2]
+
+    def test_empty_buckets_are_not_created(self):
+        """Only buckets with messages exist; topics with no messages are skipped."""
+        topics = {10: "A", 11: "B"}
+        messages = [{"id": 1, "reply_to": {"reply_to_top_id": 10}}]
+        grouped = group_messages_by_topic(messages, topics)
+
+        assert set(grouped.keys()) == {"10"}
+
+
+class TestSlugifyTopic:
+    """Tests for slugify_topic."""
+
+    def test_basic_title(self):
+        assert slugify_topic("General Discussion", 1) == "general_discussion"
+
+    def test_punctuation_and_emoji_only(self):
+        assert slugify_topic("🐛🐛🐛", 42) == "topic_42"
+
+    def test_empty_title(self):
+        assert slugify_topic("", 7) == "topic_7"
+
+    def test_title_truncated_to_80_chars(self):
+        title = "x" * 200
+        slug = slugify_topic(title, 9)
+        assert len(slug) <= 80
+        assert slug == "x" * 80
+
+    def test_mixed_case_and_special_chars(self):
+        assert slugify_topic("Bug Reports / 2024!!!", 3) == "bug_reports_2024"
+
+    def test_preserves_hyphen_and_dot(self):
+        assert slugify_topic("v1.2-beta", 5) == "v1.2-beta"
+
+    def test_collision_with_general_uses_topic_id(self):
+        """A topic literally named 'general' would collide with the bucket key."""
+        assert slugify_topic("General", 99) == "topic_99"
 
 
 class TestConvertArchiveMedia:

@@ -276,7 +276,11 @@ def build_options() -> CLIOptions | None:
         )
         last_days = st.number_input("Last days", min_value=0, key="form_last_days")
         split = (
-            st.selectbox("Split output", ["", "month", "year"], key="form_split")
+            st.selectbox(
+                "Split output",
+                ["", "month", "year", "topics"],
+                key="form_split",
+            )
             or None
         )
         sort = st.selectbox("Sort order", ["asc", "desc"], key="form_sort")

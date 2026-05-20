@@ -237,7 +237,9 @@ class MessagesMixin:
                 if has_audio:
                     return "[audio]"
                 if filename:
-                    safe_name = filename.replace("[", "(").replace("]", ")").replace("\n", " ")
+                    safe_name = (
+                        filename.replace("[", "(").replace("]", ")").replace("\n", " ")
+                    )
                     return f"[file={safe_name}]"
             return "[file]"
 
@@ -283,7 +285,9 @@ class MessagesMixin:
                 date_str = msg.get("date", "")
                 if date_str:
                     try:
-                        dt = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+                        dt = datetime.fromisoformat(
+                            str(date_str).replace("Z", "+00:00")
+                        )
                         date_fmt = dt.strftime("%Y-%m-%d %H:%M:%S")
                     except (ValueError, TypeError):
                         date_fmt = ""
@@ -426,7 +430,6 @@ class MessagesMixin:
 
         # Download media attachments if requested
         if download_media:
-            self.logger.info("Downloading media attachments...")
             download_results = await self.download_all_media(messages, attachments_dir)
             # Reconcile predicted paths with actual download results:
             # - null out attachment_path for messages whose downloads failed

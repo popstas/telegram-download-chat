@@ -115,7 +115,7 @@ python main.py  # Launches GUI by default
 - `--max-date`: Messages on or before this date
 - `--min-date`: Messages on or after this date
 - `--media-placeholders`: Insert media type indicators (e.g. `[photo]`, `[file=name.pdf]`) in TXT output
-- `--media`: Download all media types with organized category directories (images/, videos/, documents/, audio/, stickers/, contacts/, locations/, polls/, etc.) and concurrent downloads (5 simultaneous). Supports photos, videos, documents, audio, stickers, contacts (VCF), geo locations (JSON), polls, dice, and games. Files above ~1 MB use parallel multi-connection MTProto chunking (FastTelethon-style, see `core/fast_download.py`); connection count auto-tunes per Premium status (Premium=8, free=4) and is overridable via `media_parallel_connections` in config.
+- `--media`: Download all media types with organized category directories (images/, videos/, documents/, audio/, stickers/, contacts/, locations/, polls/, etc.) and concurrent downloads (5 simultaneous). Supports photos, videos, documents, audio, stickers, contacts (VCF), geo locations (JSON), polls, dice, and games. Files above ~5 MB use parallel multi-connection MTProto chunking (FastTelethon-style, see `core/fast_download.py`); connection count auto-tunes per Premium status (Premium=4, free=2) and is overridable via `media_parallel_connections` in config. Threshold is overridable via `media_parallel_threshold_mb`. Earlier defaults (8/4 connections, 1 MB threshold) triggered Telegram's per-account throttling and stalled the run.
 - `--no-fast-download`: Disable the parallel chunked downloader and fall back to single-stream Telethon for all files.
 
 ### Export Formats

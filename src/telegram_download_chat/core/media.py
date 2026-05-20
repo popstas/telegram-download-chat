@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from telethon.errors import FloodWaitError
 from telethon.tl.types import (
     Document,
     DocumentAttributeFilename,
@@ -24,6 +25,7 @@ from telethon.tl.types import (
     WebPage,
 )
 
+from .fast_download import FastDownloadStalled
 from .fast_download import download_file as fast_download_file
 
 # ---------------------------------------------------------------------------
@@ -303,9 +305,7 @@ class MediaMixin:
                     f"Downloaded media for message {message_id}: {downloaded_path}"
                 )
                 return Path(downloaded_path)
-            self.logger.warning(
-                f"Failed to download media for message {message_id}"
-            )
+            self.logger.warning(f"Failed to download media for message {message_id}")
             return None
         except Exception as e:
             self.logger.warning(
@@ -334,12 +334,13 @@ class MediaMixin:
             and file_size is not None
             and file_size >= threshold_bytes
         ):
+            used = getattr(self, "_current_connections", None) or connections
             try:
                 self.logger.debug(
                     "Fast download for message %s: size=%d connections=%d",
                     message_id,
                     file_size,
-                    connections,
+                    used,
                 )
                 with download_to.open("wb") as fh:
                     await fast_download_file(
@@ -347,10 +348,12 @@ class MediaMixin:
                         binary_obj,
                         fh,
                         file_size=file_size,
-                        connection_count=connections,
+                        connection_count=used,
                     )
                 return download_to
             except Exception as e:
+                if isinstance(e, (FloodWaitError, FastDownloadStalled)):
+                    await self._reduce_threads_on_throttle(used)
                 self.logger.warning(
                     "Fast download failed for message %s (%s); "
                     "falling back to standard downloader",
@@ -385,11 +388,14 @@ class MediaMixin:
             try:
                 connections = max(1, min(16, int(configured)))
             except (TypeError, ValueError):
-                connections = 4
+                connections = 2
         else:
-            connections = 8 if getattr(self, "_is_premium", False) else 4
+            # Defaults intentionally conservative: 5 concurrent files (see
+            # download_all_media) × these counts is the actual fan-out
+            # Telegram sees. Higher numbers trigger server-side throttling.
+            connections = 4 if getattr(self, "_is_premium", False) else 2
 
-        threshold_mb = settings.get("media_parallel_threshold_mb", 1)
+        threshold_mb = settings.get("media_parallel_threshold_mb", 5)
         try:
             threshold_bytes = max(0, int(float(threshold_mb) * 1024 * 1024))
         except (TypeError, ValueError):
@@ -398,6 +404,25 @@ class MediaMixin:
         result = (enabled, connections, threshold_bytes)
         self._fast_dl_settings = result
         return result
+
+    async def _reduce_threads_on_throttle(self, used: int) -> None:
+        """Halve the live per-file connection count after a rate-limit signal.
+
+        Generation-guarded: a burst of concurrent files can fail near
+        simultaneously, but only the first one (running at the current count)
+        steps the count down. Stragglers carrying a now-stale higher `used`
+        are ignored, so each level is halved at most once.
+        """
+        lock = getattr(self, "_threads_lock", None)
+        if lock is None:
+            return
+        async with lock:
+            # A straggler that started at a higher count (already superseded by
+            # an earlier halving) carries used > current — skip it.
+            if used != self._current_connections or self._current_connections <= 1:
+                return
+            self._current_connections = max(1, self._current_connections // 2)
+            self.logger.warning("Decrease threads to %d", self._current_connections)
 
     def _extract_binary_object(
         self, media: Any
@@ -443,8 +468,7 @@ class MediaMixin:
     def _largest_photo_size(photo: Photo) -> Optional[int]:
         """Largest known byte size across a Photo's available sizes."""
         sizes = [
-            getattr(s, "size", None)
-            for s in (getattr(photo, "sizes", None) or [])
+            getattr(s, "size", None) for s in (getattr(photo, "sizes", None) or [])
         ]
         sizes = [s for s in sizes if isinstance(s, int)]
         return max(sizes) if sizes else None
@@ -460,6 +484,17 @@ class MediaMixin:
         for each successfully downloaded file.
         """
         await self._detect_premium_once()
+
+        enabled, connections, _ = self._resolve_fast_download_settings()
+        self._current_connections = connections
+        self._threads_lock = asyncio.Lock()
+        if enabled and connections > 1:
+            self.logger.info(
+                "Downloading media attachments (%d threads)...", connections
+            )
+        else:
+            self.logger.info("Downloading media attachments...")
+
         CONCURRENCY = 5
         semaphore = asyncio.Semaphore(CONCURRENCY)
         results: Dict[str, str] = {}
@@ -471,33 +506,64 @@ class MediaMixin:
             nonlocal completed
             if self._stop_requested:
                 return
-            async with semaphore:
-                if self._stop_requested:
-                    return
-                path = await self.download_message_media(msg, attachments_dir)
-                msg_id = str(
-                    getattr(msg, "id", None)
-                    or (msg.get("id") if isinstance(msg, dict) else None)
-                    or ""
-                )
-                if path and msg_id:
-                    try:
-                        results[msg_id] = str(
-                            path.relative_to(attachments_dir)
-                        ).replace("\\", "/")
-                    except ValueError:
-                        results[msg_id] = str(path)
-                completed += 1
-                if completed % log_interval == 0 or completed == total:
-                    pct = int(completed / total * 100)
-                    self.logger.info(
-                        f"Media download progress: {completed}/{total} ({pct}%)"
+            try:
+                async with semaphore:
+                    if self._stop_requested:
+                        return
+                    path = await self.download_message_media(msg, attachments_dir)
+                    msg_id = str(
+                        getattr(msg, "id", None)
+                        or (msg.get("id") if isinstance(msg, dict) else None)
+                        or ""
                     )
+                    if path and msg_id:
+                        try:
+                            results[msg_id] = str(
+                                path.relative_to(attachments_dir)
+                            ).replace("\\", "/")
+                        except ValueError:
+                            results[msg_id] = str(path)
+                    completed += 1
+                    if completed % log_interval == 0 or completed == total:
+                        pct = int(completed / total * 100)
+                        self.logger.info(
+                            f"Media download progress: {completed}/{total} ({pct}%)"
+                        )
+            except asyncio.CancelledError:
+                # Stop was requested mid-flight; exit cleanly so gather can
+                # finish and the CLI can shut down.
+                return
 
-        gather_results = await asyncio.gather(
-            *[download_one(msg) for msg in messages], return_exceptions=True
-        )
+        tasks = [asyncio.create_task(download_one(msg)) for msg in messages]
+
+        async def _cancel_watchdog() -> None:
+            # Polls _stop_requested and cancels every still-pending task once
+            # the user (or a signal handler) asks to stop. This is what makes
+            # Ctrl+C actually terminate during a --media run, even if some
+            # task is stuck inside Telethon's parallel-download path.
+            while True:
+                if self._stop_requested:
+                    for t in tasks:
+                        if not t.done():
+                            t.cancel()
+                    return
+                if all(t.done() for t in tasks):
+                    return
+                await asyncio.sleep(0.5)
+
+        watchdog = asyncio.create_task(_cancel_watchdog())
+        try:
+            gather_results = await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            watchdog.cancel()
+            try:
+                await watchdog
+            except (asyncio.CancelledError, Exception):
+                pass
+
         for r in gather_results:
+            if isinstance(r, asyncio.CancelledError):
+                continue
             if isinstance(r, Exception):
                 self.logger.warning(f"Media download task failed: {r}")
         self.logger.info(f"Downloaded {len(results)} media files to {attachments_dir}")

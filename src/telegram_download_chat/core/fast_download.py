@@ -16,7 +16,7 @@ import asyncio
 import inspect
 import logging
 import math
-from typing import AsyncGenerator, BinaryIO, List, Optional, Union
+from typing import AsyncGenerator, BinaryIO, List, Optional, Tuple, Union
 
 from telethon import TelegramClient, utils
 from telethon.crypto import AuthKey
@@ -52,6 +52,72 @@ TypeLocation = Union[
 # downloader rather than blocking the whole run.
 _MAX_FLOOD_WAIT_SECONDS = 30
 
+# If a single chunk request hasn't returned in this long, treat the parallel
+# path as stalled (Telegram likely closed the auxiliary socket and Telethon's
+# reconnect loop is spinning on the AttributeError race in 1.34). The caller
+# falls back to the single-stream downloader.
+_CHUNK_TIMEOUT_SECONDS = 60
+
+# Hard ceiling on how long we wait for auxiliary senders to disconnect during
+# cleanup. Stuck reconnect loops can keep `sender.disconnect()` pending forever;
+# we'd rather orphan the tasks than freeze the process.
+_CLEANUP_TIMEOUT_SECONDS = 10
+
+
+class FastDownloadStalled(Exception):
+    """Raised when a parallel-chunk request stalls past `_CHUNK_TIMEOUT_SECONDS`."""
+
+
+class _ReconnectAttrErrorFilter(logging.Filter):
+    """Drop Telethon's noisy reconnect-AttributeError tracebacks.
+
+    Telethon 1.34 has a race where MTProtoSender._reconnect calls
+    `await self._connection.connect(...)` after `_connection` was nulled by a
+    concurrent disconnect, raising AttributeError. The reconnect loop catches
+    and retries forever, flooding the log. We can't fix Telethon from here, but
+    we can stop the spam — and log a single concise warning the first time it
+    happens so a real failure is still visible.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.warned = False
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if not msg.startswith("Unexpected exception reconnecting on attempt"):
+            return True
+        exc_info = record.exc_info
+        if not exc_info or not isinstance(exc_info[1], AttributeError):
+            return True
+        if "'NoneType' object has no attribute 'connect'" not in str(exc_info[1]):
+            return True
+        if not self.warned:
+            self.warned = True
+            log.warning(
+                "Telegram closed an auxiliary parallel-download connection; "
+                "Telethon's reconnect loop is racing — falling back to "
+                "single-stream downloader if the file stalls."
+            )
+        return False
+
+
+class _ServerClosedRewriteFilter(logging.Filter):
+    """Rewrite Telethon's alarming "Server closed the connection: …" warnings.
+
+    During parallel media downloads Telegram routinely drops auxiliary sockets
+    as a throttling signal (e.g. "0 bytes read on a total of 8 expected bytes",
+    "Connection reset by peer"). Telethon logs each at WARNING from
+    `telethon.network.connection.connection`, which reads like a hard failure.
+    We replace the wording in place with a clearer message and keep the record.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.getMessage().startswith("Server closed the connection:"):
+            record.msg = "Rate limited by Telegram, retrying…"
+            record.args = ()
+        return True
+
 
 class DownloadSender:
     """One MTProtoSender pulling a strided slice of a single file."""
@@ -80,8 +146,15 @@ class DownloadSender:
         attempt = 0
         while True:
             try:
-                result = await self.client._call(self.sender, self.request)
+                result = await asyncio.wait_for(
+                    self.client._call(self.sender, self.request),
+                    timeout=_CHUNK_TIMEOUT_SECONDS,
+                )
                 break
+            except asyncio.TimeoutError as e:
+                raise FastDownloadStalled(
+                    f"Parallel chunk request exceeded {_CHUNK_TIMEOUT_SECONDS}s"
+                ) from e
             except FloodWaitError as e:
                 attempt += 1
                 if e.seconds > _MAX_FLOOD_WAIT_SECONDS or attempt > self.max_retries:
@@ -110,20 +183,51 @@ class ParallelTransferrer:
         self.dc_id: int = dc_id or client.session.dc_id
         # Reuse the existing auth key only when the file lives in the user's home DC.
         self.auth_key: Optional[AuthKey] = (
-            None
-            if dc_id and client.session.dc_id != dc_id
-            else client.session.auth_key
+            None if dc_id and client.session.dc_id != dc_id else client.session.auth_key
         )
         self.senders: Optional[List[DownloadSender]] = None
+        # Filters scoped to the lifetime of a download(): tame the two noisy
+        # Telethon loggers that fire when Telegram throttles parallel sockets.
+        self._log_filters: List[Tuple[logging.Logger, logging.Filter]] = []
+
+    def _install_log_filter(self) -> None:
+        if self._log_filters:
+            return
+        for logger_name, filter_factory in (
+            ("telethon.network.mtprotosender", _ReconnectAttrErrorFilter),
+            ("telethon.network.connection.connection", _ServerClosedRewriteFilter),
+        ):
+            logger = logging.getLogger(logger_name)
+            log_filter = filter_factory()
+            logger.addFilter(log_filter)
+            self._log_filters.append((logger, log_filter))
+
+    def _remove_log_filter(self) -> None:
+        for logger, log_filter in self._log_filters:
+            logger.removeFilter(log_filter)
+        self._log_filters = []
 
     async def _cleanup(self) -> None:
-        if not self.senders:
-            return
-        await asyncio.gather(
-            *[sender.disconnect() for sender in self.senders],
-            return_exceptions=True,
-        )
-        self.senders = None
+        try:
+            if self.senders:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(
+                            *[sender.disconnect() for sender in self.senders],
+                            return_exceptions=True,
+                        ),
+                        timeout=_CLEANUP_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    log.warning(
+                        "Parallel-download cleanup exceeded %ds; orphaning %d "
+                        "stuck sender(s) so the caller can proceed.",
+                        _CLEANUP_TIMEOUT_SECONDS,
+                        len(self.senders),
+                    )
+                self.senders = None
+        finally:
+            self._remove_log_filter()
 
     @staticmethod
     def _get_connection_count(
@@ -226,6 +330,7 @@ class ParallelTransferrer:
             part_size,
             part_count,
         )
+        self._install_log_filter()
         try:
             await self._init_download(connection_count, file, part_count, part_size)
 
@@ -265,7 +370,9 @@ async def download_file(
         raise ValueError("Cannot parallel-download without a known file size")
 
     downloader = ParallelTransferrer(client, dc_id)
-    async for chunk in downloader.download(input_location, size, connection_count=connection_count):
+    async for chunk in downloader.download(
+        input_location, size, connection_count=connection_count
+    ):
         out.write(chunk)
         if progress_callback:
             r = progress_callback(out.tell(), size)

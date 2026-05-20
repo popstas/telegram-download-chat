@@ -72,6 +72,14 @@ pip install .
 ./build_windows.ps1   # Windows
 ```
 
+### Release
+```bash
+# Bump version, run tests, build, and publish
+python deploy.py patch   # or: minor | major
+```
+- If a step fails and you re-run, skip the already-completed steps.
+- To fold release fixups into the version-bump commit, amend it (`git commit --amend`).
+
 ### Running
 ```bash
 # CLI mode

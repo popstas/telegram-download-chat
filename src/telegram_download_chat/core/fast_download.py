@@ -339,12 +339,23 @@ class ParallelTransferrer:
                 tasks = [
                     self.loop.create_task(sender.next()) for sender in self.senders
                 ]
-                for task in tasks:
-                    data = await task
-                    if not data:
-                        break
-                    yield data
-                    part += 1
+                # Await siblings sequentially, but make sure that on *any* exit
+                # (an `await task` raising, or the `break` on a short chunk) the
+                # remaining tasks are cancelled and gathered. Otherwise their
+                # exceptions surface later as asyncio "Task exception was never
+                # retrieved" dumps. The genuine error re-raises after `finally`.
+                try:
+                    for task in tasks:
+                        data = await task
+                        if not data:
+                            break
+                        yield data
+                        part += 1
+                finally:
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             await self._cleanup()
 

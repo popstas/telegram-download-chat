@@ -61,10 +61,10 @@ A `--media --html` run over a heavily-throttled channel ran for ~2 hours and sur
 - [x] Run `pytest` — must pass before Task 3.
 
 ### Task 3: Drain orphaned sender tasks in fast_download.download()
-- [ ] In `ParallelTransferrer.download()` (`fast_download.py:337–347`), wrap the per-iteration `for task in tasks` loop in `try/finally`. In `finally`: cancel any not-`done()` task, then `await asyncio.gather(*tasks, return_exceptions=True)`. Let the original exception from `await task` propagate after draining (so `media.py` still sees `FileReferenceExpiredError`/`FastDownloadStalled`).
-- [ ] Confirm early-`break` on short/empty chunk still ends the generator cleanly and drains siblings; outer `finally: await self._cleanup()` unchanged.
-- [ ] Write test (extend `tests/test_fast_download_cancellation.py`): patch `_init_download` with fake senders whose `next()` raises after the first yield; run the generator to exception and assert all created tasks end `done()` with exceptions consumed (no "never retrieved" warning — e.g. via a custom asyncio exception handler).
-- [ ] Run `pytest` — must pass before Task 4.
+- [x] In `ParallelTransferrer.download()` (`fast_download.py:337–347`), wrap the per-iteration `for task in tasks` loop in `try/finally`. In `finally`: cancel any not-`done()` task, then `await asyncio.gather(*tasks, return_exceptions=True)`. Let the original exception from `await task` propagate after draining (so `media.py` still sees `FileReferenceExpiredError`/`FastDownloadStalled`).
+- [x] Confirm early-`break` on short/empty chunk still ends the generator cleanly and drains siblings; outer `finally: await self._cleanup()` unchanged.
+- [x] Write test (extend `tests/test_fast_download_cancellation.py`): patch `_init_download` with fake senders whose `next()` raises after the first yield; run the generator to exception and assert all created tasks end `done()` with exceptions consumed (no "never retrieved" warning — e.g. via a custom asyncio exception handler).
+- [x] Run `pytest` — must pass before Task 4.
 
 ### Task 4: Filter the "wrong session ID" / "Security error" noise
 - [ ] In `core/fast_download.py`, handle records whose message starts with `Security error while unpacking a received message`: either add a branch to `_ServerClosedRewriteFilter` (rewrite to `"Rate limited by Telegram, retrying…"`) or add a dedicated `_SecurityErrorFilter` on the `telethon.network.mtprotosender` logger. Match existing docstring style.

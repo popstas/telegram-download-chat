@@ -73,10 +73,10 @@ A `--media --html` run over a heavily-throttled channel ran for ~2 hours and sur
 - [x] Run `pytest` — must pass before Task 5.
 
 ### Task 5: Verify acceptance criteria
-- [ ] Verify all three Overview problems are addressed: refetch retries once via standard downloader; fast-path failures fall back then refetch; orphaned tasks drained; session-ID noise filtered.
-- [ ] Verify no behavior change when `_current_entity` is unset.
-- [ ] Run full `pytest` — all green.
-- [ ] Run `black src/ tests/` and `isort src/ tests/`; run `mypy src/` if it currently passes.
+- [x] Verify all three Overview problems are addressed: refetch retries once via standard downloader; fast-path failures fall back then refetch; orphaned tasks drained; session-ID noise filtered.
+- [x] Verify no behavior change when `_current_entity` is unset.
+- [x] Run full `pytest` — all green. (160 passed, 1 skipped)
+- [x] Run `black src/ tests/` and `isort src/ tests/`; run `mypy src/` if it currently passes. (black/isort clean; mypy skipped — 265 pre-existing errors project-wide, none new from this work)
 
 ### Task 6: [Final] Update documentation
 - [ ] Update `CLAUDE.md` "Message Processing" / `--media` notes: one sentence that expired file references are automatically refetched during long throttled runs.

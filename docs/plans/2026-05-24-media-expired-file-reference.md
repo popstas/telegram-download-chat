@@ -42,10 +42,10 @@ A `--media --html` run over a heavily-throttled channel ran for ~2 hours and sur
 ## Implementation Steps
 
 ### Task 1: Store the resolved chat entity for refetch
-- [ ] In `core/download.py` `download_chat()`, right after `entity = await self.get_entity(chat_id)`, set `self._current_entity = entity`.
-- [ ] Initialize `self._current_entity = None` alongside other run-state attrs (or read via `getattr` elsewhere) so archive-only/no-fetch flows don't `AttributeError`.
-- [ ] Write test: `download_chat` with mocked `get_entity`/history stores `self._current_entity`.
-- [ ] Run `pytest` — must pass before Task 2.
+- [x] In `core/download.py` `download_chat()`, right after `entity = await self.get_entity(chat_id)`, set `self._current_entity = entity`.
+- [x] Initialize `self._current_entity = None` alongside other run-state attrs (or read via `getattr` elsewhere) so archive-only/no-fetch flows don't `AttributeError`.
+- [x] Write test: `download_chat` with mocked `get_entity`/history stores `self._current_entity`.
+- [x] Run `pytest` — must pass before Task 2.
 
 ### Task 2: Add refetch helper + retry on expired reference in media.py
 - [ ] Import `FileReferenceExpiredError` from `telethon.errors` at the top of `core/media.py`.

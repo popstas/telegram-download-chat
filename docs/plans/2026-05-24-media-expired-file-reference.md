@@ -79,7 +79,7 @@ A `--media --html` run over a heavily-throttled channel ran for ~2 hours and sur
 - [x] Run `black src/ tests/` and `isort src/ tests/`; run `mypy src/` if it currently passes. (black/isort clean; mypy skipped — 265 pre-existing errors project-wide, none new from this work)
 
 ### Task 6: [Final] Update documentation
-- [ ] Update `CLAUDE.md` "Message Processing" / `--media` notes: one sentence that expired file references are automatically refetched during long throttled runs.
+- [x] Update `CLAUDE.md` "Message Processing" / `--media` notes: one sentence that expired file references are automatically refetched during long throttled runs.
 
 ## Technical Details
 - **Telethon API:** `client.get_messages(entity, ids=<int>)` → single `Message` with fresh `file_reference`; `ids=[<int>]` → list. Use the scalar form.

@@ -105,9 +105,7 @@ async def run_download(options: CLIOptions) -> Path:
                 if isinstance(data, list):
                     existing_messages = data
                     ids = [
-                        m.get("id")
-                        for m in data
-                        if isinstance(m, dict) and "id" in m
+                        m.get("id") for m in data if isinstance(m, dict) and "id" in m
                     ]
                     if ids:
                         since_id = max(ids)
@@ -150,7 +148,9 @@ async def run_download(options: CLIOptions) -> Path:
             messages = _dedup_messages(existing_messages + messages)
 
         await downloader.save_messages(
-            messages, str(output_file), sort_order=options.sort,
+            messages,
+            str(output_file),
+            sort_order=options.sort,
             download_media=options.media,
         )
 
@@ -297,7 +297,7 @@ def build_options() -> CLIOptions | None:
         save_clicked = col_save.form_submit_button("Save as preset")
         delete_clicked = st.session_state.get(
             "form_preset"
-        ) and col_del.form_submit_button("\U0001F5D1 Delete preset")
+        ) and col_del.form_submit_button("\U0001f5d1 Delete preset")
         download_clicked = st.form_submit_button("Download")
 
     # Build current_values from form variables (available after any form submit)

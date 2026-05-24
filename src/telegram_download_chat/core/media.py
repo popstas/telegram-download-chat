@@ -370,7 +370,9 @@ class MediaMixin:
         # Standard path: pass full message so Telethon resolves WebPage internally.
         self.logger.debug("Standard download for message %s", message_id)
         try:
-            downloaded_path = await self.client.download_media(message, file=download_to)
+            downloaded_path = await self.client.download_media(
+                message, file=download_to
+            )
         except FileReferenceExpiredError:
             # The reference embedded in the message expired (common during long,
             # heavily-throttled runs). Refetch the message for a fresh reference

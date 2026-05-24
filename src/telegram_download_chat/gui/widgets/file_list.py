@@ -1,4 +1,5 @@
 """File list widget for the Telegram Download Chat GUI."""
+
 from pathlib import Path
 from typing import List, Optional
 
@@ -99,8 +100,7 @@ class FileListWidget(QWidget):
 
     def _style_copy_button(self):
         """Apply styles to the copy button."""
-        self.copy_btn.setStyleSheet(
-            """
+        self.copy_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4CAF50;
                 color: white;
@@ -119,8 +119,7 @@ class FileListWidget(QWidget):
             QPushButton:disabled {
                 background-color: #666666;
             }
-        """
-        )
+        """)
 
     def _connect_signals(self):
         """Connect signals to slots."""

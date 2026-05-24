@@ -1,4 +1,5 @@
 """Worker thread for handling background tasks."""
+
 import logging
 import os
 import subprocess

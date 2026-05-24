@@ -315,8 +315,7 @@ class DownloadTab(QWidget):
         self.start_btn = QPushButton("Start Download")
         self.start_btn.setFixedHeight(40)
         self.start_btn.setCursor(Qt.PointingHandCursor)
-        self.start_btn.setStyleSheet(
-            """
+        self.start_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4CAF50;
                 color: white;
@@ -337,8 +336,7 @@ class DownloadTab(QWidget):
                 background-color: #3d8b40;
                 padding: 9px 15px 7px 17px;  /* Creates a subtle press effect */
             }
-        """
-        )
+        """)
         btn_layout.addWidget(self.start_btn)
 
         # Add a simple loading indicator (ellipsis)
@@ -353,8 +351,7 @@ class DownloadTab(QWidget):
         self.stop_btn.setFixedHeight(40)
         self.stop_btn.setCursor(Qt.PointingHandCursor)
         self.stop_btn.setEnabled(False)
-        self.stop_btn.setStyleSheet(
-            """
+        self.stop_btn.setStyleSheet("""
             QPushButton {
                 background-color: #f44336;
                 color: white;
@@ -377,8 +374,7 @@ class DownloadTab(QWidget):
                 background-color: #b71c1c;
                 padding: 9px 15px 7px 17px;  /* Creates a subtle press effect */
             }
-        """
-        )
+        """)
         btn_layout.addWidget(self.stop_btn)
 
         # Add stretch to push buttons to the left
@@ -400,8 +396,7 @@ class DownloadTab(QWidget):
         self.progress.setVisible(False)
 
         # Custom progress bar styling
-        self.progress.setStyleSheet(
-            """
+        self.progress.setStyleSheet("""
             QProgressBar {
                 border: 1px solid #cccccc;
                 border-radius: 4px;
@@ -421,8 +416,7 @@ class DownloadTab(QWidget):
                 width: 10px;
                 margin: 0.5px;
             }
-        """
-        )
+        """)
 
         # Animation for indeterminate progress
         self.progress_animation = QPropertyAnimation(self.progress, b"value")
@@ -790,8 +784,7 @@ class DownloadTab(QWidget):
 
     def _reset_progress_style(self):
         """Reset progress bar style to default."""
-        self.progress.setStyleSheet(
-            """
+        self.progress.setStyleSheet("""
             QProgressBar {
                 border: 1px solid #cccccc;
                 border-radius: 4px;
@@ -811,8 +804,7 @@ class DownloadTab(QWidget):
                 width: 10px;
                 margin: 0.5px;
             }
-        """
-        )
+        """)
 
     def _start_loading_animation(self):
         """Show the loading indicator."""

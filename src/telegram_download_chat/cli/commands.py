@@ -396,9 +396,7 @@ async def process_chat_download(
     try:
         if args.split == "topics":
             if args.subchat:
-                raise ValueError(
-                    "--split topics is incompatible with --subchat"
-                )
+                raise ValueError("--split topics is incompatible with --subchat")
 
             entity = await downloader.get_entity(chat_identifier)
             topics_map = await fetch_forum_topics(downloader, entity)
@@ -427,9 +425,7 @@ async def process_chat_download(
                     media_placeholders=args.media_placeholders,
                     html_media_links=args.html_media_links,
                 )
-                downloader.logger.info(
-                    f"Saved {len(msgs)} messages to {split_file}"
-                )
+                downloader.logger.info(f"Saved {len(msgs)} messages to {split_file}")
             downloader.logger.info(
                 f"Saved {len(topic_dirs)} topic folders in {output_path.parent}"
             )
@@ -437,7 +433,9 @@ async def process_chat_download(
             # chat-level partial created during download is never paired
             # with a save_messages() call in topic mode, so clear it here.
             chat_partial = downloader.get_temp_file_path(output_path)
-            if chat_partial.exists() and not getattr(downloader, "_stop_requested", False):
+            if chat_partial.exists() and not getattr(
+                downloader, "_stop_requested", False
+            ):
                 try:
                     chat_partial.unlink()
                 except OSError:

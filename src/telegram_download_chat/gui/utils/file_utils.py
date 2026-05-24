@@ -1,4 +1,5 @@
 """File utility functions for the Telegram Download Chat GUI."""
+
 import os
 from pathlib import Path
 from typing import Union

@@ -26,16 +26,18 @@ class ConnectionStats:
     def to_dict(self) -> dict[str, Any]:
         """Convert stats to serializable dict."""
         return {
-            "connected_at": self.connected_at.isoformat() if self.connected_at else None,
-            "last_request_at": self.last_request_at.isoformat()
-            if self.last_request_at
-            else None,
+            "connected_at": (
+                self.connected_at.isoformat() if self.connected_at else None
+            ),
+            "last_request_at": (
+                self.last_request_at.isoformat() if self.last_request_at else None
+            ),
             "request_count": self.request_count,
             "error_count": self.error_count,
             "last_error": self.last_error,
-            "last_error_at": self.last_error_at.isoformat()
-            if self.last_error_at
-            else None,
+            "last_error_at": (
+                self.last_error_at.isoformat() if self.last_error_at else None
+            ),
         }
 
 

@@ -67,10 +67,10 @@ A `--media --html` run over a heavily-throttled channel ran for ~2 hours and sur
 - [x] Run `pytest` — must pass before Task 4.
 
 ### Task 4: Filter the "wrong session ID" / "Security error" noise
-- [ ] In `core/fast_download.py`, handle records whose message starts with `Security error while unpacking a received message`: either add a branch to `_ServerClosedRewriteFilter` (rewrite to `"Rate limited by Telegram, retrying…"`) or add a dedicated `_SecurityErrorFilter` on the `telethon.network.mtprotosender` logger. Match existing docstring style.
-- [ ] If adding a new filter class, register it in `_install_log_filter()` and ensure `_remove_log_filter()` clears it (already iterates `self._log_filters`).
-- [ ] Write test mirroring `test_server_closed_rewrite_filter_rewrites_message`: a record with msg `"Security error while unpacking a received message: %s"` is rewritten/dropped as designed; an unrelated record passes through unchanged.
-- [ ] Run `pytest` — must pass before Task 5.
+- [x] In `core/fast_download.py`, handle records whose message starts with `Security error while unpacking a received message`: either add a branch to `_ServerClosedRewriteFilter` (rewrite to `"Rate limited by Telegram, retrying…"`) or add a dedicated `_SecurityErrorFilter` on the `telethon.network.mtprotosender` logger. Match existing docstring style.
+- [x] If adding a new filter class, register it in `_install_log_filter()` and ensure `_remove_log_filter()` clears it (already iterates `self._log_filters`).
+- [x] Write test mirroring `test_server_closed_rewrite_filter_rewrites_message`: a record with msg `"Security error while unpacking a received message: %s"` is rewritten/dropped as designed; an unrelated record passes through unchanged.
+- [x] Run `pytest` — must pass before Task 5.
 
 ### Task 5: Verify acceptance criteria
 - [ ] Verify all three Overview problems are addressed: refetch retries once via standard downloader; fast-path failures fall back then refetch; orphaned tasks drained; session-ID noise filtered.

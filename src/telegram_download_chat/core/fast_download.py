@@ -119,6 +119,37 @@ class _ServerClosedRewriteFilter(logging.Filter):
         return True
 
 
+class _SecurityErrorFilter(logging.Filter):
+    """Drop Telethon's "Security error … wrong session ID" spam.
+
+    When Telegram throttles the cross-DC parallel senders, replies arrive
+    tagged with a session ID that no longer matches, and Telethon logs
+    "Security error while unpacking a received message: …" at WARNING from
+    `telethon.network.mtprotosender` for every dropped packet — hundreds of
+    lines during a heavily-throttled run. The packets are retried internally,
+    so the noise is harmless. We suppress it, emitting one concise warning the
+    first time so a genuine problem stays visible.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.warned = False
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not record.getMessage().startswith(
+            "Security error while unpacking a received message"
+        ):
+            return True
+        if not self.warned:
+            self.warned = True
+            log.warning(
+                "Telegram is throttling the parallel-download senders "
+                "(wrong session ID on replies); suppressing further "
+                "security-error noise."
+            )
+        return False
+
+
 class DownloadSender:
     """One MTProtoSender pulling a strided slice of a single file."""
 
@@ -195,6 +226,7 @@ class ParallelTransferrer:
             return
         for logger_name, filter_factory in (
             ("telethon.network.mtprotosender", _ReconnectAttrErrorFilter),
+            ("telethon.network.mtprotosender", _SecurityErrorFilter),
             ("telethon.network.connection.connection", _ServerClosedRewriteFilter),
         ):
             logger = logging.getLogger(logger_name)

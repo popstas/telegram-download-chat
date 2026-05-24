@@ -18,6 +18,7 @@ from telegram_download_chat.core.fast_download import (
     FastDownloadStalled,
     ParallelTransferrer,
     _ReconnectAttrErrorFilter,
+    _SecurityErrorFilter,
     _ServerClosedRewriteFilter,
 )
 from telegram_download_chat.core.media import MediaMixin
@@ -159,6 +160,41 @@ def test_server_closed_rewrite_filter_rewrites_message():
 def test_server_closed_rewrite_filter_leaves_unrelated_records():
     f = _ServerClosedRewriteFilter()
     logger = logging.getLogger("test.fast_download.connection")
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.WARNING,
+        fn=__file__,
+        lno=0,
+        msg="Connecting to %s...",
+        args=("dc 2",),
+        exc_info=None,
+    )
+    assert f.filter(record) is True
+    assert record.getMessage() == "Connecting to dc 2..."
+
+
+def test_security_error_filter_suppresses_message():
+    f = _SecurityErrorFilter()
+    logger = logging.getLogger("test.fast_download.mtprotosender")
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.WARNING,
+        fn=__file__,
+        lno=0,
+        msg="Security error while unpacking a received message: %s",
+        args=("Server replied with a wrong session ID",),
+        exc_info=None,
+    )
+    # First matching record is dropped (and a one-time warning is emitted).
+    assert f.filter(record) is False
+    assert f.warned is True
+    # Subsequent matching records are also dropped, without re-warning.
+    assert f.filter(record) is False
+
+
+def test_security_error_filter_leaves_unrelated_records():
+    f = _SecurityErrorFilter()
+    logger = logging.getLogger("test.fast_download.mtprotosender")
     record = logger.makeRecord(
         name=logger.name,
         level=logging.WARNING,

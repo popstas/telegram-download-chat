@@ -12,7 +12,13 @@ from .render import RenderMixin
 
 
 class TelegramChatDownloader(
-    ConfigMixin, AuthMixin, DownloadMixin, EntitiesMixin, MessagesMixin, MediaMixin, RenderMixin
+    ConfigMixin,
+    AuthMixin,
+    DownloadMixin,
+    EntitiesMixin,
+    MessagesMixin,
+    MediaMixin,
+    RenderMixin,
 ):
     """Main class for downloading Telegram chat history."""
 

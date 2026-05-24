@@ -1,4 +1,5 @@
 """Settings tab for the Telegram Download Chat GUI."""
+
 import asyncio
 import logging
 from pathlib import Path
@@ -127,8 +128,7 @@ class SettingsTab(QWidget):
             self.show_password_btn.setToolTip("Show/Hide API Hash")
             self.show_password_btn.setCheckable(True)
             self.show_password_btn.setFixedSize(24, 24)
-            self.show_password_btn.setStyleSheet(
-                """
+            self.show_password_btn.setStyleSheet("""
                 QPushButton {
                     border: none;
                     padding: 0;
@@ -138,8 +138,7 @@ class SettingsTab(QWidget):
                     background: #f0f0f0;
                     border-radius: 3px;
                 }
-            """
-            )
+            """)
 
             # Connect the button
             self.show_password_btn.toggled.connect(self._toggle_password_visibility)
@@ -161,14 +160,12 @@ class SettingsTab(QWidget):
 
         # Save button
         self.save_btn = QPushButton("Save API Credentials")
-        self.save_btn.setStyleSheet(
-            """
+        self.save_btn.setStyleSheet("""
             QPushButton {
                 padding: 8px 16px;
                 font-weight: bold;
             }
-        """
-        )
+        """)
         api_layout.addWidget(self.save_btn)
 
         # Help text
@@ -266,15 +263,13 @@ class SettingsTab(QWidget):
 
         # Logout button
         self.logout_btn = QPushButton("Logout")
-        self.logout_btn.setStyleSheet(
-            """
+        self.logout_btn.setStyleSheet("""
             QPushButton {
                 padding: 8px 16px;
                 font-weight: bold;
                 color: #f44336;
             }
-        """
-        )
+        """)
         logged_in_layout.addWidget(self.logout_btn)
 
         # Add logged in group to session layout (initially hidden)
@@ -489,7 +484,9 @@ class SettingsTab(QWidget):
 
         proxy_url = self.config.get("settings.proxy_url") or None
         self.telegram_auth = TelegramAuth(
-            api_id=int(api_id), api_hash=api_hash, session_path=session_path,
+            api_id=int(api_id),
+            api_hash=api_hash,
+            session_path=session_path,
             proxy_url=proxy_url,
         )
 

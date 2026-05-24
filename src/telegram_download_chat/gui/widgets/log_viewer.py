@@ -1,4 +1,5 @@
 """Log viewer widget for the Telegram Download Chat GUI."""
+
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import (
@@ -80,8 +81,7 @@ class LogViewer(QWidget):
             self.copy_btn.setIcon(copy_icon)
             self.copy_btn.setIconSize(QSize(16, 16))
 
-        self.copy_btn.setStyleSheet(
-            """
+        self.copy_btn.setStyleSheet("""
             QPushButton {
                 border: 1px solid #555;
                 padding: 2px 6px;
@@ -103,16 +103,14 @@ class LogViewer(QWidget):
                 background: #404040;
                 border-color: #555;
             }
-        """
-        )
+        """)
         header.addWidget(self.copy_btn)
 
         # Expand/collapse button
         self.expand_btn = QPushButton("+")
         self.expand_btn.setToolTip("Expand log")
         self.expand_btn.setFixedSize(24, 24)
-        self.expand_btn.setStyleSheet(
-            """
+        self.expand_btn.setStyleSheet("""
             QPushButton {
                 border: 1px solid #555;
                 padding: 0px;
@@ -126,8 +124,7 @@ class LogViewer(QWidget):
                 background: #606060;
                 border-color: #777;
             }
-        """
-        )
+        """)
         header.addWidget(self.expand_btn)
 
         # Add stretch to push buttons to the right
@@ -192,8 +189,7 @@ class LogViewer(QWidget):
 
             # Visual feedback
             original_style = self.copy_btn.styleSheet()
-            self.copy_btn.setStyleSheet(
-                """
+            self.copy_btn.setStyleSheet("""
                 QPushButton {
                     border: 1px solid #4CAF50 !important;
                     background: #81C784 !important;
@@ -202,8 +198,7 @@ class LogViewer(QWidget):
                     padding: 0;
                     margin: 0;
                 }
-            """
-            )
+            """)
 
             # Reset style after 1 second
             QTimer.singleShot(1000, lambda: self.copy_btn.setStyleSheet(original_style))

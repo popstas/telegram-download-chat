@@ -1,4 +1,5 @@
 """Configuration management for the Telegram Download Chat GUI."""
+
 import base64
 import logging
 from pathlib import Path
@@ -101,9 +102,9 @@ class ConfigManager:
                     config_to_save[key] = self._encode_binary(value)
                 elif isinstance(value, bytes):
                     # Handle binary data
-                    config_to_save[
-                        key
-                    ] = f"!!binary {base64.b64encode(value).decode('utf-8')}"
+                    config_to_save[key] = (
+                        f"!!binary {base64.b64encode(value).decode('utf-8')}"
+                    )
                 else:
                     # Try to convert to string as a fallback
                     try:

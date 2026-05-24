@@ -555,8 +555,7 @@ def _xml_escape(text: str) -> str:
     # Strip control characters (except \n, \t) that break ReportLab's XML parser
     cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text))
     return (
-        cleaned
-        .replace("&", "&amp;")
+        cleaned.replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
         .replace('"', "&quot;")
@@ -675,8 +674,11 @@ def _register_unicode_fonts() -> Dict[str, str]:
 
     # Warn if the selected font has limited Unicode coverage (no CJK/emoji)
     _limited_fonts = {
-        "DejaVuSans", "LiberationSans", "Helvetica",
-        "arial", "segoeui",
+        "DejaVuSans",
+        "LiberationSans",
+        "Helvetica",
+        "arial",
+        "segoeui",
     }
     font_basename = Path(regular).stem.replace("-Regular", "")
     if font_basename in _limited_fonts:
@@ -782,7 +784,11 @@ def _render_pdf_reportlab(
     def sender_style(hex_color: str) -> ParagraphStyle:
         if hex_color not in _sender_style_cache:
             hx = hex_color.lstrip("#")
-            r, g, b = int(hx[0:2], 16) / 255, int(hx[2:4], 16) / 255, int(hx[4:6], 16) / 255
+            r, g, b = (
+                int(hx[0:2], 16) / 255,
+                int(hx[2:4], 16) / 255,
+                int(hx[4:6], 16) / 255,
+            )
             _sender_style_cache[hex_color] = style(
                 fontSize=10,
                 fontName=FONT_BOLD,
@@ -794,7 +800,11 @@ def _render_pdf_reportlab(
     def av_bg_color(hex_color: str) -> colors.Color:
         if hex_color not in _av_bg_cache:
             hx = hex_color.lstrip("#")
-            r, g, b = int(hx[0:2], 16) / 255, int(hx[2:4], 16) / 255, int(hx[4:6], 16) / 255
+            r, g, b = (
+                int(hx[0:2], 16) / 255,
+                int(hx[2:4], 16) / 255,
+                int(hx[4:6], 16) / 255,
+            )
             _av_bg_cache[hex_color] = colors.Color(r, g, b)
         return _av_bg_cache[hex_color]
 

@@ -16,6 +16,7 @@ class DownloadMixin:
         self.partial_manager = PartialDownloadManager(self.make_serializable, logger)
         self._stop_requested = False
         self._stop_file: Path | None = None
+        self._current_entity: Any = None
 
     async def download_chat(
         self,
@@ -33,6 +34,9 @@ class DownloadMixin:
             await self.connect()
 
         entity = await self.get_entity(chat_id)
+        # Store the resolved entity so media downloads can refetch messages
+        # (e.g. to recover expired file references during long throttled runs).
+        self._current_entity = entity
 
         offset_id = 0  # always start from newest message
         all_messages: List[Any] = []

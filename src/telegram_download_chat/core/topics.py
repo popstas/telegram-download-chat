@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Tuple
 
-
 GENERAL_KEY = "general"
 GENERAL_TITLE = "General"
 

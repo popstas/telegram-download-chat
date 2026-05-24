@@ -7,9 +7,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, Field
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from pydantic import BaseModel, Field
 from telethon.errors import (
     AuthKeyUnregisteredError,
     FloodWaitError,
@@ -47,9 +47,7 @@ class TelegramErrorResponse(BaseModel):
     retry_after: Optional[int] = Field(
         default=None, description="Seconds to wait before retry (for rate limits)"
     )
-    rpc_code: Optional[int] = Field(
-        default=None, description="Telegram RPC error code"
-    )
+    rpc_code: Optional[int] = Field(default=None, description="Telegram RPC error code")
 
 
 # Global connection manager instance (singleton, survives client sessions)
@@ -163,11 +161,11 @@ async def _fetch_messages(
                 "date": serializable.get("date"),
                 "text": serializable.get("message", ""),
                 "user_name": user_name,
-                "reply_to_msg_id": serializable.get("reply_to", {}).get(
-                    "reply_to_msg_id"
-                )
-                if serializable.get("reply_to")
-                else None,
+                "reply_to_msg_id": (
+                    serializable.get("reply_to", {}).get("reply_to_msg_id")
+                    if serializable.get("reply_to")
+                    else None
+                ),
             }
         )
 

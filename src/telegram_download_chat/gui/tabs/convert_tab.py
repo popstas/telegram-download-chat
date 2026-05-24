@@ -1,4 +1,5 @@
 """Convert tab for the Telegram Download Chat GUI."""
+
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Signal

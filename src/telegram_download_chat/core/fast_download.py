@@ -119,6 +119,43 @@ class _ServerClosedRewriteFilter(logging.Filter):
         return True
 
 
+class _SecurityErrorFilter(logging.Filter):
+    """Drop Telethon's "Security error … wrong session ID" spam.
+
+    When Telegram throttles the cross-DC parallel senders, replies arrive
+    tagged with a session ID that no longer matches, and Telethon logs
+    "Security error while unpacking a received message: …" at WARNING from
+    `telethon.network.mtprotosender` for every dropped packet — hundreds of
+    lines during a heavily-throttled run. The packets are retried internally,
+    so the noise is harmless. We suppress it, emitting one concise warning the
+    first time so a genuine problem stays visible.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.warned = False
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        # Telethon prefixes several distinct security errors identically
+        # (invalid auth key / msg_key / msg_id, too many ignored messages…).
+        # Only the "wrong session ID" variant is the harmless throttling spam;
+        # let every other security error through so real problems stay visible.
+        if not (
+            message.startswith("Security error while unpacking a received message")
+            and "wrong session ID" in message
+        ):
+            return True
+        if not self.warned:
+            self.warned = True
+            log.warning(
+                "Telegram is throttling the parallel-download senders "
+                "(wrong session ID on replies); suppressing further "
+                "security-error noise."
+            )
+        return False
+
+
 class DownloadSender:
     """One MTProtoSender pulling a strided slice of a single file."""
 
@@ -195,6 +232,7 @@ class ParallelTransferrer:
             return
         for logger_name, filter_factory in (
             ("telethon.network.mtprotosender", _ReconnectAttrErrorFilter),
+            ("telethon.network.mtprotosender", _SecurityErrorFilter),
             ("telethon.network.connection.connection", _ServerClosedRewriteFilter),
         ):
             logger = logging.getLogger(logger_name)
@@ -339,12 +377,23 @@ class ParallelTransferrer:
                 tasks = [
                     self.loop.create_task(sender.next()) for sender in self.senders
                 ]
-                for task in tasks:
-                    data = await task
-                    if not data:
-                        break
-                    yield data
-                    part += 1
+                # Await siblings sequentially, but make sure that on *any* exit
+                # (an `await task` raising, or the `break` on a short chunk) the
+                # remaining tasks are cancelled and gathered. Otherwise their
+                # exceptions surface later as asyncio "Task exception was never
+                # retrieved" dumps. The genuine error re-raises after `finally`.
+                try:
+                    for task in tasks:
+                        data = await task
+                        if not data:
+                            break
+                        yield data
+                        part += 1
+                finally:
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             await self._cleanup()
 

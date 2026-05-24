@@ -18,6 +18,7 @@ from telegram_download_chat.core.fast_download import (
     FastDownloadStalled,
     ParallelTransferrer,
     _ReconnectAttrErrorFilter,
+    _SecurityErrorFilter,
     _ServerClosedRewriteFilter,
 )
 from telegram_download_chat.core.media import MediaMixin
@@ -170,6 +171,126 @@ def test_server_closed_rewrite_filter_leaves_unrelated_records():
     )
     assert f.filter(record) is True
     assert record.getMessage() == "Connecting to dc 2..."
+
+
+def test_security_error_filter_suppresses_message():
+    f = _SecurityErrorFilter()
+    logger = logging.getLogger("test.fast_download.mtprotosender")
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.WARNING,
+        fn=__file__,
+        lno=0,
+        msg="Security error while unpacking a received message: %s",
+        args=("Server replied with a wrong session ID",),
+        exc_info=None,
+    )
+    # First matching record is dropped (and a one-time warning is emitted).
+    assert f.filter(record) is False
+    assert f.warned is True
+    # Subsequent matching records are also dropped, without re-warning.
+    assert f.filter(record) is False
+
+
+def test_security_error_filter_leaves_other_security_errors():
+    # Telethon reuses the same prefix for unrelated, genuine security errors
+    # (e.g. invalid msg_key). Those must not be suppressed.
+    f = _SecurityErrorFilter()
+    logger = logging.getLogger("test.fast_download.mtprotosender")
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.WARNING,
+        fn=__file__,
+        lno=0,
+        msg="Security error while unpacking a received message: %s",
+        args=("Cannot decrypt the message (invalid msg_key)",),
+        exc_info=None,
+    )
+    assert f.filter(record) is True
+    assert f.warned is False
+
+
+def test_security_error_filter_leaves_unrelated_records():
+    f = _SecurityErrorFilter()
+    logger = logging.getLogger("test.fast_download.mtprotosender")
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.WARNING,
+        fn=__file__,
+        lno=0,
+        msg="Connecting to %s...",
+        args=("dc 2",),
+        exc_info=None,
+    )
+    assert f.filter(record) is True
+    assert record.getMessage() == "Connecting to dc 2..."
+
+
+@pytest.mark.asyncio
+async def test_download_drains_orphaned_tasks_on_exception(monkeypatch):
+    """When one sender.next() raises, sibling tasks must be cancelled and
+    gathered so their exceptions never surface as asyncio "Task exception was
+    never retrieved" warnings. The original error still propagates."""
+
+    transferrer = ParallelTransferrer.__new__(ParallelTransferrer)
+    transferrer.loop = asyncio.get_event_loop()
+    transferrer.dc_id = 2
+    transferrer.senders = None
+    transferrer._log_filters = []
+
+    class FailingSender:
+        async def next(self):
+            raise FastDownloadStalled("boom")
+
+        async def disconnect(self):
+            return None
+
+    class SlowSender:
+        def __init__(self):
+            self.cancelled = False
+
+        async def next(self):
+            try:
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+            return b"x" * 1024
+
+        async def disconnect(self):
+            return None
+
+    slow1, slow2 = SlowSender(), SlowSender()
+
+    async def fake_init(connections, file, part_count, part_size):
+        transferrer.senders = [FailingSender(), slow1, slow2]
+
+    monkeypatch.setattr(transferrer, "_init_download", fake_init)
+
+    created = []
+    real_create_task = transferrer.loop.create_task
+
+    def tracking_create_task(coro):
+        task = real_create_task(coro)
+        created.append(task)
+        return task
+
+    monkeypatch.setattr(transferrer.loop, "create_task", tracking_create_task)
+
+    gen = transferrer.download(object(), 10 * 1024, part_size_kb=1, connection_count=3)
+    with pytest.raises(FastDownloadStalled):
+        async for _ in gen:
+            pass
+
+    # 3 sender.next() tasks (gather in _cleanup wraps disconnect coroutines too).
+    assert len(created) >= 3
+    assert all(task.done() for task in created)
+    # The two slow siblings were cancelled rather than abandoned.
+    assert slow1.cancelled and slow2.cancelled
+    # All exceptions are retrievable (consumed) — no "never retrieved" warning.
+    for task in created:
+        if not task.cancelled():
+            task.exception()
 
 
 def _make_throttle_downloader(connections: int) -> MediaMixin:

@@ -1,4 +1,5 @@
 """Main window for the Telegram Download Chat GUI."""
+
 import logging
 import os
 import sys

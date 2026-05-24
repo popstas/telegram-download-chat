@@ -192,6 +192,24 @@ def test_security_error_filter_suppresses_message():
     assert f.filter(record) is False
 
 
+def test_security_error_filter_leaves_other_security_errors():
+    # Telethon reuses the same prefix for unrelated, genuine security errors
+    # (e.g. invalid msg_key). Those must not be suppressed.
+    f = _SecurityErrorFilter()
+    logger = logging.getLogger("test.fast_download.mtprotosender")
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.WARNING,
+        fn=__file__,
+        lno=0,
+        msg="Security error while unpacking a received message: %s",
+        args=("Cannot decrypt the message (invalid msg_key)",),
+        exc_info=None,
+    )
+    assert f.filter(record) is True
+    assert f.warned is False
+
+
 def test_security_error_filter_leaves_unrelated_records():
     f = _SecurityErrorFilter()
     logger = logging.getLogger("test.fast_download.mtprotosender")

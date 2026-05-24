@@ -392,8 +392,10 @@ class MediaMixin:
         the message's ``peer_id`` as a fallback), then refetch the message to get a
         non-stale reference.
 
-        Returns the refetched ``Message`` only if it still carries media, otherwise
-        ``None`` (and on any failure).
+        Returns the refetched ``Message`` only if it still carries media whose
+        identity matches the original (so an edited/replaced message does not
+        silently attach the wrong file under the old name), otherwise ``None``
+        (and on any failure).
         """
         entity = getattr(self, "_current_entity", None)
         if entity is None:
@@ -414,9 +416,34 @@ class MediaMixin:
             )
             return None
 
-        if fresh is not None and getattr(fresh, "media", None):
-            return fresh
-        return None
+        if fresh is None or not getattr(fresh, "media", None):
+            return None
+
+        # Guard against the message being edited/replaced between the original
+        # fetch and the refetch: only the file reference may legitimately change,
+        # not the underlying document/photo. If the identity differs, refuse to
+        # download it under the original file's name/category.
+        original_id = self._media_identity(getattr(message, "media", None))
+        fresh_id = self._media_identity(fresh.media)
+        if original_id is not None and fresh_id != original_id:
+            self.logger.warning(
+                "Refetched message %s has different media (was %s, now %s); "
+                "skipping to avoid attaching the wrong file.",
+                message_id,
+                original_id,
+                fresh_id,
+            )
+            return None
+        return fresh
+
+    def _media_identity(self, media: Any) -> Optional[int]:
+        """Return the stable id of a media's underlying document/photo, or None.
+
+        File references rotate, but the document/photo ``id`` is stable, so it is
+        what distinguishes the original media from a replacement after an edit.
+        """
+        binary_obj, _ = self._extract_binary_object(media)
+        return getattr(binary_obj, "id", None)
 
     def _resolve_fast_download_settings(self) -> Tuple[bool, int, int]:
         """Return (enabled, connection_count, threshold_bytes), cached per run."""

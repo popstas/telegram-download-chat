@@ -80,6 +80,42 @@ async def test_refetch_message_returns_none_when_no_media():
 
 
 @pytest.mark.asyncio
+async def test_refetch_message_accepts_matching_media_identity():
+    d = _make_media_mixin()
+    d._current_entity = object()
+    original = MagicMock()
+    original.media = object()
+    fresh = MagicMock()
+    fresh.media = object()
+    d.client.get_messages = AsyncMock(return_value=fresh)
+    # Same underlying document/photo id on both sides.
+    d._extract_binary_object = MagicMock(return_value=(MagicMock(id=111), 10))
+
+    result = await d._refetch_message(original, "42")
+
+    assert result is fresh
+
+
+@pytest.mark.asyncio
+async def test_refetch_message_rejects_changed_media_identity():
+    d = _make_media_mixin()
+    d._current_entity = object()
+    original = MagicMock()
+    original.media = object()
+    fresh = MagicMock()
+    fresh.media = object()
+    d.client.get_messages = AsyncMock(return_value=fresh)
+    # Original document id 111, refetched message now carries a different id 222.
+    d._extract_binary_object = MagicMock(
+        side_effect=[(MagicMock(id=111), 10), (MagicMock(id=222), 10)]
+    )
+
+    result = await d._refetch_message(original, "42")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_refetch_message_returns_none_on_failure():
     d = _make_media_mixin()
     d._current_entity = object()

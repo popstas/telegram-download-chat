@@ -136,8 +136,14 @@ class _SecurityErrorFilter(logging.Filter):
         self.warned = False
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if not record.getMessage().startswith(
-            "Security error while unpacking a received message"
+        message = record.getMessage()
+        # Telethon prefixes several distinct security errors identically
+        # (invalid auth key / msg_key / msg_id, too many ignored messages…).
+        # Only the "wrong session ID" variant is the harmless throttling spam;
+        # let every other security error through so real problems stay visible.
+        if not (
+            message.startswith("Security error while unpacking a received message")
+            and "wrong session ID" in message
         ):
             return True
         if not self.warned:

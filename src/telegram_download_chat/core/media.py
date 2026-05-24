@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from telethon.errors import FloodWaitError
+from telethon.errors import FileReferenceExpiredError, FloodWaitError
 from telethon.tl.types import (
     Document,
     DocumentAttributeFilename,
@@ -369,8 +369,52 @@ class MediaMixin:
 
         # Standard path: pass full message so Telethon resolves WebPage internally.
         self.logger.debug("Standard download for message %s", message_id)
-        downloaded_path = await self.client.download_media(message, file=download_to)
+        try:
+            downloaded_path = await self.client.download_media(message, file=download_to)
+        except FileReferenceExpiredError:
+            # The reference embedded in the message expired (common during long,
+            # heavily-throttled runs). Refetch the message for a fresh reference
+            # and retry once via the standard downloader.
+            fresh = await self._refetch_message(message, message_id)
+            if fresh is None:
+                raise
+            downloaded_path = await self.client.download_media(fresh, file=download_to)
         return Path(downloaded_path) if downloaded_path else None
+
+    async def _refetch_message(self, message: Any, message_id: Any) -> Optional[Any]:
+        """Refetch a message by id to obtain a fresh file reference.
+
+        Telegram file references embedded in ``Message`` objects are short-lived;
+        on a throttled run they may expire before the download starts. Resolve the
+        target entity (the stored ``_current_entity`` from the active download, or
+        the message's ``peer_id`` as a fallback), then refetch the message to get a
+        non-stale reference.
+
+        Returns the refetched ``Message`` only if it still carries media, otherwise
+        ``None`` (and on any failure).
+        """
+        entity = getattr(self, "_current_entity", None)
+        if entity is None:
+            entity = getattr(message, "peer_id", None)
+        if entity is None:
+            return None
+
+        self.logger.warning(
+            "File reference expired for message %s; refetching…", message_id
+        )
+        try:
+            fresh = await self.client.get_messages(entity, ids=int(message_id))
+        except Exception as e:
+            self.logger.warning(
+                "Failed to refetch message %s for fresh file reference: %s",
+                message_id,
+                e,
+            )
+            return None
+
+        if fresh is not None and getattr(fresh, "media", None):
+            return fresh
+        return None
 
     def _resolve_fast_download_settings(self) -> Tuple[bool, int, int]:
         """Return (enabled, connection_count, threshold_bytes), cached per run."""

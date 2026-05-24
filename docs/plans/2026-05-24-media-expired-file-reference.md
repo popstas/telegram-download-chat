@@ -48,17 +48,17 @@ A `--media --html` run over a heavily-throttled channel ran for ~2 hours and sur
 - [x] Run `pytest` — must pass before Task 2.
 
 ### Task 2: Add refetch helper + retry on expired reference in media.py
-- [ ] Import `FileReferenceExpiredError` from `telethon.errors` at the top of `core/media.py`.
-- [ ] Add `async def _refetch_message(self, message, message_id) -> Optional[Any]` to `MediaMixin`:
+- [x] Import `FileReferenceExpiredError` from `telethon.errors` at the top of `core/media.py`.
+- [x] Add `async def _refetch_message(self, message, message_id) -> Optional[Any]` to `MediaMixin`:
   - Resolve target entity: prefer `getattr(self, "_current_entity", None)`; else fall back to `getattr(message, "peer_id", None)`. Return `None` if neither available.
   - `fresh = await self.client.get_messages(entity, ids=int(message_id))` (scalar id → single `Message`).
   - Return `fresh` only if it has `.media`, else `None`. Wrap in try/except → return `None` on failure. Emit one concise `warning` ("File reference expired for message %s; refetching…").
-- [ ] In `_download_binary_media()` standard path (currently `media.py:372`), wrap the `client.download_media` call: on `FileReferenceExpiredError`, `fresh = await self._refetch_message(message, message_id)`; if `None`, re-raise; else retry `await self.client.download_media(fresh, file=download_to)` once. (Fast-path expired refs already fall through to this standard path, so they're covered.)
-- [ ] Write tests (`tests/test_media_refetch.py`, minimal `MediaMixin` + mock client):
+- [x] In `_download_binary_media()` standard path (currently `media.py:372`), wrap the `client.download_media` call: on `FileReferenceExpiredError`, `fresh = await self._refetch_message(message, message_id)`; if `None`, re-raise; else retry `await self.client.download_media(fresh, file=download_to)` once. (Fast-path expired refs already fall through to this standard path, so they're covered.)
+- [x] Write tests (`tests/test_media_refetch.py`, minimal `MediaMixin` + mock client):
   - `_refetch_message` returns fresh message via `_current_entity`; returns `None` when no entity and message lacks `peer_id`.
   - Standard path: first `download_media` raises `FileReferenceExpiredError`, refetch returns fresh, second succeeds → path returned; `get_messages` called once with the id.
   - Refetch yields `None` → original `FileReferenceExpiredError` propagates.
-- [ ] Run `pytest` — must pass before Task 3.
+- [x] Run `pytest` — must pass before Task 3.
 
 ### Task 3: Drain orphaned sender tasks in fast_download.download()
 - [ ] In `ParallelTransferrer.download()` (`fast_download.py:337–347`), wrap the per-iteration `for task in tasks` loop in `try/finally`. In `finally`: cancel any not-`done()` task, then `await asyncio.gather(*tasks, return_exceptions=True)`. Let the original exception from `await task` propagate after draining (so `media.py` still sees `FileReferenceExpiredError`/`FastDownloadStalled`).

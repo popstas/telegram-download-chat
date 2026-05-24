@@ -34,10 +34,18 @@ A powerful command-line, GUI and web interface utility to download and analyze T
 pip install telegram-download-chat
 ```
 
-### Using uvx (alternative package manager)
+### Using uv (alternative package manager)
+
+Run it directly without installing:
 
 ```bash
-uvx install git+https://github.com/popstas/telegram-download-chat.git
+uvx telegram-download-chat username
+```
+
+Or install it as a persistent tool:
+
+```bash
+uv tool install telegram-download-chat
 ```
 
 ### GUI Version (Optional)

@@ -19,10 +19,11 @@ allowed-tools: [Bash, Read, AskUserQuestion, Glob]
 
 ### Step 0 — Verify the CLI is available
 
-Run `which telegram-download-chat`. If found, use that command directly. If not found, try `python -m telegram_download_chat --version`. If neither works, tell the user the tool is not installed and offer one of:
+Run `which telegram-download-chat`. If found, use that command directly. If not found, try `python -m telegram_download_chat --version`. If neither works, the tool is not installed — tell the user so and proactively offer to install it, using the methods documented in the project `README.md` ("Installation" section):
 
-- `pipx install telegram-download-chat` (isolated, recommended for a global tool)
+- `pip install telegram-download-chat` (recommended persistent install)
 - `uvx telegram-download-chat <args>` (run without installing)
+- `uv tool install telegram-download-chat` (persistent install via uv)
 - `pip install -e ".[dev,gui]"` from a checkout of this repo (development)
 
 Do not install anything without the user's confirmation.

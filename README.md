@@ -526,6 +526,41 @@ Or using uvx:
 
 Before using the MCP server, you must authenticate via CLI or GUI at least once to create a valid Telegram session.
 
+## Testing
+
+Run the standard test suite (fast, no network):
+
+```bash
+pytest
+```
+
+### Running the e2e suite
+
+The end-to-end export tests (`tests/test_e2e_export.py`, marked `@pytest.mark.e2e`)
+validate the HTML/PDF export against a live private Telegram group that contains
+all formatting, replies, and reposts. They are **skipped by default** and are not
+part of CI, because they require:
+
+- Real API credentials in your `config.yml` (`api_id` / `api_hash`, not the
+  placeholders), and
+- An authenticated `session.session` for an account that is a **member** of the
+  test group.
+
+Enable them explicitly with the `TG_E2E` opt-in and the `e2e` marker:
+
+```bash
+# Run only the e2e export tests against the default test group
+TG_E2E=1 pytest -m e2e
+
+# Override the target group (must be an account you are a member of)
+TG_E2E=1 TG_E2E_GROUP="https://t.me/+XXXXXXXX" pytest -m e2e
+```
+
+The e2e download uses `--overwrite` (a clean download) so the export reflects the
+live group rather than a cached/resumed partial. When `TG_E2E` is unset, or the
+credentials/session are missing, the tests skip with a clear reason and the
+default `pytest` run is unaffected.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

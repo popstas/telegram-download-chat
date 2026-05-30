@@ -194,16 +194,16 @@ and a more informative GUI without regressing existing JSON/TXT output.
 
 ### Task 9: E2E export validation against live test group (#80)
 
-- [ ] Add an opt-in e2e test (e.g. `@pytest.mark.e2e`, skipped when no Telegram
+- [x] Add an opt-in e2e test (e.g. `@pytest.mark.e2e`, skipped when no Telegram
       session/credentials) that performs a clean download (`--overwrite`) of the
       test group https://t.me/+5GOZOYpeK-hlMzUy
-- [ ] Render the downloaded export to HTML and PDF
-- [ ] Assert the HTML/PDF output reflects the group's content: inline formatting
+- [x] Render the downloaded export to HTML and PDF
+- [x] Assert the HTML/PDF output reflects the group's content: inline formatting
       (bold/italic/underline/strikethrough/code/links), reply anchors + thread
       headers, and reposts/forwarded messages
-- [ ] Document how to run the e2e suite (required auth + group membership, marker
+- [x] Document how to run the e2e suite (required auth + group membership, marker
       selection) in the test docs or README
-- [ ] run project tests - default run must still pass with e2e skipped
+- [x] run project tests - default run must still pass with e2e skipped
 
 ### Task 10: Verify acceptance criteria
 

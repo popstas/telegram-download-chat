@@ -91,6 +91,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "e2e: opt-in end-to-end tests that hit live Telegram (require an authenticated session and group membership; skipped by default).",
+]
 
 [tool.black]
 line-length = 88

@@ -21,6 +21,10 @@ def qapp():
 
     app = QApplication.instance() or QApplication([])
     yield app
+    for widget in app.allWidgets():
+        widget.close()
+        widget.deleteLater()
+    app.processEvents()
 
 
 def test_input_background_matches_lineedit(qapp):

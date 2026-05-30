@@ -158,6 +158,10 @@ def qapp():
 
     app = QApplication.instance() or QApplication([])
     yield app
+    for widget in app.allWidgets():
+        widget.close()
+        widget.deleteLater()
+    app.processEvents()
 
 
 def _make_settings_tab():

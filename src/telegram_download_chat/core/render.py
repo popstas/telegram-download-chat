@@ -74,6 +74,10 @@ a:hover{text-decoration:underline}
 .threadsep{text-align:center;margin:16px 0 8px;user-select:none}
 .threadsep span{display:inline-block;max-width:80%;color:#5a6b7b;font-size:12px;
   font-weight:600;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Spoiler */
+.spoiler{background:#1f2c33;color:transparent;border-radius:4px;padding:0 2px;
+  cursor:pointer;transition:color .15s ease,background .15s ease}
+.spoiler:hover{background:rgba(0,0,0,0.06);color:inherit}
 /* Service message */
 .svc{text-align:center;margin:8px auto;user-select:none}
 .svc span{background:rgba(0,0,0,0.16);color:#fff;border-radius:12px;

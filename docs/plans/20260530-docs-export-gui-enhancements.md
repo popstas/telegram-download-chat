@@ -146,20 +146,20 @@ and a more informative GUI without regressing existing JSON/TXT output.
 
 ### Task 6: Windows app auto-update
 
-- [ ] Add a core update checker (model after talks-reducer's
+- [x] Add a core update checker (model after talks-reducer's
       `update_checker.py`): query GitHub `releases/latest`, parse the version tag,
       compare to the running version, resolve installer/portable download URL
       (Windows-only download/install)
-- [ ] Add a "Check updates" button to the Settings tab
+- [x] Add a "Check updates" button to the Settings tab
       (`gui/tabs/settings_tab.py`) in its own group; on click, fetch and show the
       latest version (up-to-date vs. newer). Do NOT disable the button after the
       check — it stays clickable
-- [ ] When an update is available, replace the "Check updates" button with a
+- [x] When an update is available, replace the "Check updates" button with a
       "Download" button that downloads/opens the new build, mirroring
       talks-reducer's behavior
-- [ ] write tests for version comparison / update-available detection (GUI button
+- [x] write tests for version comparison / update-available detection (GUI button
       swap logic tested where feasible)
-- [ ] run project tests - must pass before next task
+- [x] run project tests - must pass before next task
 
 ### Task 7: Post-`--media` download summary (size, speed, cached, retries)
 

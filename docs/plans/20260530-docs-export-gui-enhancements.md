@@ -95,9 +95,9 @@ and a more informative GUI without regressing existing JSON/TXT output.
 
 ### Task 1: Reorder README sections
 
-- [ ] Move the Usage section above the Installation section in `README.md`
-- [ ] Verify all internal links/anchors and the table of contents still resolve
-- [ ] run project tests - must pass before next task
+- [x] Move the Usage section above the Installation section in `README.md`
+- [x] Verify all internal links/anchors and the table of contents still resolve
+- [x] run project tests - must pass before next task
 
 ### Task 2: Document GUI entity identifiers
 

@@ -22,109 +22,6 @@ A powerful command-line, GUI and web interface utility to download and analyze T
 - Filter messages by sub-conversations from message threads
 
 
-## Installation
-
-### Prerequisites
-- Python 3.8 or higher
-- pip (Python package manager)
-
-### Install from PyPI (recommended)
-
-```bash
-pip install telegram-download-chat
-```
-
-### Using uv (alternative package manager)
-
-Run it directly without installing:
-
-```bash
-uvx telegram-download-chat username
-```
-
-Or install it as a persistent tool:
-
-```bash
-uv tool install telegram-download-chat
-```
-
-### GUI Version (Optional)
-
-For those who prefer a graphical interface, a GUI version is available. 
-
-Windows build is available in the [releases](https://github.com/popstas/telegram-download-chat/releases/latest) page.
-
-1. Install with GUI dependencies:
-   ```bash
-   pip install "telegram-download-chat[gui]"
-   ```
-
-2. Launch the GUI:
-   ```bash
-   telegram-download-chat gui
-   ```
-
-### Web Interface
-
-A lightweight web interface built with Streamlit is also available.
-
-1. Install with web dependencies:
-   ```bash
-   pip install "telegram-download-chat[web]"
-   ```
-
-2. Launch the web UI:
-   ```bash
-   telegram-download-chat-web
-   ```
-
-## Configuration
-
-### API Credentials
-
-To use this tool, you'll need to obtain API credentials from [my.telegram.org](https://my.telegram.org):
-
-1. Go to [API Development Tools](https://my.telegram.org/apps)
-2. Log in with your phone number
-   - **Important**: Do not use a VPN when obtaining API credentials
-3. Create a new application
-4. Copy the `api_id` and `api_hash` to your `config.yml`
-
-### Configuration File
-
-The configuration file is automatically created on first run in your application data directory:
-- **Windows**: `%APPDATA%\telegram-download-chat\config.yml`
-- **macOS**: `~/Library/Application Support/telegram-download-chat/config.yml`
-- **Linux**: `~/.local/share/telegram-download-chat/config.yml`
-
-#### Example Configuration
-
-```yaml
-# Telegram API credentials (required)
-settings:
-  api_id: your_api_id       # Get from https://my.telegram.org
-  api_hash: your_api_hash   # Get from https://my.telegram.org
-  session_name: session     # Optional: Custom session file name
-  request_delay: 1          # Delay between API requests in seconds
-  max_retries: 5            # Maximum number of retry attempts
-  log_level: INFO           # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-  log_file: app.log        # Path to log file (relative to app dir or absolute)
-
-# Map user IDs to display names for text exports
-# Names for users and bots are automatically fetched and stored here, you can change them here.
-users_map:
-  123456: "Alice"
-  789012: "Bob"
-
-# Presets for frequently used argument sets
-presets:
-  - name: short
-    args:
-      limit: 100
-```
-
-You can also specify a custom config file location using the `--config` flag.
-
 ## Usage
 
 For the first run, you will need to log in to your Telegram account. A browser window will open for authentication.
@@ -235,6 +132,109 @@ options:
   --proxy-url URL       Proxy URL for Telegram connection (socks5://host:1080, http://host:8080)
   -v, --version         Show program's version number and exit
 ```
+
+## Installation
+
+### Prerequisites
+- Python 3.8 or higher
+- pip (Python package manager)
+
+### Install from PyPI (recommended)
+
+```bash
+pip install telegram-download-chat
+```
+
+### Using uv (alternative package manager)
+
+Run it directly without installing:
+
+```bash
+uvx telegram-download-chat username
+```
+
+Or install it as a persistent tool:
+
+```bash
+uv tool install telegram-download-chat
+```
+
+### GUI Version (Optional)
+
+For those who prefer a graphical interface, a GUI version is available. 
+
+Windows build is available in the [releases](https://github.com/popstas/telegram-download-chat/releases/latest) page.
+
+1. Install with GUI dependencies:
+   ```bash
+   pip install "telegram-download-chat[gui]"
+   ```
+
+2. Launch the GUI:
+   ```bash
+   telegram-download-chat gui
+   ```
+
+### Web Interface
+
+A lightweight web interface built with Streamlit is also available.
+
+1. Install with web dependencies:
+   ```bash
+   pip install "telegram-download-chat[web]"
+   ```
+
+2. Launch the web UI:
+   ```bash
+   telegram-download-chat-web
+   ```
+
+## Configuration
+
+### API Credentials
+
+To use this tool, you'll need to obtain API credentials from [my.telegram.org](https://my.telegram.org):
+
+1. Go to [API Development Tools](https://my.telegram.org/apps)
+2. Log in with your phone number
+   - **Important**: Do not use a VPN when obtaining API credentials
+3. Create a new application
+4. Copy the `api_id` and `api_hash` to your `config.yml`
+
+### Configuration File
+
+The configuration file is automatically created on first run in your application data directory:
+- **Windows**: `%APPDATA%\telegram-download-chat\config.yml`
+- **macOS**: `~/Library/Application Support/telegram-download-chat/config.yml`
+- **Linux**: `~/.local/share/telegram-download-chat/config.yml`
+
+#### Example Configuration
+
+```yaml
+# Telegram API credentials (required)
+settings:
+  api_id: your_api_id       # Get from https://my.telegram.org
+  api_hash: your_api_hash   # Get from https://my.telegram.org
+  session_name: session     # Optional: Custom session file name
+  request_delay: 1          # Delay between API requests in seconds
+  max_retries: 5            # Maximum number of retry attempts
+  log_level: INFO           # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  log_file: app.log        # Path to log file (relative to app dir or absolute)
+
+# Map user IDs to display names for text exports
+# Names for users and bots are automatically fetched and stored here, you can change them here.
+users_map:
+  123456: "Alice"
+  789012: "Bob"
+
+# Presets for frequently used argument sets
+presets:
+  - name: short
+    args:
+      limit: 100
+```
+
+You can also specify a custom config file location using the `--config` flag.
 
 ## Advanced Features
 

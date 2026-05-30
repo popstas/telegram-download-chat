@@ -2342,3 +2342,135 @@ class TestFormatEntities:
         assert out.exists()
         assert out.stat().st_size > 0
         assert out.read_bytes().startswith(b"%PDF")
+
+
+class TestHtmlThreadsAndAnchors:
+    """HTML reply anchors + thread headers (#80, Task 4)."""
+
+    @staticmethod
+    def _renderer():
+        from telegram_download_chat.core.render import RenderMixin
+
+        return RenderMixin()
+
+    @staticmethod
+    def _msg(mid, minute, sender, text, reply=None):
+        m = {
+            "id": mid,
+            "date": f"2026-01-01T10:{minute:02d}:00+00:00",
+            "from_id": {"user_id": sender},
+            "user_display_name": f"User{sender}",
+            "message": text,
+        }
+        if reply is not None:
+            m["reply_to"] = reply
+        return m
+
+    def test_bubble_anchor_ids(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [self._msg(1, 0, 1, "hello"), self._msg(2, 5, 2, "world")],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        assert 'id="msg-1"' in html
+        assert 'id="msg-2"' in html
+
+    def test_reply_anchor_when_parent_in_export(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [
+                self._msg(1, 0, 1, "Topic Alpha"),
+                self._msg(2, 5, 2, "re alpha", reply={"reply_to_msg_id": 1}),
+            ],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        # Reply cites the parent's first line and links to its bubble anchor.
+        assert '<a href="#msg-1">Topic Alpha</a>' in html
+
+    def test_reply_anchor_fallback_to_quote_text(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [
+                self._msg(
+                    5,
+                    0,
+                    1,
+                    "reply to missing",
+                    reply={"reply_to_msg_id": 999, "quote_text": "old quote"},
+                )
+            ],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        # Parent not in export: show stored quote text, no anchor link.
+        assert "old quote" in html
+        assert 'href="#msg-999"' not in html
+
+    def test_thread_headers_on_change_and_recurrence(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        messages = [
+            self._msg(1, 0, 1, "Topic Alpha"),
+            self._msg(2, 5, 2, "re alpha", reply={"reply_to_msg_id": 1}),
+            self._msg(3, 10, 3, "just a standalone note"),
+            self._msg(4, 15, 2, "alpha again", reply={"reply_to_msg_id": 1}),
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        # Header on first appearance + recurrence after the standalone message.
+        assert html.count('class="threadsep"') == 2
+        # Header text is the root message's first line.
+        assert "Topic Alpha" in html
+        # The standalone message itself still renders.
+        assert "just a standalone note" in html
+
+    def test_standalone_messages_get_no_thread_header(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [self._msg(1, 0, 1, "one"), self._msg(2, 5, 2, "two")],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        assert 'class="threadsep"' not in html
+
+    def test_thread_name_fallback_when_root_has_no_text(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        messages = [
+            self._msg(1, 0, 1, ""),  # root has no text
+            self._msg(2, 5, 2, "child", reply={"reply_to_msg_id": 1}),
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert "Thread #1" in html
+
+    def test_preprocess_threads_opt_in_only(self):
+        renderer = self._renderer()
+        messages = [
+            self._msg(1, 0, 1, "root"),
+            self._msg(2, 5, 2, "child", reply={"reply_to_msg_id": 1}),
+        ]
+        # PDF path (default) must not inject thread items.
+        plain = renderer._preprocess_messages(messages, None)
+        assert all(it["type"] != "thread" for it in plain)
+        # HTML path opts in.
+        threaded = renderer._preprocess_messages(messages, None, with_threads=True)
+        assert any(it["type"] == "thread" for it in threaded)
+
+    def test_thread_root_cycle_guarded(self):
+        from telegram_download_chat.core.render import _thread_root
+
+        id_to_msg = {1: {"id": 1}, 2: {"id": 2}}
+        parent_of = {1: 2, 2: 1}  # reply loop
+        # Must terminate (no infinite loop) and return one of the ids.
+        assert _thread_root(1, parent_of, id_to_msg) in (1, 2)

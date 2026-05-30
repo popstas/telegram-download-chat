@@ -123,17 +123,17 @@ and a more informative GUI without regressing existing JSON/TXT output.
 
 ### Task 4: HTML export — reply anchors + thread headers (#80)
 
-- [ ] Add `id="msg-<id>"` to each message bubble; cite the replied-to message's
+- [x] Add `id="msg-<id>"` to each message bubble; cite the replied-to message's
       first line as `href="#msg-<parent_id>"`, falling back to existing
       `quote_text` when the parent is not in the export
-- [ ] Add thread headers via `_preprocess_messages(..., with_threads=True)` from
+- [x] Add thread headers via `_preprocess_messages(..., with_threads=True)` from
       `render_html`: chronological order, reply-chain root computation
       (cycle-guarded), inject `--- name ---` on thread change, name = first line
       of root msg (fallback `Thread #<id>`), no header for standalone messages;
       PDF unaffected
-- [ ] write tests: HTML integration (thread headers only on change, none for
+- [x] write tests: HTML integration (thread headers only on change, none for
       standalone, recurrence, bubble anchors, reply-anchor + fallback)
-- [ ] run project tests (`pytest`), `black`, `isort` - must pass before next task
+- [x] run project tests (`pytest`), `black`, `isort` - must pass before next task
 
 ### Task 5: Structured GUI progress events
 

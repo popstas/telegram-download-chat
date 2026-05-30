@@ -70,6 +70,10 @@ a:hover{text-decoration:underline}
 .datesep{text-align:center;margin:14px 0 10px;user-select:none}
 .datesep span{background:rgba(0,0,0,0.22);color:#fff;border-radius:14px;
   padding:5px 14px;font-size:12px;font-weight:500}
+/* Thread separator */
+.threadsep{text-align:center;margin:16px 0 8px;user-select:none}
+.threadsep span{display:inline-block;max-width:80%;color:#5a6b7b;font-size:12px;
+  font-weight:600;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Service message */
 .svc{text-align:center;margin:8px auto;user-select:none}
 .svc span{background:rgba(0,0,0,0.16);color:#fff;border-radius:12px;
@@ -159,6 +163,8 @@ a:hover{text-decoration:underline}
 {%- for item in items %}
 {%- if item.type == "date_sep" %}
 <div class="datesep"><span>{{ item.label | e }}</span></div>
+{%- elif item.type == "thread" %}
+<div class="threadsep"><span>&mdash; {{ item.name | e }} &mdash;</span></div>
 {%- elif item.type == "service" %}
 <div class="svc"><span>{{ item.text | e }}</span></div>
 {%- elif item.type == "group" %}
@@ -173,12 +179,12 @@ a:hover{text-decoration:underline}
     <div class="sname" style="color:{{ item.sender_color }}">{{ item.sender_name | e }}</div>
     {%- endif %}
     {%- for msg in item.messages %}
-    <div class="bbl">
+    <div class="bbl"{% if msg.id is not none %} id="msg-{{ msg.id }}"{% endif %}>
       {%- if msg.fwd_from_name %}
       <div class="fwd">&#8627; Forwarded from {{ msg.fwd_from_name | e }}</div>
       {%- endif %}
       {%- if msg.reply_text %}
-      <div class="rq">{{ msg.reply_text | e }}</div>
+      <div class="rq">{% if msg.reply_to_id is not none %}<a href="#msg-{{ msg.reply_to_id }}">{{ msg.reply_text | e }}</a>{% else %}{{ msg.reply_text | e }}{% endif %}</div>
       {%- endif %}
       {%- if msg.attachment_path %}
         {%- set src = (media_prefix + msg.attachment_path) | urlencode_path %}
@@ -277,7 +283,7 @@ class RenderMixin:
 
         from markupsafe import Markup
 
-        items = self._preprocess_messages(messages, attachments_dir)
+        items = self._preprocess_messages(messages, attachments_dir, with_threads=True)
         env = Environment(loader=BaseLoader(), autoescape=True)
         env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
         env.filters["fmt_entities"] = lambda text, entities: Markup(
@@ -312,18 +318,48 @@ class RenderMixin:
         self,
         messages: List[Dict[str, Any]],
         attachments_dir: Optional[Path],
+        with_threads: bool = False,
     ) -> List[Dict[str, Any]]:
-        """Convert flat message list into structured render items."""
+        """Convert flat message list into structured render items.
+
+        When ``with_threads`` is True (HTML only), a ``thread`` item is injected
+        whenever the conversation switches to a different reply-chain thread, so
+        the reader can follow interleaved threads. Standalone messages (threads
+        of a single message) produce no header.
+        """
         items: List[Dict[str, Any]] = []
         current_group: Optional[Dict[str, Any]] = None
         prev_date: Optional[str] = None
         prev_sender_id: Any = None
         prev_msg_time: Optional[datetime] = None
+        prev_thread_id: Any = None
 
         _epoch = datetime.min.replace(tzinfo=timezone.utc)
         sorted_msgs = sorted(
             messages, key=lambda m: _parse_dt(m.get("date") or "") or _epoch
         )
+
+        # ── Thread/reply index ───────────────────────────────────────────
+        # Map message id -> message and id -> parent id so we can resolve
+        # reply anchors (parent in export) and walk reply chains to a root.
+        id_to_msg: Dict[Any, Dict[str, Any]] = {}
+        parent_of: Dict[Any, Any] = {}
+        for m in sorted_msgs:
+            mid = m.get("id")
+            if mid is None:
+                continue
+            id_to_msg[mid] = m
+            pid = _reply_parent_id(m)
+            if pid is not None and pid != mid:
+                parent_of[mid] = pid
+
+        thread_root: Dict[Any, Any] = {}
+        thread_size: Dict[Any, int] = {}
+        if with_threads:
+            for mid in id_to_msg:
+                root = _thread_root(mid, parent_of, id_to_msg)
+                thread_root[mid] = root
+                thread_size[root] = thread_size.get(root, 0) + 1
 
         def flush() -> None:
             nonlocal current_group
@@ -376,6 +412,25 @@ class RenderMixin:
             sender_name = msg.get("user_display_name") or (
                 str(sender_id) if sender_id else "Unknown"
             )
+
+            # ── Thread header (HTML only) ────────────────────────────
+            if with_threads:
+                mid = msg.get("id")
+                root = thread_root.get(mid, mid) if mid is not None else None
+                is_standalone = root is None or thread_size.get(root, 1) <= 1
+                display_thread = None if is_standalone else root
+                if display_thread is not None and display_thread != prev_thread_id:
+                    flush()
+                    root_msg = id_to_msg.get(root)
+                    name = (
+                        first_line(root_msg.get("message") if root_msg else "")
+                        or f"Thread #{root}"
+                    )
+                    items.append({"type": "thread", "name": name})
+                    # New thread block starts a fresh sender group.
+                    prev_sender_id = None
+                    prev_msg_time = None
+                prev_thread_id = display_thread
 
             # ── Grouping ─────────────────────────────────────────────
             same_group = (
@@ -453,11 +508,26 @@ class RenderMixin:
                         pass
 
             reply_text: Optional[str] = None
-            reply_to = msg.get("reply_to")
-            if isinstance(reply_to, dict):
-                qt = reply_to.get("quote_text")
-                if qt:
-                    reply_text = str(qt)[:150]
+            reply_to_id: Optional[Any] = None
+            parent_id = _reply_parent_id(msg)
+            parent_msg = id_to_msg.get(parent_id) if parent_id is not None else None
+            if parent_msg is not None and parent_msg is not msg:
+                # Parent is in the export: cite its first line and anchor to it.
+                cited = first_line(parent_msg.get("message"))
+                reply_to = msg.get("reply_to")
+                if not cited and isinstance(reply_to, dict):
+                    qt = reply_to.get("quote_text")
+                    if qt:
+                        cited = str(qt)[:150]
+                reply_text = cited or f"Message #{parent_id}"
+                reply_to_id = parent_id
+            else:
+                # Parent not in export: fall back to the stored quote text.
+                reply_to = msg.get("reply_to")
+                if isinstance(reply_to, dict):
+                    qt = reply_to.get("quote_text")
+                    if qt:
+                        reply_text = str(qt)[:150]
 
             fwd_name: Optional[str] = None
             fwd_from = msg.get("fwd_from")
@@ -472,6 +542,7 @@ class RenderMixin:
                     "time": _fmt_time(date_str),
                     "edited": bool(msg.get("edit_date")),
                     "reply_text": reply_text,
+                    "reply_to_id": reply_to_id,
                     "fwd_from_name": fwd_name,
                     "attachment_path": att_path,
                     "attachment_filename": att_filename,
@@ -577,6 +648,38 @@ def _xml_escape(text: str) -> str:
 _ALLOWED_URL_SCHEMES = {"http", "https", "mailto", "tg", "ftp", "tel"}
 
 _SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*):")
+
+
+def _reply_parent_id(msg: Dict[str, Any]) -> Optional[Any]:
+    """Return the id of the message this one replies to, or None."""
+    reply_to = msg.get("reply_to")
+    if isinstance(reply_to, dict):
+        pid = reply_to.get("reply_to_msg_id")
+        if pid is not None:
+            return pid
+    return msg.get("reply_to_msg_id")
+
+
+def _thread_root(
+    msg_id: Any,
+    parent_of: Dict[Any, Any],
+    id_to_msg: Dict[Any, Dict[str, Any]],
+) -> Any:
+    """Walk the reply chain to its root, following only in-export parents.
+
+    Cycle-guarded: a reply loop stops at the first repeated id.
+    """
+    seen: set = set()
+    cur = msg_id
+    while True:
+        if cur in seen:
+            break
+        seen.add(cur)
+        parent = parent_of.get(cur)
+        if parent is None or parent == cur or parent not in id_to_msg:
+            break
+        cur = parent
+    return cur
 
 
 def first_line(text: Optional[str], limit: int = 60) -> str:

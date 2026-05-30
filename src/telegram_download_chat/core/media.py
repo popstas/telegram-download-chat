@@ -27,6 +27,7 @@ from telethon.tl.types import (
 
 from .fast_download import FastDownloadStalled
 from .fast_download import download_file as fast_download_file
+from .progress import emit_progress
 
 # ---------------------------------------------------------------------------
 # Category constants — these become the subdirectory names under attachments/
@@ -597,6 +598,17 @@ class MediaMixin:
                         except ValueError:
                             results[msg_id] = str(path)
                     completed += 1
+                    # Structured per-file progress event (current/total + the
+                    # downloaded file's relative path, when the download succeeded).
+                    emit_progress(
+                        {
+                            "type": "media",
+                            "current": completed,
+                            "total": total,
+                            "file": results.get(msg_id),
+                        },
+                        sink=getattr(self, "_progress_sink", None),
+                    )
                     if completed % log_interval == 0 or completed == total:
                         pct = int(completed / total * 100)
                         self.logger.info(

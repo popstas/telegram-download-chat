@@ -40,3 +40,6 @@ class TelegramChatDownloader(
         self._is_premium = False
         self._premium_checked = False
         self._fast_dl_settings = None
+        # Optional in-process callable for structured progress events. When None,
+        # events fall back to stdout (gated by the PROGRESS_ENV_VAR env var).
+        self._progress_sink = None

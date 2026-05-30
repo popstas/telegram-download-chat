@@ -9,6 +9,7 @@ from typing import List
 
 from PySide6.QtCore import QThread, Signal
 
+from telegram_download_chat.core.progress import PROGRESS_ENV_VAR, parse_progress_line
 from telegram_download_chat.paths import get_downloads_dir
 
 
@@ -18,6 +19,8 @@ class WorkerThread(QThread):
     log = Signal(str)
     progress = Signal(int, int)  # current, maximum
     status_update = Signal(str)  # parsed status for status bar
+    media_progress = Signal(int, int, str)  # current, total, file (relative path)
+    message_progress = Signal(int, str)  # fetched count, last message date (ISO)
     finished = Signal(list, bool)  # files, was_stopped_by_user
 
     def __init__(self, cmd_args, output_dir):
@@ -84,6 +87,44 @@ class WorkerThread(QThread):
         elif "downloading media" in lower:
             self.status_update.emit("Downloading media...")
 
+    def _handle_progress_event(self, event):
+        """Turn a structured progress event into Qt signals.
+
+        This replaces fragile log-text scraping for the events the core emits
+        explicitly (media download progress and message-fetch progress). Plain
+        log lines still flow through ``_parse_status``/``_extract_progress`` as a
+        fallback.
+
+        Args:
+            event: Parsed progress event dict (see ``core/progress.py``).
+        """
+        etype = event.get("type")
+        if etype == "media":
+            try:
+                current = int(event.get("current") or 0)
+                total = int(event.get("total") or 0)
+            except (TypeError, ValueError):
+                return
+            file = str(event.get("file") or "")
+            self.media_progress.emit(current, total, file)
+            if total > 0:
+                self.progress.emit(current, total)
+                self.status_update.emit(f"Downloading media {current}/{total}")
+        elif etype == "messages":
+            try:
+                fetched = int(event.get("fetched") or 0)
+            except (TypeError, ValueError):
+                return
+            last_date = str(event.get("last_date") or "")
+            self.message_progress.emit(fetched, last_date)
+            self._update_progress(fetched)
+            if last_date:
+                self.status_update.emit(
+                    f"Fetched {fetched} messages (up to {last_date})"
+                )
+            else:
+                self.status_update.emit(f"Fetched {fetched} messages")
+
     def _extract_progress(self, line):
         """Extract progress information from command output.
 
@@ -139,6 +180,9 @@ class WorkerThread(QThread):
             # Start the process
             env = os.environ.copy()
             env.setdefault("PYTHONIOENCODING", "utf-8")
+            # Ask the CLI to emit structured progress events on stdout so we can
+            # consume them instead of scraping human-readable log text.
+            env[PROGRESS_ENV_VAR] = "1"
 
             self.process = subprocess.Popen(
                 cmd,
@@ -160,6 +204,13 @@ class WorkerThread(QThread):
                     break
 
                 line = line.rstrip()
+
+                # Prefer structured progress events; fall back to text scraping.
+                event = parse_progress_line(line)
+                if event is not None:
+                    self._handle_progress_event(event)
+                    continue
+
                 self.log.emit(line)
 
                 # Try to extract progress information from the output
@@ -171,6 +222,10 @@ class WorkerThread(QThread):
                 for line in self.process.stdout:
                     line = line.rstrip()
                     if line:
+                        event = parse_progress_line(line)
+                        if event is not None:
+                            self._handle_progress_event(event)
+                            continue
                         self.log.emit(line)
                         self._extract_progress(line)
                         self._parse_status(line)

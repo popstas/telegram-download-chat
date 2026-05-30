@@ -7,6 +7,7 @@ from telethon.errors import FloodWaitError
 from telethon.tl.functions.messages import GetHistoryRequest
 
 from ..partial import PartialDownloadManager
+from .progress import emit_progress
 
 
 class DownloadMixin:
@@ -193,6 +194,22 @@ class DownloadMixin:
             if not silent:
                 self.logger.info(
                     f"Fetched: {total_fetched} (batch: {len(new_messages)} new)"
+                )
+                # Structured progress: count fetched so far + the date of the
+                # last (oldest) message in this batch, since we page backwards.
+                batch_dates = [
+                    getattr(m, "date", None)
+                    for m in new_messages
+                    if getattr(m, "date", None) is not None
+                ]
+                last_date = min(batch_dates).isoformat() if batch_dates else None
+                emit_progress(
+                    {
+                        "type": "messages",
+                        "fetched": total_fetched,
+                        "last_date": last_date,
+                    },
+                    sink=getattr(self, "_progress_sink", None),
                 )
 
             if total_limit > 0 and total_fetched >= total_limit:

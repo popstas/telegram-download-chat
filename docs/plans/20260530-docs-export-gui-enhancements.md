@@ -137,12 +137,12 @@ and a more informative GUI without regressing existing JSON/TXT output.
 
 ### Task 5: Structured GUI progress events
 
-- [ ] Emit structured progress events from core/CLI: media download progress
+- [x] Emit structured progress events from core/CLI: media download progress
       (current/total, per-file) and the date of the last downloaded message
-- [ ] Consume the structured events in the GUI and surface them, replacing raw
+- [x] Consume the structured events in the GUI and surface them, replacing raw
       log-text scraping
-- [ ] write tests for the structured progress event emission
-- [ ] run project tests - must pass before next task
+- [x] write tests for the structured progress event emission
+- [x] run project tests - must pass before next task
 
 ### Task 6: Windows app auto-update
 

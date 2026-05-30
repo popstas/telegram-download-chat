@@ -27,7 +27,7 @@ setup(
     package_dir={"": "src"},
     python_requires=">=3.8",
     install_requires=[
-        "telethon>=1.34.0",
+        "telethon>=1.43.0",
         "PyYAML>=6.0.0",
     ],
     extras_require={

@@ -95,6 +95,23 @@ class AuthMixin:
             )
             self.logger.error(error_msg)
             raise ValueError(error_msg) from e
+        except ValueError as e:
+            # A session file written by a newer Telethon (e.g. schema v8 with the
+            # tmp_auth_key column) cannot be read by an older installed Telethon,
+            # which unpacks `select * from sessions` into the wrong number of
+            # targets and raises "too many values to unpack". Turn the cryptic
+            # error into an actionable one instead of a generic connect failure.
+            if "too many values to unpack" in str(e):
+                error_msg = (
+                    "Your Telegram session was created by a newer version of "
+                    "Telethon than the one installed. Upgrade it with: "
+                    "pip install -U 'telethon>=1.43.0'"
+                )
+                self.logger.error(error_msg)
+                if hasattr(self, "client") and self.client:
+                    await self.client.disconnect()
+                raise RuntimeError(error_msg) from e
+            raise
         except Exception as e:
             error_msg = f"Failed to connect to Telegram: {str(e)}"
             self.logger.error(error_msg)

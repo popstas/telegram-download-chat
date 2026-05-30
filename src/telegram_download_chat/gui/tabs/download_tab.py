@@ -272,6 +272,21 @@ class DownloadTab(QWidget):
         self.pdf_chk = QCheckBox("PDF document")
         settings_form.addRow("PDF export:", self.pdf_chk)
 
+        # Style checkboxes so the unchecked indicator is gray, matching the
+        # text-input (QLineEdit) background instead of a bright white box.
+        from ..utils.styles import style_checkboxes
+
+        style_checkboxes(
+            [
+                self.debug_chk,
+                self.overwrite_chk,
+                self.media_chk,
+                self.html_chk,
+                self.pdf_chk,
+            ],
+            self,
+        )
+
         # Create a model for the tree
         model = QStandardItemModel()
         model.setHorizontalHeaderLabels(["Settings"])

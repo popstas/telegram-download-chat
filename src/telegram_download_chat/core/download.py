@@ -197,11 +197,11 @@ class DownloadMixin:
                 )
                 # Structured progress: count fetched so far + the date of the
                 # last (oldest) message in this batch, since we page backwards.
-                batch_dates = [
-                    getattr(m, "date", None)
-                    for m in new_messages
-                    if getattr(m, "date", None) is not None
-                ]
+                batch_dates = []
+                for m in new_messages:
+                    msg_date = getattr(m, "date", None)
+                    if msg_date is not None:
+                        batch_dates.append(msg_date)
                 last_date = min(batch_dates).isoformat() if batch_dates else None
                 emit_progress(
                     {

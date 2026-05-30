@@ -21,6 +21,7 @@ class WorkerThread(QThread):
     status_update = Signal(str)  # parsed status for status bar
     media_progress = Signal(int, int, str)  # current, total, file (relative path)
     message_progress = Signal(int, str)  # fetched count, last message date (ISO)
+    media_summary = Signal(dict)  # post-media-download summary counters
     finished = Signal(list, bool)  # files, was_stopped_by_user
 
     def __init__(self, cmd_args, output_dir):
@@ -124,6 +125,28 @@ class WorkerThread(QThread):
                 )
             else:
                 self.status_update.emit(f"Fetched {fetched} messages")
+        elif etype == "media_summary":
+            self.media_summary.emit(event)
+            self.status_update.emit(self._format_media_summary(event))
+
+    @staticmethod
+    def _format_media_summary(event):
+        """Build a concise status-bar string from a media_summary event."""
+        try:
+            total = int(event.get("total_files") or 0)
+            downloaded = int(event.get("downloaded_files") or 0)
+            cached = int(event.get("cached_files") or 0)
+            total_mb = float(event.get("total_bytes") or 0) / (1024 * 1024)
+            speed = float(event.get("speed_mbps") or 0)
+        except (TypeError, ValueError):
+            return "Media download complete"
+        text = (
+            f"Media: {total} files, {total_mb:.1f} MB "
+            f"({downloaded} downloaded, {cached} cached)"
+        )
+        if speed > 0:
+            text += f", {speed:.2f} MB/s"
+        return text
 
     def _extract_progress(self, line):
         """Extract progress information from command output.

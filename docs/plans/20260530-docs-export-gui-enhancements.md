@@ -163,24 +163,24 @@ and a more informative GUI without regressing existing JSON/TXT output.
 
 ### Task 7: Post-`--media` download summary (size, speed, cached, retries)
 
-- [ ] After a `--media` download, show the count of media files and their total
+- [x] After a `--media` download, show the count of media files and their total
       size
-- [ ] Break the count into **actually downloaded** vs. **cached** (already present
+- [x] Break the count into **actually downloaded** vs. **cached** (already present
       from a previous run and skipped — the skip path at `media.py` ~line 288)
-- [ ] Compute and show **average speed in MB/sec** = total downloaded size /
+- [x] Compute and show **average speed in MB/sec** = total downloaded size /
       (finish_time − media-download start_time). Count only actually downloaded
       bytes/files — exclude cached files from both the size and the elapsed-time
       basis
-- [ ] Track and report retry stats in the summary: number of files that needed a
+- [x] Track and report retry stats in the summary: number of files that needed a
       retry, broken down by cause — expired file-reference refetch+retry
       (`FileReferenceExpiredError`, `media.py`) and fast-download fallback to the
       single-stream downloader (`FastDownloadStalled`/`FloodWaitError`); count
       files that ultimately failed after retry, if any
-- [ ] Thread the counters (downloaded, cached, bytes, timing, retries) through
+- [x] Thread the counters (downloaded, cached, bytes, timing, retries) through
       `download_all_media` results so both CLI and GUI summaries can consume them
-- [ ] write tests for the size/speed/cached breakdown and the retry-stats counters
+- [x] write tests for the size/speed/cached breakdown and the retry-stats counters
       (expired-reference retry path and fast-download fallback path)
-- [ ] run project tests - must pass before next task
+- [x] run project tests - must pass before next task
 
 ### Task 8: GUI checkbox styling — gray when unchecked
 

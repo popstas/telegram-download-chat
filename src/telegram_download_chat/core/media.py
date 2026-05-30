@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -160,6 +162,91 @@ _MIME_TO_EXT = {
 }
 
 
+_BYTES_PER_MB = 1024 * 1024
+
+
+@dataclass
+class MediaStats:
+    """Counters accumulated over a single ``--media`` download run.
+
+    Surfaced after a run so the CLI and GUI can show a summary: how many files
+    were downloaded vs. reused from a previous run (cached), how fast, and how
+    many needed a retry (expired file-reference refetch or fast-download
+    fallback) or failed outright.
+    """
+
+    downloaded_files: int = 0
+    downloaded_bytes: int = 0
+    cached_files: int = 0
+    cached_bytes: int = 0
+    failed_files: int = 0
+    # Files that needed a retry, broken down by cause.
+    expired_reference_retries: int = 0
+    fast_download_fallbacks: int = 0
+    # Wall-clock seconds spent in the media-download phase.
+    elapsed_seconds: float = 0.0
+
+    @property
+    def total_files(self) -> int:
+        """All media files present after the run (downloaded + cached)."""
+        return self.downloaded_files + self.cached_files
+
+    @property
+    def total_bytes(self) -> int:
+        """Total bytes across downloaded and cached files."""
+        return self.downloaded_bytes + self.cached_bytes
+
+    @property
+    def speed_mbps(self) -> float:
+        """Average download speed in MB/s.
+
+        Counts only actually-downloaded bytes over the media-phase elapsed
+        time; cached files contribute to neither the numerator nor the basis.
+        """
+        if self.elapsed_seconds <= 0 or self.downloaded_bytes <= 0:
+            return 0.0
+        return (self.downloaded_bytes / _BYTES_PER_MB) / self.elapsed_seconds
+
+    def to_event(self) -> Dict[str, Any]:
+        """A JSON-serializable summary event for structured progress."""
+        return {
+            "type": "media_summary",
+            "total_files": self.total_files,
+            "downloaded_files": self.downloaded_files,
+            "downloaded_bytes": self.downloaded_bytes,
+            "cached_files": self.cached_files,
+            "cached_bytes": self.cached_bytes,
+            "total_bytes": self.total_bytes,
+            "failed_files": self.failed_files,
+            "expired_reference_retries": self.expired_reference_retries,
+            "fast_download_fallbacks": self.fast_download_fallbacks,
+            "elapsed_seconds": round(self.elapsed_seconds, 3),
+            "speed_mbps": round(self.speed_mbps, 3),
+        }
+
+    def summary_line(self) -> str:
+        """A concise human-readable one-to-three line summary."""
+        total_mb = self.total_bytes / _BYTES_PER_MB
+        lines = [
+            f"Media summary: {self.total_files} files, {total_mb:.1f} MB "
+            f"({self.downloaded_files} downloaded, {self.cached_files} cached)"
+        ]
+        if self.downloaded_bytes > 0 and self.elapsed_seconds > 0:
+            lines.append(f"Average speed: {self.speed_mbps:.2f} MB/s")
+        if (
+            self.expired_reference_retries
+            or self.fast_download_fallbacks
+            or self.failed_files
+        ):
+            lines.append(
+                "Retries: "
+                f"{self.expired_reference_retries} expired-reference, "
+                f"{self.fast_download_fallbacks} fast-download fallback; "
+                f"{self.failed_files} failed"
+            )
+        return "\n".join(lines)
+
+
 class MediaMixin:
     """Mixin class for downloading media from Telegram messages."""
 
@@ -289,6 +376,7 @@ class MediaMixin:
         # Skip if already downloaded from a previous run
         if download_to.exists():
             self.logger.debug(f"Skipping already-downloaded: {download_to}")
+            self._record_cached(download_to)
             return download_to
 
         download_to.parent.mkdir(parents=True, exist_ok=True)
@@ -296,6 +384,7 @@ class MediaMixin:
         try:
             # Synthetic types: write directly without a network call
             if self._serialize_synthetic_media(media, download_to):
+                self._record_downloaded(download_to)
                 return download_to
 
             downloaded_path = await self._download_binary_media(
@@ -305,14 +394,46 @@ class MediaMixin:
                 self.logger.debug(
                     f"Downloaded media for message {message_id}: {downloaded_path}"
                 )
+                self._record_downloaded(downloaded_path)
                 return Path(downloaded_path)
             self.logger.warning(f"Failed to download media for message {message_id}")
+            self._record_failed()
             return None
         except Exception as e:
             self.logger.warning(
                 f"Failed to download media for message {message_id}: {e}"
             )
+            self._record_failed()
             return None
+
+    # ------------------------------------------------------------------
+    # Stat recording helpers (no-ops when no run is active)
+    # ------------------------------------------------------------------
+
+    def _record_cached(self, path: Path) -> None:
+        stats = getattr(self, "_media_stats", None)
+        if stats is None:
+            return
+        stats.cached_files += 1
+        try:
+            stats.cached_bytes += Path(path).stat().st_size
+        except OSError:
+            pass
+
+    def _record_downloaded(self, path: Any) -> None:
+        stats = getattr(self, "_media_stats", None)
+        if stats is None:
+            return
+        stats.downloaded_files += 1
+        try:
+            stats.downloaded_bytes += Path(path).stat().st_size
+        except OSError:
+            pass
+
+    def _record_failed(self) -> None:
+        stats = getattr(self, "_media_stats", None)
+        if stats is not None:
+            stats.failed_files += 1
 
     async def _download_binary_media(
         self,
@@ -355,6 +476,9 @@ class MediaMixin:
             except Exception as e:
                 if isinstance(e, (FloodWaitError, FastDownloadStalled)):
                     await self._reduce_threads_on_throttle(used)
+                stats = getattr(self, "_media_stats", None)
+                if stats is not None:
+                    stats.fast_download_fallbacks += 1
                 self.logger.warning(
                     "Fast download failed for message %s (%s); "
                     "falling back to standard downloader",
@@ -381,6 +505,9 @@ class MediaMixin:
             fresh = await self._refetch_message(message, message_id)
             if fresh is None:
                 raise
+            stats = getattr(self, "_media_stats", None)
+            if stats is not None:
+                stats.expired_reference_retries += 1
             downloaded_path = await self.client.download_media(fresh, file=download_to)
         return Path(downloaded_path) if downloaded_path else None
 
@@ -559,6 +686,10 @@ class MediaMixin:
         """
         await self._detect_premium_once()
 
+        # Fresh per-run counters for the post-download summary.
+        self._media_stats = MediaStats()
+        start_time = time.monotonic()
+
         enabled, connections, _ = self._resolve_fast_download_settings()
         self._current_connections = connections
         self._threads_lock = asyncio.Lock()
@@ -652,6 +783,16 @@ class MediaMixin:
             if isinstance(r, Exception):
                 self.logger.warning(f"Media download task failed: {r}")
         self.logger.info(f"Downloaded {len(results)} media files to {attachments_dir}")
+
+        # Finalize timing and surface the run summary (size/speed/cached/retries)
+        # for both the CLI log and the GUI's structured-progress consumer.
+        self._media_stats.elapsed_seconds = time.monotonic() - start_time
+        if self._media_stats.total_files or self._media_stats.failed_files:
+            self.logger.info(self._media_stats.summary_line())
+        emit_progress(
+            self._media_stats.to_event(),
+            sink=getattr(self, "_progress_sink", None),
+        )
         return results
 
     # ------------------------------------------------------------------

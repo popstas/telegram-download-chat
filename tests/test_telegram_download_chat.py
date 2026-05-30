@@ -2164,3 +2164,181 @@ class TestHtmlMediaLinks:
         # The .media-ref count therefore equals the number of image/sticker/
         # video/audio messages — exactly one in this fixture.
         assert html.count('class="media-ref"') == 1
+
+
+class TestFormatEntities:
+    """Unit tests for the inline entity formatter (#80)."""
+
+    def test_no_entities_html_escapes_and_keeps_newlines(self):
+        from telegram_download_chat.core.render import format_entities
+
+        out = format_entities("a < b & c\nd", [], "html")
+        assert out == "a &lt; b &amp; c\nd"
+
+    def test_no_entities_pdf_converts_newlines(self):
+        from telegram_download_chat.core.render import format_entities
+
+        out = format_entities("a < b\nc", [], "pdf")
+        assert out == "a &lt; b<br/>c"
+
+    def test_bold_italic_html(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "hello world"
+        entities = [
+            {"_": "MessageEntityBold", "offset": 0, "length": 5},
+            {"_": "MessageEntityItalic", "offset": 6, "length": 5},
+        ]
+        out = format_entities(text, entities, "html")
+        assert out == "<b>hello</b> <i>world</i>"
+
+    def test_underline_strike_code_html(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "abcdefghi"
+        entities = [
+            {"_": "MessageEntityUnderline", "offset": 0, "length": 3},
+            {"_": "MessageEntityStrike", "offset": 3, "length": 3},
+            {"_": "MessageEntityCode", "offset": 6, "length": 3},
+        ]
+        out = format_entities(text, entities, "html")
+        assert out == "<u>abc</u><s>def</s><code>ghi</code>"
+
+    def test_strike_and_code_pdf_dialect(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "abcdef"
+        entities = [
+            {"_": "MessageEntityStrike", "offset": 0, "length": 3},
+            {"_": "MessageEntityCode", "offset": 3, "length": 3},
+        ]
+        out = format_entities(text, entities, "pdf")
+        assert out == '<strike>abc</strike><font face="Courier">def</font>'
+
+    def test_overlapping_nested_spans_well_formed(self):
+        from telegram_download_chat.core.render import format_entities
+
+        # Bold covers whole word, italic covers the middle — they overlap.
+        text = "abcd"
+        entities = [
+            {"_": "MessageEntityBold", "offset": 0, "length": 4},
+            {"_": "MessageEntityItalic", "offset": 1, "length": 2},
+        ]
+        out = format_entities(text, entities, "html")
+        # Segment-by-segment wrapping re-opens tags at each boundary, keeping
+        # the markup well-formed (no improperly crossed tags) even when spans
+        # overlap. The result renders identically to nested tags.
+        assert out == "<b>a</b><b><i>bc</i></b><b>d</b>"
+        # Well-formedness: every opening tag has a matching close in order.
+        assert out.count("<b>") == out.count("</b>")
+        assert out.count("<i>") == out.count("</i>")
+
+    def test_utf16_emoji_offset_mapping(self):
+        from telegram_download_chat.core.render import format_entities
+
+        # Emoji is 1 Python char but 2 UTF-16 code units, so the bold entity
+        # after it starts at UTF-16 offset 2.
+        text = "😀ok"
+        entities = [{"_": "MessageEntityBold", "offset": 2, "length": 2}]
+        out = format_entities(text, entities, "html")
+        assert out == "😀<b>ok</b>"
+
+    def test_text_url_link_html(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "click here"
+        entities = [
+            {
+                "_": "MessageEntityTextUrl",
+                "offset": 6,
+                "length": 4,
+                "url": "https://example.com",
+            }
+        ]
+        out = format_entities(text, entities, "html")
+        assert out == 'click <a href="https://example.com">here</a>'
+
+    def test_plain_url_entity_uses_text_as_href(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "see https://x.io"
+        entities = [{"_": "MessageEntityUrl", "offset": 4, "length": 12}]
+        out = format_entities(text, entities, "html")
+        assert out == 'see <a href="https://x.io">https://x.io</a>'
+
+    def test_javascript_scheme_dropped(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "danger"
+        entities = [
+            {
+                "_": "MessageEntityTextUrl",
+                "offset": 0,
+                "length": 6,
+                "url": "javascript:alert(1)",
+            }
+        ]
+        out = format_entities(text, entities, "html")
+        # Link wrapper dropped; text rendered as escaped plain text.
+        assert out == "danger"
+        assert "javascript" not in out
+        assert "<a" not in out
+
+    def test_first_line_truncates(self):
+        from telegram_download_chat.core.render import first_line
+
+        assert first_line("hello\nworld") == "hello"
+        assert first_line("") == ""
+        assert first_line(None) == ""
+        long = "x" * 80
+        result = first_line(long, limit=60)
+        assert result.endswith("…")
+        assert len(result) == 61
+
+    def test_html_render_applies_entities(self, tmp_path):
+        from telegram_download_chat.core.render import RenderMixin
+
+        renderer = RenderMixin()
+        out = tmp_path / "out.html"
+        messages = [
+            {
+                "id": 1,
+                "date": "2026-01-01T10:00:00+00:00",
+                "from_id": {"user_id": 1},
+                "user_display_name": "Alice",
+                "message": "bold text",
+                "entities": [{"_": "MessageEntityBold", "offset": 0, "length": 4}],
+            }
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert "<b>bold</b> text" in html
+
+    def test_pdf_smoke_with_entities(self, tmp_path):
+        pytest.importorskip("reportlab")
+        from telegram_download_chat.core.render import RenderMixin
+
+        renderer = RenderMixin()
+        out = tmp_path / "out.pdf"
+        messages = [
+            {
+                "id": 1,
+                "date": "2026-01-01T10:00:00+00:00",
+                "from_id": {"user_id": 1},
+                "user_display_name": "Alice",
+                "message": "bold and link",
+                "entities": [
+                    {"_": "MessageEntityBold", "offset": 0, "length": 4},
+                    {
+                        "_": "MessageEntityTextUrl",
+                        "offset": 9,
+                        "length": 4,
+                        "url": "https://example.com",
+                    },
+                ],
+            }
+        ]
+        renderer.render_pdf(messages, out, chat_title="t")
+        assert out.exists()
+        assert out.stat().st_size > 0
+        assert out.read_bytes().startswith(b"%PDF")

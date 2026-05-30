@@ -222,7 +222,7 @@ a:hover{text-decoration:underline}
         {%- endif %}
       {%- endif %}
       {%- if msg.text %}
-      <div class="txt">{{ msg.text | e }}</div>
+      <div class="txt">{{ msg.text | fmt_entities(msg.entities) }}</div>
       {%- endif %}
       <div class="meta">
         {%- if msg.edited %}<span class="edited">edited</span>{%- endif %}
@@ -275,9 +275,14 @@ class RenderMixin:
                 # Cross-drive on Windows — use absolute file:// URI
                 media_prefix = Path(attachments_dir).resolve().as_uri() + "/"
 
+        from markupsafe import Markup
+
         items = self._preprocess_messages(messages, attachments_dir)
         env = Environment(loader=BaseLoader(), autoescape=True)
         env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
+        env.filters["fmt_entities"] = lambda text, entities: Markup(
+            format_entities(text, entities, "html")
+        )
         tmpl = env.from_string(HTML_TEMPLATE)
         html = tmpl.render(
             chat_title=chat_title,
@@ -463,6 +468,7 @@ class RenderMixin:
                 {  # type: ignore[index]
                     "id": msg.get("id"),
                     "text": msg.get("message") or "",
+                    "entities": msg.get("entities") or [],
                     "time": _fmt_time(date_str),
                     "edited": bool(msg.get("edit_date")),
                     "reply_text": reply_text,
@@ -560,6 +566,177 @@ def _xml_escape(text: str) -> str:
         .replace(">", "&gt;")
         .replace('"', "&quot;")
     )
+
+
+# ---------------------------------------------------------------------------
+# Inline entity formatting (#80) — shared by HTML and PDF
+# ---------------------------------------------------------------------------
+
+# URL schemes permitted in links; anything else (e.g. javascript:, data:) is
+# dropped and the link text is rendered as plain text.
+_ALLOWED_URL_SCHEMES = {"http", "https", "mailto", "tg", "ftp", "tel"}
+
+_SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*):")
+
+
+def first_line(text: Optional[str], limit: int = 60) -> str:
+    """Return the first non-empty line of ``text``, truncated to ``limit`` chars."""
+    if not text:
+        return ""
+    line = str(text).split("\n", 1)[0].strip()
+    if len(line) > limit:
+        line = line[:limit].rstrip() + "…"
+    return line
+
+
+def _html_escape(text: str) -> str:
+    """Escape text for HTML body content (keeps newlines intact)."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def _escape_segment(text: str, dialect: str) -> str:
+    """Escape a plain-text segment for the given dialect."""
+    if dialect == "pdf":
+        return _xml_escape(text).replace("\n", "<br/>")
+    return _html_escape(text)
+
+
+def _safe_href(url: Optional[str]) -> Optional[str]:
+    """Return ``url`` if its scheme is allowlisted, else None (link is dropped)."""
+    if not url:
+        return None
+    candidate = str(url).strip()
+    if not candidate:
+        return None
+    match = _SCHEME_RE.match(candidate)
+    if match and match.group(1).lower() not in _ALLOWED_URL_SCHEMES:
+        return None
+    return candidate
+
+
+def _escape_attr(value: str, dialect: str) -> str:
+    """Escape an attribute value (href) for the given dialect."""
+    if dialect == "pdf":
+        return _xml_escape(value)
+    return _html_escape(value)
+
+
+def _entity_tags(
+    etype: str, ent: Dict[str, Any], dialect: str, span_text: str
+) -> Optional[tuple]:
+    """Map a Telegram entity type to (open_tag, close_tag) for the dialect.
+
+    Returns ``None`` to skip the entity (unsupported, or a link with a
+    disallowed scheme).
+    """
+    if etype == "MessageEntityBold":
+        return ("<b>", "</b>")
+    if etype == "MessageEntityItalic":
+        return ("<i>", "</i>")
+    if etype == "MessageEntityUnderline":
+        return ("<u>", "</u>")
+    if etype in ("MessageEntityStrike", "MessageEntityStrikethrough"):
+        return ("<s>", "</s>") if dialect == "html" else ("<strike>", "</strike>")
+    if etype in ("MessageEntityCode", "MessageEntityPre"):
+        if dialect == "html":
+            return ("<code>", "</code>")
+        return ('<font face="Courier">', "</font>")
+    if etype == "MessageEntitySpoiler":
+        if dialect == "html":
+            return ('<span class="spoiler">', "</span>")
+        return ("", "")
+    if etype == "MessageEntityTextUrl":
+        href = _safe_href(ent.get("url"))
+        if not href:
+            return None
+        return (f'<a href="{_escape_attr(href, dialect)}">', "</a>")
+    if etype in ("MessageEntityUrl", "MessageEntityEmail"):
+        href = span_text
+        if etype == "MessageEntityEmail":
+            href = "mailto:" + span_text
+        safe = _safe_href(href)
+        if not safe:
+            return None
+        return (f'<a href="{_escape_attr(safe, dialect)}">', "</a>")
+    # Unsupported entity types (mentions, hashtags, etc.) carry no formatting.
+    return None
+
+
+def _utf16_boundaries(text: str) -> Dict[int, int]:
+    """Map UTF-16 code-unit offsets to Python string indices.
+
+    Telegram entity offsets/lengths are measured in UTF-16 code units, so a
+    character outside the BMP (e.g. an emoji) counts as 2.
+    """
+    boundaries: Dict[int, int] = {}
+    u = 0
+    for i, ch in enumerate(text):
+        boundaries[u] = i
+        u += 1 if ord(ch) <= 0xFFFF else 2
+    boundaries[u] = len(text)
+    return boundaries
+
+
+def format_entities(
+    text: Optional[str],
+    entities: Optional[List[Dict[str, Any]]],
+    dialect: str = "html",
+) -> str:
+    """Render ``text`` with inline Telegram ``entities`` for HTML or PDF.
+
+    ``dialect`` is ``"html"`` or ``"pdf"``. Overlapping spans are wrapped
+    segment-by-segment to guarantee well-formed nesting. HTML keeps literal
+    ``\\n`` (the bubble uses ``white-space:pre-wrap``); PDF converts ``\\n``
+    to ``<br/>``.
+    """
+    body = text or ""
+    if dialect not in ("html", "pdf"):
+        dialect = "html"
+    if not entities:
+        return _escape_segment(body, dialect)
+
+    boundaries = _utf16_boundaries(body)
+    n = len(body)
+    spans: List[tuple] = []
+    for ent in entities:
+        if not isinstance(ent, dict):
+            continue
+        etype = ent.get("_") or ent.get("type") or ""
+        off = ent.get("offset")
+        length = ent.get("length")
+        if not isinstance(off, int) or not isinstance(length, int) or length <= 0:
+            continue
+        start = boundaries.get(off)
+        end = boundaries.get(off + length)
+        if start is None or end is None or start >= end:
+            continue
+        tags = _entity_tags(etype, ent, dialect, body[start:end])
+        if tags is None:
+            continue
+        spans.append((start, end, tags[0], tags[1]))
+
+    if not spans:
+        return _escape_segment(body, dialect)
+
+    points = sorted({0, n} | {s for s, _, _, _ in spans} | {e for _, e, _, _ in spans})
+    out: List[str] = []
+    for a, b in zip(points, points[1:]):
+        if a >= b:
+            continue
+        segment = _escape_segment(body[a:b], dialect)
+        active = [sp for sp in spans if sp[0] <= a and sp[1] >= b]
+        # Outer (longer) spans wrap inner ones: sort by start asc, end desc.
+        active.sort(key=lambda sp: (sp[0], -sp[1]))
+        open_tags = "".join(sp[2] for sp in active)
+        close_tags = "".join(sp[3] for sp in reversed(active))
+        out.append(open_tags + segment + close_tags)
+    return "".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -956,7 +1133,10 @@ def _render_pdf_reportlab(
                 text = msg_data.get("text") or ""
                 if text:
                     parts.append(
-                        Paragraph(_xml_escape(text).replace("\n", "<br/>"), s_text)
+                        Paragraph(
+                            format_entities(text, msg_data.get("entities"), "pdf"),
+                            s_text,
+                        )
                     )
 
                 tick = " \u2713\u2713" if is_out else ""

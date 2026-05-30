@@ -108,18 +108,18 @@ and a more informative GUI without regressing existing JSON/TXT output.
 
 ### Task 3: HTML/PDF export — inline entity formatting (#80)
 
-- [ ] Add `format_entities(text, entities, dialect)` helper in `core/render.py`
+- [x] Add `format_entities(text, entities, dialect)` helper in `core/render.py`
       (UTF-16 offset mapping, segment-by-segment span wrapping, html/pdf tag
       emission, href scheme allowlist dropping `javascript:`)
-- [ ] Add `first_line(text, limit=60)` helper in `core/render.py`
-- [ ] HTML: register Jinja `fmt_entities` filter, switch `{{ msg.text | e }}` →
+- [x] Add `first_line(text, limit=60)` helper in `core/render.py`
+- [x] HTML: register Jinja `fmt_entities` filter, switch `{{ msg.text | e }}` →
       `{{ msg.text | fmt_entities(msg.entities) }}`, carry raw `entities` through
       `_preprocess_messages`
-- [ ] PDF: replace `_xml_escape(text)` body construction with
+- [x] PDF: replace `_xml_escape(text)` body construction with
       `format_entities(text, entities, "pdf")`
-- [ ] write tests: `format_entities` unit tests (both dialects, UTF-16 emoji
+- [x] write tests: `format_entities` unit tests (both dialects, UTF-16 emoji
       offset, overlap, `javascript:` dropped); PDF smoke run
-- [ ] run project tests (`pytest`), `black`, `isort` - must pass before next task
+- [x] run project tests (`pytest`), `black`, `isort` - must pass before next task
 
 ### Task 4: HTML export — reply anchors + thread headers (#80)
 

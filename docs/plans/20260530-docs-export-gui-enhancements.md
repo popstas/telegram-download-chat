@@ -101,10 +101,10 @@ and a more informative GUI without regressing existing JSON/TXT output.
 
 ### Task 2: Document GUI entity identifiers
 
-- [ ] Explain entity identifiers in the GUI docs: how to download your own Saved
+- [x] Explain entity identifiers in the GUI docs: how to download your own Saved
       Messages and a private group (which identifier to use for each)
-- [ ] Verify the instructions match the actual GUI fields/behavior
-- [ ] run project tests - must pass before next task
+- [x] Verify the instructions match the actual GUI fields/behavior
+- [x] run project tests - must pass before next task
 
 ### Task 3: HTML/PDF export — inline entity formatting (#80)
 

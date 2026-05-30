@@ -316,6 +316,29 @@ For users who prefer a visual interface, the application includes an optional GU
 telegram-download-chat --gui
 ```
 
+### Choosing What to Download (Chat Identifiers)
+
+The large **Chat** field at the top of the Download tab accepts the same
+identifiers as the CLI's positional `chat` argument (`@username, link or
+chat_id`). Enter exactly one of the following, depending on what you want to
+download:
+
+| What you want to download | What to type in the Chat field | Notes |
+|---------------------------|--------------------------------|-------|
+| Your own **Saved Messages** | `me` | `me` always resolves to your own account, so its message history is your Saved Messages. You can also use your own `@username` or numeric user ID. |
+| A **private group** you belong to | the invite link, e.g. `https://t.me/+AbCdEf123456`, or the group's numeric ID (negative, e.g. `-1001234567890`) | You must already be a member — the tool downloads through your account and cannot join on your behalf. Private groups have no public `@username`, so use the invite link or the numeric ID. |
+| A **public** chat, group or channel | `@username` or its `https://t.me/username` link | Public entities can be addressed by their `@username`. |
+
+Tips:
+
+- The invite link is the same `t.me/+…` link you used to join the private group;
+  open the group in Telegram → group name → **Invite Links** to copy it again.
+- To find a numeric ID, run the CLI once with `--debug`, or check the
+  `chats_map` / `users_map` entries written to your `config.yml` after a first
+  download.
+- All other fields (limit, dates, media, HTML/PDF, etc.) under **Settings**
+  apply to whichever chat you entered.
+
 ## Output Formats
 
 The tool generates the following files for each chat:

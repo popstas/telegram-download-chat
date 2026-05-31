@@ -161,7 +161,7 @@ uv tool install telegram-download-chat
 
 ### GUI Version (Optional)
 
-For those who prefer a graphical interface, a GUI version is available. 
+For those who prefer a graphical interface, a GUI version is available.
 
 Windows build is available in the [releases](https://github.com/popstas/telegram-download-chat/releases/latest) page.
 
@@ -397,7 +397,7 @@ Files are named `<message_id>_<original_filename>` and sorted into category subd
 
 ### HTML / PDF Export (`[chat_name]/messages.html`, `[chat_name]/messages.pdf`)
 
-Generated when the `--html` / `--pdf` flags are used (alongside the usual JSON/TXT output, and combinable with `--media` for inline images). Both render inline Telegram formatting — **bold**, *italic*, underline, strikethrough, `code`, spoilers, and links (only `http(s)`/`mailto` schemes are kept; others such as `javascript:` are stripped). The HTML view additionally:
+Generated when the `--html` / `--pdf` flags are used (alongside the usual JSON/TXT output, and combinable with `--media` for inline images). Both render inline Telegram formatting — **bold**, *italic*, underline, strikethrough, `code`, spoilers, and links (only `http(s)`, `mailto`, and `tg` schemes are kept; bare domains default to `https://`; others such as `javascript:` are stripped). The HTML view additionally:
 
 - Groups messages into reply threads separated by a thread header.
 - Turns reply quotes into clickable links that jump to the cited message (when that message is part of the export).

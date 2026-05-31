@@ -846,9 +846,14 @@ class SettingsTab(QWidget):
         # URL was resolved in _apply_update_check_result (Windows installer
         # asset on Windows, releases page elsewhere).
         url = self._update_download_url or update_checker.get_releases_page_url()
+        # QDesktopServices.openUrl reports failure by returning False (no
+        # desktop URL handler), not by raising, so fall back on a falsy return
+        # as well as on an exception.
         try:
-            QDesktopServices.openUrl(QUrl(url))
+            opened = QDesktopServices.openUrl(QUrl(url))
         except Exception:  # pragma: no cover - fallback
+            opened = False
+        if not opened:
             webbrowser.open(url)
 
     def _set_logged_in(

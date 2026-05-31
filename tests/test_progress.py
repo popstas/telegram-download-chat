@@ -102,6 +102,9 @@ def _make_media_downloader(events):
     d._premium_checked = True
     d._is_premium = False
     d._fast_dl_settings = (False, 1, 0)
+    # By default treat any present media as downloadable; individual tests
+    # override this to exercise the non-downloadable predicate.
+    d.get_filename = lambda media: "x.bin"
     return d
 
 
@@ -117,7 +120,11 @@ async def test_download_all_media_emits_media_events(tmp_path):
 
     d.download_message_media = AsyncMock(side_effect=fake_download)
 
-    messages = [{"id": 1}, {"id": 2}, {"id": 3}]
+    messages = [
+        {"id": 1, "media": object()},
+        {"id": 2, "media": object()},
+        {"id": 3, "media": object()},
+    ]
     await d.download_all_media(messages, attachments_dir)
 
     media_events = [e for e in events if e.get("type") == "media"]
@@ -138,11 +145,79 @@ async def test_download_all_media_file_none_on_failure(tmp_path):
     attachments_dir = tmp_path / "attachments"
     d.download_message_media = AsyncMock(return_value=None)
 
-    await d.download_all_media([{"id": 7}], attachments_dir)
+    await d.download_all_media([{"id": 7, "media": object()}], attachments_dir)
 
     media_events = [e for e in events if e.get("type") == "media"]
     assert len(media_events) == 1
     assert media_events[0]["file"] is None
+
+
+@pytest.mark.asyncio
+async def test_download_all_media_skips_text_only_messages(tmp_path):
+    """Text-only messages must not be counted or emit media progress.
+
+    The total reported to the GUI is media-file progress, so a chat with one
+    attachment among many text messages should report 1/1, not 1/N.
+    """
+    events = []
+    d = _make_media_downloader(events)
+    attachments_dir = tmp_path / "attachments"
+
+    async def fake_download(msg, ad):
+        return ad / "images" / f"{msg['id']}.jpg"
+
+    d.download_message_media = AsyncMock(side_effect=fake_download)
+
+    # One media message buried in text-only messages.
+    messages = [{"id": i} for i in range(1, 1000)] + [{"id": 1000, "media": object()}]
+    await d.download_all_media(messages, attachments_dir)
+
+    media_events = [e for e in events if e.get("type") == "media"]
+    assert len(media_events) == 1
+    assert media_events[0]["current"] == 1
+    assert media_events[0]["total"] == 1
+    # download_message_media is only attempted for the media-carrying message.
+    assert d.download_message_media.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_download_all_media_skips_non_downloadable_media(tmp_path):
+    """Messages whose media has no filename must not be counted.
+
+    Non-downloadable previews such as MessageMediaWebPage(WebPageEmpty) carry a
+    truthy ``media`` but yield no filename, so the downloader would save nothing.
+    They must be excluded from the progress total instead of emitting a bogus
+    ``media`` event with ``file: None``.
+    """
+    events = []
+    d = _make_media_downloader(events)
+    attachments_dir = tmp_path / "attachments"
+
+    downloadable = object()
+    preview = object()
+
+    # Mirror get_filename's real behaviour: only the downloadable media yields a
+    # name; the preview returns None.
+    d.get_filename = lambda media: "1.jpg" if media is downloadable else None
+
+    async def fake_download(msg, ad):
+        return ad / "images" / f"{msg['id']}.jpg"
+
+    d.download_message_media = AsyncMock(side_effect=fake_download)
+
+    messages = [
+        {"id": 1, "media": downloadable},
+        {"id": 2, "media": preview},
+    ]
+    await d.download_all_media(messages, attachments_dir)
+
+    media_events = [e for e in events if e.get("type") == "media"]
+    assert len(media_events) == 1
+    assert media_events[0]["current"] == 1
+    assert media_events[0]["total"] == 1
+    assert media_events[0]["file"] == "images/1.jpg"
+    # The non-downloadable preview is never attempted.
+    assert d.download_message_media.await_count == 1
 
 
 # ---------------------------------------------------------------------------

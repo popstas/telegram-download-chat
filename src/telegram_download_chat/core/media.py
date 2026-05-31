@@ -725,10 +725,29 @@ class MediaMixin:
         else:
             self.logger.info("Downloading media attachments...")
 
+        # Only messages with a *downloadable* attachment are real download
+        # attempts. Text-only messages, and non-downloadable previews such as
+        # MessageMediaWebPage(WebPageEmpty), would otherwise spawn no-op tasks
+        # and inflate the structured progress total (the GUI presents this as
+        # media-file progress), so a chat with 1 attachment in 1000 messages
+        # reported "1000/1000". Mirror download_message_media's predicate:
+        # a message counts only when get_filename() yields a name, which is
+        # exactly when the downloader would actually save a file.
+        def _msg_media(msg: Any) -> Any:
+            return getattr(msg, "media", None) or (
+                msg.get("media") if isinstance(msg, dict) else None
+            )
+
+        def _is_downloadable(msg: Any) -> bool:
+            media = _msg_media(msg)
+            return bool(media) and self.get_filename(media) is not None
+
+        media_messages = [msg for msg in messages if _is_downloadable(msg)]
+
         CONCURRENCY = 5
         semaphore = asyncio.Semaphore(CONCURRENCY)
         results: Dict[str, str] = {}
-        total = len(messages)
+        total = len(media_messages)
         completed = 0
         log_interval = max(1, min(50, total // 10))
 
@@ -775,7 +794,7 @@ class MediaMixin:
                 # finish and the CLI can shut down.
                 return
 
-        tasks = [asyncio.create_task(download_one(msg)) for msg in messages]
+        tasks = [asyncio.create_task(download_one(msg)) for msg in media_messages]
 
         async def _cancel_watchdog() -> None:
             # Polls _stop_requested and cancels every still-pending task once

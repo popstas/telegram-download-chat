@@ -2266,6 +2266,14 @@ class TestFormatEntities:
         out = format_entities(text, entities, "html")
         assert out == 'see <a href="https://x.io">https://x.io</a>'
 
+    def test_schemeless_url_entity_defaults_to_https(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "see example.com"
+        entities = [{"_": "MessageEntityUrl", "offset": 4, "length": 11}]
+        out = format_entities(text, entities, "html")
+        assert out == 'see <a href="https://example.com">example.com</a>'
+
     def test_javascript_scheme_dropped(self):
         from telegram_download_chat.core.render import format_entities
 
@@ -2327,11 +2335,11 @@ class TestFormatEntities:
             == '<font face="Courier">abc</font>def'
         )
 
-    def test_schemeless_text_url_is_kept(self):
+    def test_schemeless_text_url_defaults_to_https(self):
         from telegram_download_chat.core.render import format_entities
 
-        # A relative/scheme-less href has no scheme to reject, so it is allowed
-        # through the allowlist unchanged.
+        # A scheme-less text-link href would resolve relative to the local
+        # export file, so it is defaulted to https:// like bare-domain URLs.
         text = "here"
         entities = [
             {
@@ -2342,7 +2350,7 @@ class TestFormatEntities:
             }
         ]
         out = format_entities(text, entities, "html")
-        assert out == '<a href="example.com/page">here</a>'
+        assert out == '<a href="https://example.com/page">here</a>'
 
     def test_unknown_dialect_falls_back_to_html(self):
         from telegram_download_chat.core.render import format_entities

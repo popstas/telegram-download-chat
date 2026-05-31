@@ -649,7 +649,7 @@ def _xml_escape(text: str) -> str:
 
 # URL schemes permitted in links; anything else (e.g. javascript:, data:) is
 # dropped and the link text is rendered as plain text.
-_ALLOWED_URL_SCHEMES = {"http", "https", "mailto", "tg", "ftp", "tel"}
+_ALLOWED_URL_SCHEMES = {"http", "https", "mailto", "tg"}
 
 _SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*):")
 
@@ -733,6 +733,24 @@ def _safe_href(url: Optional[str]) -> Optional[str]:
     return candidate
 
 
+def _normalize_link_href(url: Optional[str]) -> Optional[str]:
+    """Sanitize a link target for an ``href``.
+
+    Telegram marks bare domains (e.g. ``example.com``) without a scheme; a
+    schemeless href resolves relative to the local export file instead of
+    opening the site, so default those to ``https://``. The result is then run
+    through the scheme allowlist (:func:`_safe_href`).
+    """
+    if not url:
+        return None
+    candidate = str(url).strip()
+    if not candidate:
+        return None
+    if not _SCHEME_RE.match(candidate):
+        candidate = "https://" + candidate
+    return _safe_href(candidate)
+
+
 def _escape_attr(value: str, dialect: str) -> str:
     """Escape an attribute value (href) for the given dialect."""
     if dialect == "pdf":
@@ -765,18 +783,18 @@ def _entity_tags(
             return ('<span class="spoiler">', "</span>")
         return ("", "")
     if etype == "MessageEntityTextUrl":
-        href = _safe_href(ent.get("url"))
+        href = _normalize_link_href(ent.get("url"))
         if not href:
             return None
         return (f'<a href="{_escape_attr(href, dialect)}">', "</a>")
     if etype in ("MessageEntityUrl", "MessageEntityEmail"):
-        href = span_text
         if etype == "MessageEntityEmail":
-            href = "mailto:" + span_text
-        safe = _safe_href(href)
-        if not safe:
+            href = _safe_href("mailto:" + span_text.strip())
+        else:
+            href = _normalize_link_href(span_text)
+        if not href:
             return None
-        return (f'<a href="{_escape_attr(safe, dialect)}">', "</a>")
+        return (f'<a href="{_escape_attr(href, dialect)}">', "</a>")
     # Unsupported entity types (mentions, hashtags, etc.) carry no formatting.
     return None
 

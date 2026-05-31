@@ -27,6 +27,9 @@ def _make_media_mixin() -> MediaMixin:
     d._premium_checked = True
     d._is_premium = False
     d._fast_dl_settings = (False, 1, 0)
+    # Treat any present media as downloadable by default; download_message_media
+    # tests below override this with their own stub.
+    d.get_filename = lambda media: "x.bin"
     return d
 
 
@@ -239,7 +242,14 @@ async def test_download_all_media_emits_summary(tmp_path):
 
     d.download_message_media = AsyncMock(side_effect=fake_download)
 
-    await d.download_all_media([{"id": 1}, {"id": 2}, {"id": 3}], ad)
+    await d.download_all_media(
+        [
+            {"id": 1, "media": {"k": 1}},
+            {"id": 2, "media": {"k": 1}},
+            {"id": 3, "media": {"k": 1}},
+        ],
+        ad,
+    )
 
     summaries = [e for e in events if e.get("type") == "media_summary"]
     assert len(summaries) == 1
@@ -261,10 +271,12 @@ async def test_download_all_media_resets_stats_between_runs(tmp_path):
 
     d.download_message_media = AsyncMock(side_effect=fake_download)
 
-    await d.download_all_media([{"id": 1}], ad)
+    await d.download_all_media([{"id": 1, "media": {"k": 1}}], ad)
     assert d._media_stats.cached_files == 1
     # Second run starts from a clean slate.
-    await d.download_all_media([{"id": 2}, {"id": 3}], ad)
+    await d.download_all_media(
+        [{"id": 2, "media": {"k": 1}}, {"id": 3, "media": {"k": 1}}], ad
+    )
     assert d._media_stats.cached_files == 2
 
 

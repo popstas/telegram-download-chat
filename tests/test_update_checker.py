@@ -175,19 +175,34 @@ def _make_settings_tab():
 
 def test_settings_tab_update_available_swaps_button(qapp):
     tab = _make_settings_tab()
-    tab._apply_update_check_result(
-        {
-            "current": "0.10.3",
-            "latest": "0.99.0",
-            "update_available": True,
-            "download_url": uc.get_installer_url("0.99.0"),
-            "error": None,
-        }
-    )
+    result = {
+        "current": "0.10.3",
+        "latest": "0.99.0",
+        "update_available": True,
+        "download_url": uc.get_installer_url("0.99.0"),
+        "error": None,
+    }
+    with patch.object(uc, "is_windows", return_value=True):
+        tab._apply_update_check_result(result)
     assert tab.download_update_btn.isHidden() is False
     assert tab.check_updates_btn.isHidden() is True
     assert tab._update_download_url.endswith("telegram-download-chat.exe")
     assert "0.99.0" in tab.update_status_label.text()
+
+
+def test_settings_tab_update_available_non_windows_uses_releases_page(qapp):
+    tab = _make_settings_tab()
+    result = {
+        "current": "0.10.3",
+        "latest": "0.99.0",
+        "update_available": True,
+        "download_url": uc.get_installer_url("0.99.0"),
+        "error": None,
+    }
+    with patch.object(uc, "is_windows", return_value=False):
+        tab._apply_update_check_result(result)
+    assert tab.download_update_btn.isHidden() is False
+    assert tab._update_download_url == uc.get_releases_page_url()
 
 
 def test_settings_tab_up_to_date_keeps_check_button(qapp):

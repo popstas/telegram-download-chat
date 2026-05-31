@@ -808,9 +808,14 @@ class SettingsTab(QWidget):
             return
 
         if update_available and latest:
-            self._update_download_url = (
-                result.get("download_url") or update_checker.get_releases_page_url()
-            )
+            # download_url is a Windows installer asset; only follow it on
+            # Windows. Other platforms open the releases page in the browser.
+            if update_checker.is_windows():
+                self._update_download_url = (
+                    result.get("download_url") or update_checker.get_releases_page_url()
+                )
+            else:
+                self._update_download_url = update_checker.get_releases_page_url()
             self.update_status_label.setText(
                 f"Update available: {latest} (current: {current})"
             )
@@ -825,9 +830,9 @@ class SettingsTab(QWidget):
 
     def _download_update(self):
         """Open/download the available update build."""
+        # URL was resolved in _apply_update_check_result (Windows installer
+        # asset on Windows, releases page elsewhere).
         url = self._update_download_url or update_checker.get_releases_page_url()
-        # On Windows, point straight at the installer asset; elsewhere open the
-        # releases page in the browser.
         try:
             QDesktopServices.openUrl(QUrl(url))
         except Exception:  # pragma: no cover - fallback

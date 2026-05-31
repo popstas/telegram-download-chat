@@ -313,7 +313,7 @@ For users who prefer a visual interface, the application includes an optional GU
 
 ```bash
 # Launch the GUI application
-telegram-download-chat --gui
+telegram-download-chat gui
 ```
 
 ### Choosing What to Download (Chat Identifiers)

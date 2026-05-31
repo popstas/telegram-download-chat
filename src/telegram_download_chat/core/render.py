@@ -826,8 +826,11 @@ def format_entities(
         if not isinstance(off, int) or not isinstance(length, int) or length <= 0:
             continue
         start = boundaries.get(off)
-        end = boundaries.get(off + length)
-        if start is None or end is None or start >= end:
+        # Clamp an entity that runs past the text end (Telethon offsets are
+        # normally exact, but be defensive) to the last boundary rather than
+        # dropping the whole span.
+        end = boundaries.get(off + length, n)
+        if start is None or start >= end:
             continue
         tags = _entity_tags(etype, ent, dialect, body[start:end])
         if tags is None:

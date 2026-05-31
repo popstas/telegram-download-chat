@@ -79,6 +79,18 @@ class DownloadMixin:
                 "Using offset_date=%s from from_date=%s", offset_date, from_date
             )
 
+        # Parse the date boundaries once; they are invariant for the whole run.
+        until_parsed = (
+            datetime.strptime(until_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            if until_date
+            else None
+        )
+        from_parsed = (
+            datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            if from_date
+            else None
+        )
+
         while True:
             if self._stop_requested or (self._stop_file and self._stop_file.exists()):
                 self._stop_requested = True
@@ -121,14 +133,11 @@ class DownloadMixin:
                 if msg_id is None or msg_id in existing_ids:
                     continue
 
-                if until_date and hasattr(msg, "date") and msg.date:
-                    until = datetime.strptime(until_date, "%Y-%m-%d").replace(
-                        tzinfo=timezone.utc
-                    )
+                if until_parsed and hasattr(msg, "date") and msg.date:
                     msg_date = msg.date
                     if msg_date.tzinfo is None:
                         msg_date = msg_date.replace(tzinfo=timezone.utc)
-                    if msg_date.date() < until.date():
+                    if msg_date.date() < until_parsed.date():
                         hit_until_boundary = True
                         if not silent:
                             self.logger.debug(
@@ -136,10 +145,7 @@ class DownloadMixin:
                             )
                         break
 
-                if from_date and hasattr(msg, "date") and msg.date:
-                    from_parsed = datetime.strptime(from_date, "%Y-%m-%d").replace(
-                        tzinfo=timezone.utc
-                    )
+                if from_parsed and hasattr(msg, "date") and msg.date:
                     msg_date = msg.date
                     if msg_date.tzinfo is None:
                         msg_date = msg_date.replace(tzinfo=timezone.utc)

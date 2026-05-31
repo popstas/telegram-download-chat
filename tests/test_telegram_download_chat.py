@@ -2540,3 +2540,13 @@ class TestHtmlThreadsAndAnchors:
         parent_of = {1: 2, 2: 1}  # reply loop
         # Must terminate (no infinite loop) and return one of the ids.
         assert _thread_root(1, parent_of, id_to_msg) in (1, 2)
+
+    def test_thread_root_resolves_chain_to_root(self):
+        from telegram_download_chat.core.render import _thread_root
+
+        # 3 -> 2 -> 1 (each replies to the previous); root of all is 1.
+        id_to_msg = {1: {"id": 1}, 2: {"id": 2}, 3: {"id": 3}}
+        parent_of = {3: 2, 2: 1}
+        assert _thread_root(3, parent_of, id_to_msg) == 1
+        assert _thread_root(2, parent_of, id_to_msg) == 1
+        assert _thread_root(1, parent_of, id_to_msg) == 1

@@ -2284,6 +2284,48 @@ class TestFormatEntities:
         assert "javascript" not in out
         assert "<a" not in out
 
+    def test_email_entity_uses_mailto_href(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "write me@x.io now"
+        entities = [{"_": "MessageEntityEmail", "offset": 6, "length": 7}]
+        out = format_entities(text, entities, "html")
+        assert out == 'write <a href="mailto:me@x.io">me@x.io</a> now'
+
+    def test_pre_entity_maps_to_code_like_code(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "abcdef"
+        entities = [{"_": "MessageEntityPre", "offset": 0, "length": 3}]
+        assert format_entities(text, entities, "html") == "<code>abc</code>def"
+        assert (
+            format_entities(text, entities, "pdf")
+            == '<font face="Courier">abc</font>def'
+        )
+
+    def test_schemeless_text_url_is_kept(self):
+        from telegram_download_chat.core.render import format_entities
+
+        # A relative/scheme-less href has no scheme to reject, so it is allowed
+        # through the allowlist unchanged.
+        text = "here"
+        entities = [
+            {
+                "_": "MessageEntityTextUrl",
+                "offset": 0,
+                "length": 4,
+                "url": "example.com/page",
+            }
+        ]
+        out = format_entities(text, entities, "html")
+        assert out == '<a href="example.com/page">here</a>'
+
+    def test_unknown_dialect_falls_back_to_html(self):
+        from telegram_download_chat.core.render import format_entities
+
+        out = format_entities("a < b", [], "bogus")
+        assert out == "a &lt; b"
+
     def test_first_line_truncates(self):
         from telegram_download_chat.core.render import first_line
 

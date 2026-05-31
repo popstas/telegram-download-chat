@@ -62,6 +62,12 @@ class TestCompareVersions:
         # Non-numeric trailing chunks fall back to the numeric prefix.
         assert uc.compare_versions("1.0.0", "1.0.1rc1") is True
 
+    def test_non_numeric_falls_back_to_lexicographic(self):
+        # A leading non-numeric chunk makes _version_parts raise, exercising the
+        # lexicographic fallback branch.
+        assert uc.compare_versions("abc", "abd") is True
+        assert uc.compare_versions("abd", "abc") is False
+
 
 class TestInstallerUrl:
     def test_includes_version_tag_and_asset(self):

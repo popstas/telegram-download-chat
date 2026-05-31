@@ -339,6 +339,14 @@ Tips:
 - All other fields (limit, dates, media, HTML/PDF, etc.) under **Settings**
   apply to whichever chat you entered.
 
+### Checking for Updates
+
+The **Settings** tab has a **Software Update** group showing the current
+version. Click **Check updates** to query GitHub for the latest release. If a
+newer version is available the button is replaced by **Download**: on Windows it
+fetches the `telegram-download-chat.exe` asset directly, and on other platforms
+it opens the releases page in your browser.
+
 ## Output Formats
 
 The tool generates the following files for each chat:
@@ -386,6 +394,15 @@ When using the `--media` flag, media files are downloaded alongside the message 
 ```
 
 Files are named `<message_id>_<original_filename>` and sorted into category subdirectories.
+
+### HTML / PDF Export (`[chat_name]/messages.html`, `[chat_name]/messages.pdf`)
+
+Generated when the `--html` / `--pdf` flags are used (alongside the usual JSON/TXT output, and combinable with `--media` for inline images). Both render inline Telegram formatting — **bold**, *italic*, underline, strikethrough, `code`, spoilers, and links (only `http(s)`/`mailto` schemes are kept; others such as `javascript:` are stripped). The HTML view additionally:
+
+- Groups messages into reply threads separated by a thread header.
+- Turns reply quotes into clickable links that jump to the cited message (when that message is part of the export).
+
+The TXT and JSON output is unchanged by these flags.
 
 Supported media types:
 - **Photos**: Downloaded as JPG files

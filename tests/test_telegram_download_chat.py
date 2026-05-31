@@ -2459,13 +2459,37 @@ class TestHtmlThreadsAndAnchors:
             [
                 self._msg(1, 0, 1, "Topic Alpha"),
                 self._msg(2, 5, 2, "re alpha", reply={"reply_to_msg_id": 1}),
+                self._msg(3, 10, 3, "re re alpha", reply={"reply_to_msg_id": 2}),
             ],
             out,
             chat_title="t",
         )
         html = out.read_text(encoding="utf-8")
-        # Reply cites the parent's first line and links to its bubble anchor.
-        assert '<a href="#msg-1">Topic Alpha</a>' in html
+        # A reply to a NON-root parent cites that parent's first line + anchor.
+        assert '<a href="#msg-2">re alpha</a>' in html
+        # A reply to the thread root is NOT cited (the thread header shows it).
+        assert 'href="#msg-1"' not in html
+
+    def test_reply_to_thread_root_is_not_cited(self, tmp_path):
+        """A direct reply to a thread root shows no citation — the thread header
+        already carries the root's first line, so citing it again is redundant."""
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [
+                self._msg(1, 0, 1, "Topic Alpha"),
+                self._msg(2, 5, 2, "re alpha", reply={"reply_to_msg_id": 1}),
+            ],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        # No reply-quote citing the root, and no reply-quote block at all here.
+        assert 'href="#msg-1"' not in html
+        assert 'class="rq"' not in html
+        # The thread header still identifies the root.
+        assert html.count('class="threadsep"') == 1
+        assert "Topic Alpha" in html
 
     def test_reply_anchor_fallback_to_quote_text(self, tmp_path):
         renderer = self._renderer()

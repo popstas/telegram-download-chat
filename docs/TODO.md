@@ -14,3 +14,5 @@
 - [x] Improve GUI: parse more structured info from the download log and surface it in the GUI — media download progress (current/total, per-file) and the date of the last downloaded message. Have the core/CLI emit structured progress events the GUI can consume instead of scraping raw log text.
 - [x] Add Windows app auto-update: on startup check GitHub releases/latest, compare to the running version, and offer to download/install the new build. Model after `~/projects/python/talks-reducer/talks_reducer/gui/update_checker.py` (queries `releases/latest`, parses the version tag, compares versions, Windows-only).
 - [x] After a `--media` download, show the count of downloaded media files and their total size.
+- [x] html render: Don't cite messages that are thread roots.
+- [x] e2e test doesn't download and render media.

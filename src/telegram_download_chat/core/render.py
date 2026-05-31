@@ -515,7 +515,17 @@ class RenderMixin:
             reply_to_id: Optional[Any] = None
             parent_id = _reply_parent_id(msg)
             parent_msg = id_to_msg.get(parent_id) if parent_id is not None else None
-            if parent_msg is not None and parent_msg is not msg:
+            # Don't cite a parent that is itself a thread root: the thread header
+            # (HTML only) already shows the root's first line, so a citation right
+            # below it is redundant noise. thread_root is empty when threads are
+            # off (PDF), so this never affects the PDF render.
+            parent_is_thread_root = (
+                parent_id is not None and thread_root.get(parent_id) == parent_id
+            )
+            if parent_is_thread_root:
+                # Suppress the citation; the thread header carries the context.
+                pass
+            elif parent_msg is not None and parent_msg is not msg:
                 # Parent is in the export: cite its first line and anchor to it.
                 cited = first_line(parent_msg.get("message"))
                 reply_to = msg.get("reply_to")

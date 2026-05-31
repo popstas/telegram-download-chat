@@ -2,9 +2,9 @@
 
 These tests perform a *clean* download (``--overwrite``) of a private Telegram
 group that intentionally contains every export-relevant construct — inline
-formatting (bold/italic/underline/strikethrough/code/links), reply threads, and
-reposts/forwards — then render the result to HTML and PDF and assert the output
-reflects that content.
+formatting (bold/italic/underline/strikethrough/code/links), reply threads,
+reposts/forwards, and media — then download media (``--media``), render the
+result to HTML and PDF, and assert the output reflects that content.
 
 They are **opt-in**: marked ``@pytest.mark.e2e`` and skipped by default. They
 require an authenticated Telethon session and real API credentials for an
@@ -102,6 +102,7 @@ def exported(tmp_path_factory):
         "telegram_download_chat",
         group,
         "--overwrite",  # clean download — reflect the live group, not a cache
+        "--media",  # download media so the export can render it inline
         "--html",
         "--pdf",
         "-o",
@@ -122,6 +123,7 @@ def exported(tmp_path_factory):
 
     html_path = json_out.with_suffix(".html")
     pdf_path = json_out.with_suffix(".pdf")
+    attachments_dir = out_dir / "attachments"
     assert json_out.exists(), "expected messages.json from the download"
     assert html_path.exists(), "expected rendered HTML output"
     assert pdf_path.exists(), "expected rendered PDF output"
@@ -130,6 +132,7 @@ def exported(tmp_path_factory):
         "json": json_out,
         "html": html_path,
         "pdf": pdf_path,
+        "attachments_dir": attachments_dir,
         "html_text": html_path.read_text(encoding="utf-8"),
         "pdf_bytes": pdf_path.read_bytes(),
     }
@@ -171,3 +174,17 @@ def test_e2e_pdf_rendered(exported):
     pdf_bytes = exported["pdf_bytes"]
     assert pdf_bytes.startswith(b"%PDF"), "PDF output should start with %PDF"
     assert len(pdf_bytes) > 1024, "PDF output looks suspiciously small"
+
+
+def test_e2e_media_downloaded_and_rendered(exported):
+    """``--media`` downloads attachments and the HTML embeds/references them."""
+    attachments_dir = exported["attachments_dir"]
+    assert attachments_dir.is_dir(), "expected an attachments/ directory from --media"
+    media_files = [p for p in attachments_dir.rglob("*") if p.is_file()]
+    assert media_files, "expected at least one downloaded media file"
+    # The HTML export should reference the downloaded media via the
+    # attachments/ prefix (inline <img>/<video>/<audio> src or a doc link).
+    html = exported["html_text"]
+    assert (
+        "attachments/" in html
+    ), "expected the HTML export to reference downloaded media"

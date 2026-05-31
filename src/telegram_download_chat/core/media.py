@@ -183,7 +183,8 @@ class MediaStats:
     # Files that needed a retry, broken down by cause.
     expired_reference_retries: int = 0
     fast_download_fallbacks: int = 0
-    # Wall-clock seconds spent in the media-download phase.
+    # Wall-clock seconds spanning the actual downloads (first start to last
+    # finish); excludes cached-file checks and text-only messages.
     elapsed_seconds: float = 0.0
 
     @property
@@ -200,8 +201,8 @@ class MediaStats:
     def speed_mbps(self) -> float:
         """Average download speed in MB/s.
 
-        Counts only actually-downloaded bytes over the media-phase elapsed
-        time; cached files contribute to neither the numerator nor the basis.
+        Counts only actually-downloaded bytes over the actual-download elapsed
+        window; cached files contribute to neither the numerator nor the basis.
         """
         if self.elapsed_seconds <= 0 or self.downloaded_bytes <= 0:
             return 0.0
@@ -381,10 +382,15 @@ class MediaMixin:
 
         download_to.parent.mkdir(parents=True, exist_ok=True)
 
+        # Time only actual transfers: the cached early-return above never reaches
+        # here, so cached-file checks and text-only messages stay out of the
+        # MB/s elapsed-time basis (see MediaStats.speed_mbps).
+        dl_start = time.monotonic()
         try:
             # Synthetic types: write directly without a network call
             if self._serialize_synthetic_media(media, download_to):
                 self._record_downloaded(download_to)
+                self._note_download_window(dl_start, time.monotonic())
                 return download_to
 
             downloaded_path = await self._download_binary_media(
@@ -395,6 +401,7 @@ class MediaMixin:
                     f"Downloaded media for message {message_id}: {downloaded_path}"
                 )
                 self._record_downloaded(downloaded_path)
+                self._note_download_window(dl_start, time.monotonic())
                 return Path(downloaded_path)
             self.logger.warning(f"Failed to download media for message {message_id}")
             self._record_failed()
@@ -434,6 +441,22 @@ class MediaMixin:
         stats = getattr(self, "_media_stats", None)
         if stats is not None:
             stats.failed_files += 1
+
+    def _note_download_window(self, start: float, end: float) -> None:
+        """Widen the actual-download wall-clock window to span [start, end].
+
+        Tracked as (min start, max end) across all real downloads so the MB/s
+        basis is the time during which downloading happened, not the whole
+        media phase (which also covers cached-file checks and text-only
+        messages). Concurrent cached checks overlap this window, so they don't
+        inflate it. Runs on the asyncio event loop thread, so no lock needed.
+        """
+        window = getattr(self, "_download_window", None)
+        if window is None:
+            self._download_window = [start, end]
+        else:
+            window[0] = min(window[0], start)
+            window[1] = max(window[1], end)
 
     async def _download_binary_media(
         self,
@@ -688,7 +711,9 @@ class MediaMixin:
 
         # Fresh per-run counters for the post-download summary.
         self._media_stats = MediaStats()
-        start_time = time.monotonic()
+        # [min start, max end] across actual downloads; populated by
+        # _note_download_window. Stays None when nothing is downloaded.
+        self._download_window = None
 
         enabled, connections, _ = self._resolve_fast_download_settings()
         self._current_connections = connections
@@ -786,7 +811,11 @@ class MediaMixin:
 
         # Finalize timing and surface the run summary (size/speed/cached/retries)
         # for both the CLI log and the GUI's structured-progress consumer.
-        self._media_stats.elapsed_seconds = time.monotonic() - start_time
+        # Elapsed is the actual-download wall-clock window, so cached-file checks
+        # and text-only messages stay out of the MB/s basis (0 when nothing was
+        # downloaded — speed_mbps already guards on downloaded_bytes too).
+        window = self._download_window
+        self._media_stats.elapsed_seconds = window[1] - window[0] if window else 0.0
         if self._media_stats.total_files or self._media_stats.failed_files:
             self.logger.info(self._media_stats.summary_line())
         emit_progress(

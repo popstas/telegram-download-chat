@@ -49,9 +49,10 @@ class SettingsTab(QWidget):
     code_request_done = Signal(str)
     code_request_error = Signal(str)
 
-    # Signal emitted when an update check finishes (result dict from
-    # update_checker.check_for_update)
-    update_check_done = Signal(dict)
+    # Signal emitted when an update check finishes (request id + result dict
+    # from update_checker.check_for_update). The id lets a stale, slower check
+    # be ignored when a newer one has already been started.
+    update_check_done = Signal(int, dict)
 
     def __init__(self, parent=None):
         """Initialize the settings tab.
@@ -298,6 +299,11 @@ class SettingsTab(QWidget):
 
         # URL of an available update (populated after a successful check)
         self._update_download_url = None
+
+        # Monotonic id of the most recently started update check. Results from
+        # any earlier check are ignored so a slow/stale response can't overwrite
+        # the UI (or download URL) set by a newer one.
+        self._update_request_id = 0
 
         # Status label showing the result of the last check
         self.update_status_label = QLabel(
@@ -767,6 +773,9 @@ class SettingsTab(QWidget):
         """
         self.update_status_label.setText("Checking for updates...")
 
+        self._update_request_id += 1
+        request_id = self._update_request_id
+
         def run_check():
             try:
                 result = update_checker.check_for_update()
@@ -779,13 +788,17 @@ class SettingsTab(QWidget):
                     "download_url": None,
                     "error": str(exc),
                 }
-            self.update_check_done.emit(result)
+            self.update_check_done.emit(request_id, result)
 
         thread = threading.Thread(target=run_check, daemon=True)
         thread.start()
 
-    def _on_update_check_done(self, result: dict):
+    def _on_update_check_done(self, request_id: int, result: dict):
         """Handle the result of an update check (runs on the GUI thread)."""
+        # Drop results from a superseded check so a slow/stale response can't
+        # clobber the state set by a newer one.
+        if request_id != self._update_request_id:
+            return
         self._apply_update_check_result(result)
 
     def _apply_update_check_result(self, result: dict):

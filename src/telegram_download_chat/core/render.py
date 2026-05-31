@@ -721,6 +721,12 @@ def _safe_href(url: Optional[str]) -> Optional[str]:
     candidate = str(url).strip()
     if not candidate:
         return None
+    # Reject embedded ASCII control characters (incl. the tab/newline/CR that
+    # browsers strip when parsing a URL). Without this, "java\nscript:alert(1)"
+    # has no scheme our regex can see, slips past the allowlist, and is emitted
+    # as an href that the browser collapses back to "javascript:alert(1)".
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in candidate):
+        return None
     match = _SCHEME_RE.match(candidate)
     if match and match.group(1).lower() not in _ALLOWED_URL_SCHEMES:
         return None

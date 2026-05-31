@@ -2284,6 +2284,30 @@ class TestFormatEntities:
         assert "javascript" not in out
         assert "<a" not in out
 
+    def test_javascript_scheme_with_embedded_control_char_dropped(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "danger"
+        # Browsers strip tab/newline/CR from URLs, so "java\nscript:" would be
+        # collapsed back to "javascript:". The link must be dropped, not emitted.
+        for raw in (
+            "java\nscript:alert(1)",
+            "java\tscript:alert(1)",
+            "java\rscript:alert(1)",
+            "\x01javascript:alert(1)",
+        ):
+            entities = [
+                {
+                    "_": "MessageEntityTextUrl",
+                    "offset": 0,
+                    "length": 6,
+                    "url": raw,
+                }
+            ]
+            out = format_entities(text, entities, "html")
+            assert out == "danger"
+            assert "<a" not in out
+
     def test_email_entity_uses_mailto_href(self):
         from telegram_download_chat.core.render import format_entities
 

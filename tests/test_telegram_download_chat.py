@@ -2205,7 +2205,10 @@ class TestFormatEntities:
         assert out == "<u>abc</u><s>def</s><code>ghi</code>"
 
     def test_strike_and_code_pdf_dialect(self):
-        from telegram_download_chat.core.render import format_entities
+        from telegram_download_chat.core.render import (
+            _pdf_mono_font_face,
+            format_entities,
+        )
 
         text = "abcdef"
         entities = [
@@ -2213,7 +2216,8 @@ class TestFormatEntities:
             {"_": "MessageEntityCode", "offset": 3, "length": 3},
         ]
         out = format_entities(text, entities, "pdf")
-        assert out == '<strike>abc</strike><font face="Courier">def</font>'
+        face = _pdf_mono_font_face()
+        assert out == f'<strike>abc</strike><font face="{face}">def</font>'
 
     def test_overlapping_nested_spans_well_formed(self):
         from telegram_download_chat.core.render import format_entities
@@ -2325,14 +2329,18 @@ class TestFormatEntities:
         assert out == 'write <a href="mailto:me@x.io">me@x.io</a> now'
 
     def test_pre_entity_maps_to_code_like_code(self):
-        from telegram_download_chat.core.render import format_entities
+        from telegram_download_chat.core.render import (
+            _pdf_mono_font_face,
+            format_entities,
+        )
 
         text = "abcdef"
         entities = [{"_": "MessageEntityPre", "offset": 0, "length": 3}]
         assert format_entities(text, entities, "html") == "<code>abc</code>def"
+        face = _pdf_mono_font_face()
         assert (
             format_entities(text, entities, "pdf")
-            == '<font face="Courier">abc</font>def'
+            == f'<font face="{face}">abc</font>def'
         )
 
     def test_schemeless_text_url_defaults_to_https(self):
@@ -2415,6 +2423,53 @@ class TestFormatEntities:
         renderer.render_pdf(messages, out, chat_title="t")
         assert out.exists()
         assert out.stat().st_size > 0
+        assert out.read_bytes().startswith(b"%PDF")
+
+    def test_pdf_code_span_uses_unicode_mono_font(self, tmp_path):
+        """Registering Unicode fonts upgrades PDF code spans off Courier so
+        Cyrillic in monospace renders. Skips if no Unicode mono font is present."""
+        pytest.importorskip("reportlab")
+        from telegram_download_chat.core.render import (
+            _find_unicode_mono_ttf,
+            _pdf_mono_font_face,
+            _register_unicode_fonts,
+            format_entities,
+        )
+
+        if _find_unicode_mono_ttf() is None:
+            pytest.skip("no Unicode monospace font on this system")
+
+        _register_unicode_fonts()
+        face = _pdf_mono_font_face()
+        assert face != "Courier", "expected a registered Unicode mono font"
+
+        # Cyrillic inside a code span flows through with the Unicode mono face.
+        text = "код"
+        entities = [{"_": "MessageEntityCode", "offset": 0, "length": 3}]
+        out = format_entities(text, entities, "pdf")
+        assert out == f'<font face="{face}">код</font>'
+
+    def test_pdf_smoke_with_cyrillic_code(self, tmp_path):
+        """A PDF with a Cyrillic code span renders without error."""
+        pytest.importorskip("reportlab")
+        from telegram_download_chat.core.render import RenderMixin
+
+        renderer = RenderMixin()
+        out = tmp_path / "cyr.pdf"
+        messages = [
+            {
+                "id": 1,
+                "date": "2026-01-01T10:00:00+00:00",
+                "from_id": {"user_id": 1},
+                "user_display_name": "Алиса",
+                "message": "пример кода",
+                "entities": [
+                    {"_": "MessageEntityCode", "offset": 7, "length": 4},
+                ],
+            }
+        ]
+        renderer.render_pdf(messages, out, chat_title="тест")
+        assert out.exists()
         assert out.read_bytes().startswith(b"%PDF")
 
 

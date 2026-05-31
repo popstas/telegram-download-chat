@@ -787,7 +787,7 @@ def _entity_tags(
     if etype in ("MessageEntityCode", "MessageEntityPre"):
         if dialect == "html":
             return ("<code>", "</code>")
-        return ('<font face="Courier">', "</font>")
+        return (f'<font face="{_pdf_mono_font_face()}">', "</font>")
     if etype == "MessageEntitySpoiler":
         if dialect == "html":
             return ('<span class="spoiler">', "</span>")
@@ -965,7 +965,47 @@ def _find_unicode_ttf_oblique() -> Optional[str]:
     return None
 
 
+def _find_unicode_mono_ttf() -> Optional[str]:
+    """Find a Unicode-capable monospace TTF for PDF code spans.
+
+    Built-in ReportLab ``Courier`` has no Cyrillic glyphs, so code spans with
+    Cyrillic render as tofu. Prefer a real Unicode mono font when present.
+    """
+    candidates = [
+        # DejaVu Sans Mono — broad Cyrillic/Latin coverage, common on Linux
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+        # Noto Sans Mono
+        "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
+        "/usr/share/fonts/noto/NotoSansMono-Regular.ttf",
+        # Liberation Mono
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/liberation-mono/LiberationMono-Regular.ttf",
+        # macOS
+        "/System/Library/Fonts/Menlo.ttc",
+        "/Library/Fonts/Courier New.ttf",
+        # Windows — Consolas / Courier New both carry Cyrillic
+        "C:/Windows/Fonts/consola.ttf",
+        "C:/Windows/Fonts/cour.ttf",
+    ]
+    for path in candidates:
+        if Path(path).is_file():
+            return path
+    return None
+
+
 _font_cache: Optional[Dict[str, str]] = None
+
+# Font face used for PDF code/pre spans. Defaults to the built-in ``Courier``
+# (no Cyrillic) and is upgraded to a registered Unicode mono font by
+# ``_register_unicode_fonts`` when one is available on the system.
+_pdf_mono_face: str = "Courier"
+
+
+def _pdf_mono_font_face() -> str:
+    """Return the font face to use for PDF monospace (code) spans."""
+    return _pdf_mono_face
 
 
 def _register_unicode_fonts() -> Dict[str, str]:
@@ -1024,6 +1064,17 @@ def _register_unicode_fonts() -> Dict[str, str]:
     if oblique:
         pdfmetrics.registerFont(TTFont("UnicodeSans-Oblique", oblique))
         font_map["oblique"] = "UnicodeSans-Oblique"
+
+    # Monospace font for code/pre spans — Courier lacks Cyrillic glyphs.
+    global _pdf_mono_face
+    mono = _find_unicode_mono_ttf()
+    if mono:
+        pdfmetrics.registerFont(TTFont("UnicodeMono", mono))
+        font_map["mono"] = "UnicodeMono"
+        _pdf_mono_face = "UnicodeMono"
+    else:
+        font_map["mono"] = "Courier"
+        _pdf_mono_face = "Courier"
 
     _font_cache = font_map
     return _font_cache

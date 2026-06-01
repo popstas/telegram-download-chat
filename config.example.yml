@@ -24,6 +24,10 @@ settings:
   # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
   log_level: INFO
 
+  # GUI: help for the "Chat" field (which identifier to type). Both default on.
+  # gui_chat_hint_tooltip: true   # info icon + hover tooltip next to the field
+  # gui_chat_hint_help: true      # collapsible "How to fill this?" block
+
   # Optional proxy URL for Telegram connections
   # Supported schemes: socks5, socks4, http, https
   # proxy_url: socks5://user:password@proxy-host:1080

@@ -367,6 +367,11 @@ Tips:
 - All other fields (limit, dates, media, HTML/PDF, etc.) under **Settings**
   apply to whichever chat you entered.
 
+This help is also shown inside the app: hover the **ⓘ** icon next to the Chat
+label for a quick tooltip, or click **ⓘ How to fill this?** under the field to
+expand the full list. Both can be turned off via `gui_chat_hint_tooltip` /
+`gui_chat_hint_help` in `config.yml`.
+
 ### Checking for Updates
 
 The **Settings** tab has a **Software Update** group showing the current

@@ -18,12 +18,39 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QToolButton,
     QTreeView,
     QVBoxLayout,
     QWidget,
 )
 
 from telegram_download_chat.paths import get_downloads_dir
+
+# What a user can type in the "Chat" field. Single source of truth, rendered
+# both as a plain-text tooltip and as an HTML help block.
+CHAT_HINT_ITEMS = [
+    ("Saved Messages", "me"),
+    ("User or group", "@username or a t.me/… link"),
+    ("Private chat / by id", "123456 (channel/supergroup: -100…)"),
+    ("Phone (must be in your contacts)", "+1234567890"),
+    ("Whole folder", "folder:Work"),
+    ("Convert an existing export", "path/to/messages.json"),
+]
+
+
+def _chat_hint_tooltip() -> str:
+    """Plain-text hint for the Chat field tooltip."""
+    lines = ["What to type in Chat:"]
+    lines += [f"• {label} — {example}" for label, example in CHAT_HINT_ITEMS]
+    return "\n".join(lines)
+
+
+def _chat_hint_html() -> str:
+    """HTML hint for the collapsible help block."""
+    rows = "".join(
+        f"<li><b>{label}:</b> {example}</li>" for label, example in CHAT_HINT_ITEMS
+    )
+    return f"<ul style='margin:4px 0 0; padding-left:18px;'>{rows}</ul>"
 
 
 class DownloadTab(QWidget):
@@ -76,12 +103,35 @@ class DownloadTab(QWidget):
         # Add stretch to push everything to the top
         layout.addStretch()
 
+    def _chat_hint_flags(self):
+        """Return ``(show_tooltip, show_help)`` for the Chat-field hint.
+
+        Both default to True (help is shown out of the box) and can be disabled
+        via ``settings.gui_chat_hint_tooltip`` / ``settings.gui_chat_hint_help``.
+        """
+        try:
+            from ..utils.config import ConfigManager
+
+            config = ConfigManager()
+            config.load()
+            return (
+                bool(config.get("settings.gui_chat_hint_tooltip", True)),
+                bool(config.get("settings.gui_chat_hint_help", True)),
+            )
+        except Exception:
+            return True, True
+
     def _setup_chat_input(self, parent_layout):
         """Set up the chat input section.
 
         Args:
             parent_layout: Parent layout to add the chat input to
         """
+        show_tooltip, show_help = self._chat_hint_flags()
+        self.chat_info_btn = None
+        self.chat_help_btn = None
+        self.chat_help_label = None
+
         form = QFormLayout()
         form.setContentsMargins(5, 5, 5, 5)
         form.setSpacing(10)
@@ -101,9 +151,62 @@ class DownloadTab(QWidget):
         self.chat_edit.setMinimumHeight(60)
         self.chat_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
-        # Add to form
-        form.addRow(chat_label, self.chat_edit)
+        # Label cell: "Chat:" plus an optional ⓘ info button with a tooltip.
+        if show_tooltip:
+            tooltip = _chat_hint_tooltip()
+            self.chat_edit.setToolTip(tooltip)
+            label_cell = QWidget()
+            cell_layout = QHBoxLayout(label_cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
+            cell_layout.setSpacing(4)
+            cell_layout.addWidget(chat_label)
+            self.chat_info_btn = QToolButton()
+            self.chat_info_btn.setText("ⓘ")
+            self.chat_info_btn.setToolTip(tooltip)
+            self.chat_info_btn.setCursor(Qt.PointingHandCursor)
+            self.chat_info_btn.setAutoRaise(True)
+            self.chat_info_btn.setStyleSheet(
+                "QToolButton { border: none; color: #168acd; }"
+            )
+            # When the help block exists, clicking the icon toggles it too.
+            if show_help:
+                self.chat_info_btn.clicked.connect(self._toggle_chat_help)
+            cell_layout.addWidget(self.chat_info_btn)
+            cell_layout.addStretch()
+            form.addRow(label_cell, self.chat_edit)
+        else:
+            form.addRow(chat_label, self.chat_edit)
+
         parent_layout.addLayout(form)
+
+        # Collapsible "How to fill this?" help block under the field.
+        if show_help:
+            self.chat_help_btn = QToolButton()
+            self.chat_help_btn.setText("ⓘ How to fill this? ▶")
+            self.chat_help_btn.setAutoRaise(True)
+            self.chat_help_btn.setCursor(Qt.PointingHandCursor)
+            self.chat_help_btn.setStyleSheet(
+                "QToolButton { border: none; color: #5a6b7b; }"
+            )
+            self.chat_help_btn.clicked.connect(self._toggle_chat_help)
+            parent_layout.addWidget(self.chat_help_btn)
+
+            self.chat_help_label = QLabel(_chat_hint_html())
+            self.chat_help_label.setWordWrap(True)
+            self.chat_help_label.setOpenExternalLinks(True)
+            self.chat_help_label.setStyleSheet("color:#5a6b7b; margin:2px 0 6px 6px;")
+            self.chat_help_label.setVisible(False)
+            parent_layout.addWidget(self.chat_help_label)
+
+    def _toggle_chat_help(self):
+        """Show/hide the collapsible Chat-field help block."""
+        if self.chat_help_label is None or self.chat_help_btn is None:
+            return
+        visible = not self.chat_help_label.isVisible()
+        self.chat_help_label.setVisible(visible)
+        self.chat_help_btn.setText(
+            "ⓘ How to fill this? ▼" if visible else "ⓘ How to fill this? ▶"
+        )
 
     def _setup_settings_container(self, parent_layout):
         """Set up the settings container.

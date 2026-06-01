@@ -189,6 +189,34 @@ A lightweight web interface built with Streamlit is also available.
    telegram-download-chat-web
    ```
 
+## AI agent plugins (Claude, Cursor, Codex)
+
+The CLI ships as an installable skill/plugin for AI coding agents, so you can ask
+your agent to "download/export this Telegram chat" and it drives the CLI for you.
+All three are generated from one source of truth —
+`skills/telegram-download-chat/SKILL.md` — by `scripts/gen_agent_plugins.py`
+(a test fails if they drift). After editing the skill, run:
+
+```bash
+python scripts/gen_agent_plugins.py
+```
+
+- **Claude Code** — add this repo as a plugin marketplace, then install the
+  plugin (bundles the skill under `skills/`):
+  ```
+  /plugin marketplace add popstas/telegram-download-chat
+  /plugin install telegram-download-chat
+  ```
+  Manifests: `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`.
+
+- **Cursor** — the project rule `.cursor/rules/telegram-download-chat.mdc` is
+  picked up automatically when this repo is open. To use it elsewhere, copy that
+  file into the target project's `.cursor/rules/`.
+
+- **Codex** (OpenAI Codex CLI) — copy `.codex/prompts/telegram-download-chat.md`
+  into `~/.codex/prompts/` to expose a `/telegram-download-chat` slash command
+  (pass the chat id / username / export path as the argument).
+
 ## Configuration
 
 ### API Credentials

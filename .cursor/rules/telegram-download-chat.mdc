@@ -1,0 +1,159 @@
+---
+description: Download, export, convert, filter, and analyze Telegram chats via the telegram-download-chat CLI. Download messages from a chat/group/channel, convert an existing JSON export to TXT/HTML/PDF, filter by date/user/keyword, download media, extract subchats (reply threads), and download whole folders. Triggers on "download telegram chat", "export telegram", "convert telegram export", "скачать чат телеграм", "telegram-download-chat".
+globs:
+alwaysApply: false
+---
+<!-- GENERATED from skills/telegram-download-chat/SKILL.md by scripts/gen_agent_plugins.py — do not edit; run the script to regenerate. -->
+
+# telegram-download-chat
+
+**SCOPE**: This skill drives the `telegram-download-chat` CLI to download, convert, filter, and export Telegram chats on the user's behalf. It ONLY invokes the CLI and reports the resulting output paths. It does NOT modify project source code, and does NOT use the GUI, MCP server, or web interface.
+
+## Steps
+
+### Step 0 — Verify the CLI is available
+
+Run `which telegram-download-chat`. If found, use that command directly. If not found, try `python -m telegram_download_chat --version`. If neither works, the tool is not installed — tell the user so and proactively offer to install it, using the methods documented in the project `README.md` ("Installation" section):
+
+- `pip install telegram-download-chat` (recommended persistent install)
+- `uvx telegram-download-chat <args>` (run without installing)
+- `uv tool install telegram-download-chat` (persistent install via uv)
+- `pip install -e ".[dev,gui]"` from a checkout of this repo (development)
+
+Do not install anything without the user's confirmation.
+
+### Step 1 — Verify credentials
+
+Confirm `api_id` and `api_hash` are present **without exposing their values**. `--show-config` prints the *full config file contents, including the `api_hash` secret*, so prefer a redacted presence check that prints no values:
+
+- Find the config path (default OS location, or the `-c/--config` value), then run a quiet check that requires a numeric `api_id` (it is cast with `int()` before connecting) and a real `api_hash` (exactly 32 hex chars from my.telegram.org). The `api_hash` check anchors on exactly 32 hex chars with balanced quoting (both `"`, both `'`, or none) so it rejects empty (`""`/`''`), `null`/`~`, the shipped `YOUR_API_HASH` placeholder, and short/garbage values like `api_hash: a` — all of which would fail the real auth check later. E.g. `grep -qE '^\s*api_id:\s*("[0-9]+"|'"'"'[0-9]+'"'"'|[0-9]+)\s*$' <config> && grep -qiE '^\s*api_hash:\s*("[0-9a-f]{32}"|'"'"'[0-9a-f]{32}'"'"'|[0-9a-f]{32})\s*$' <config> && ! grep -qE 'YOUR_API_(ID|HASH)' <config> && echo present`. A bare key-presence check is not enough — a fresh config has both keys but with placeholder/empty values, and the next connection will fail.
+- If you do run `--show-config` (e.g. just to learn the path), do NOT echo, repeat, or paste the `api_hash` value back into your response.
+
+These come from https://my.telegram.org — NEVER invent them. If missing, tell the user to add them to the config file (its location is shown by `--show-config`).
+
+The first live download triggers an interactive Telegram login (phone number, then the login code, optionally a 2FA password). This MUST run in a real, attachable terminal — use a foreground `! <cmd>` invocation so the user can type the code. Only `--show-config` and `--help` run fully offline; **convert mode (`.json` input) also opens a Telegram connection** (it requires `api_id`/`api_hash`, and with no saved session it can start the same interactive login), so treat convert as needing credentials and a real terminal too.
+
+### Step 2 — Detect the mode from the target
+
+The positional `CHAT` argument selects the mode (see `cli/__init__.py`):
+
+- ends with `.json` → **convert** an existing export to TXT/HTML/PDF. The CLI still opens a Telegram connection for convert (it needs `api_id`/`api_hash`, and with no saved session can start an interactive login), so it is not offline/unattended — only `--show-config`/`--help` run with no connection.
+- starts with `folder:` (e.g. `folder:Work`) → **download every chat** in that Telegram folder (live).
+- username (`@name` or `name`), phone number, numeric id, or channel id (`-100…`) → **live download** of that chat.
+- comma-separated list of any of the above → processed one by one.
+- absent, or `gui` → GUI mode. Out of scope for this skill; mention only and do not launch it.
+
+### Step 3 — Build the command from intent
+
+Map the user's request to flags (full reference below). Common building blocks: `-o/--output`, `-l/--limit`, date range (`--max-date/--from`, `--min-date/--until`, `--last-days`), `--user`, `--keywords`, `--subchat`, `--split`, `--media`, `--html`, `--pdf`. Add `--results-json` whenever you need to parse the outcome programmatically.
+
+### Step 4 — Run it
+
+- `--show-config` and `--help`: run in the foreground normally (no connection).
+- Convert mode (`.json` input) and short capped downloads (e.g. small `-l`): run in the foreground normally **only when credentials and a saved session already exist** — both still open a Telegram connection. With no saved session, convert can start the same interactive login, so run it via the attachable-terminal path below.
+- **Any run that may need interactive login** (first live download, or convert/live with no saved session): run **only** as a foreground `! <cmd>` in a real, attachable terminal so the user can type the phone number, login code, and optional 2FA password. **Never background these** — a background process can't receive login input and will hang.
+- Large/long-running downloads **where a saved session already exists** (no login prompt possible): run as a foreground `! <cmd>` to watch progress, or in the background. Confirm scope first (see Constraints).
+
+### Step 5 — Report results
+
+Prefer `--results-json`: it prints `{"results": [ ... ]}`, where each entry has `chat_id`, `chat_title`, `chat_type`, `messages` (count), `from`/`to`, `result_json`, `result_txt`, matched `keywords`, and — when produced — `result_topics`, `result_attachments`, `result_html`, `result_pdf` (each a path, or a list of paths when `--split` is used). Parse it and report the concrete output paths to the user. Output is organized per-chat under the downloads dir: `<chat_name>/messages.json`, `messages.txt`, optionally `messages.html`/`messages.pdf`, and `attachments/`.
+
+## CLI reference
+
+Source of truth: `src/telegram_download_chat/cli/arguments.py`. Run `telegram-download-chat --help` to confirm the live flag set.
+
+### Positional argument
+
+- `CHAT` (optional) — the target. Accepts:
+  - username (`@name` or `name`), phone number, numeric id, or channel id (`-100…`) → live download;
+  - a path ending in `.json` → convert an existing export (still opens a Telegram connection — needs credentials, see Step 1/2);
+  - `folder:Name` (e.g. `folder:Work`) → every chat in that Telegram folder;
+  - a comma-separated list of any of the above → processed one by one (the list is split on `,` and trimmed).
+  - omitted → GUI mode (out of scope for this skill).
+
+### Output
+
+- `-o`, `--output` — output file path (default: `<chat_name>.json`).
+- `--split {month,year,topics}` — split output by month, by year, or by forum topic (one `<chat>/<topic_slug>/` subdirectory per topic). Note: `topics` only works on a live download of a forum/supergroup; on a `.json` convert it silently falls back to year-bucketing.
+- `--overwrite` — replace existing output files instead of resuming.
+- `--results-json` — print a results summary as JSON to stdout (preferred machine-readable output).
+
+### Limits & range
+
+- `-l`, `--limit` — maximum number of messages to download (default: `0` = no limit).
+- `--since-id` — start downloading after the specified message ID.
+- `--max-date`, `--from` — only messages on or before this date (`YYYY-MM-DD`). Also the base date for `--last-days`.
+- `--min-date`, `--until` — only messages on or after this date (`YYYY-MM-DD`).
+- `--last-days` — number of days back from `--max-date` (or today) to download.
+
+### Filtering
+
+- `--user` — sender identifier (`12345` or `user12345`). **Caveat:** it only actually *filters* when converting a Telegram Desktop **archive** export (a JSON dict containing `about`/`chats`). For a normal message-list JSON it does NOT filter — it only tags the output filename (`..._user_<id>.txt`). Live downloads ignore it entirely. To restrict a normal export to one sender, filter the JSON yourself.
+- `--keywords` — comma-separated keywords to search in messages.
+- `--subchat` — filter to a subchat/reply thread by message id or URL. Works on JSON→TXT conversion, and on live downloads when combined with `-o/--output` (without `-o`, an existing `.json` input is required).
+- `--subchat-name` — name for the subchat directory (default: `subchat_<subchat_id>`).
+
+### Sort
+
+- `--sort {asc,desc}` — sort messages by date (default: `asc`).
+
+### Media
+
+- `--media` — download all media attachments (images, videos, audio, documents, etc.).
+- `--no-fast-download` — disable parallel multi-connection media downloads (use single-stream Telethon downloader).
+- `--media-placeholders` — insert media type indicators (e.g. `[photo]`, `[file=name.pdf]`) in TXT output.
+
+### Export
+
+- `--html` — export chat as a Telegram-style HTML file.
+- `--html-media-links` — show clickable file path captions under each media element in HTML export.
+- `--pdf` — export chat as a PDF document.
+
+### Config & debug
+
+- `-c`, `--config` — path to config file (default: OS-specific location).
+- `--show-config` — show the current configuration file location and contents, then exit.
+- `--debug` — enable debug logging.
+- `--preset` — name of a preset from config to use.
+- `--proxy-url` — proxy URL for the Telegram connection (e.g. `socks5://host:1080`, `http://host:8080`).
+
+### Info
+
+- `-v`, `--version` — print version and exit.
+- `-h`, `--help` — show help and exit.
+
+## Scenarios
+
+Each scenario lists a runnable command and the situation it fits. Replace `@chat` / paths with the user's actual target.
+
+- **Basic download** — "download this chat":
+  `telegram-download-chat @chat`
+- **Limited count + custom output** — "grab the last 100 messages into report.json":
+  `telegram-download-chat @chat -l 100 -o report.json`
+- **Date range** — "messages between two dates":
+  `telegram-download-chat @chat --min-date 2025-01-01 --max-date 2025-03-31`
+- **Recent window** — "the last week of messages":
+  `telegram-download-chat @chat --last-days 7`
+- **Split by month + media** — "download everything, split per month, with attachments":
+  `telegram-download-chat @chat --split month --media`
+- **Keyword search + machine-readable result** — "find messages mentioning 'invoice' and give me the paths":
+  `telegram-download-chat @chat --keywords invoice,payment --results-json`
+- **JSON → TXT conversion with sort** — "convert this export, newest first":
+  `telegram-download-chat ./chat/messages.json --sort desc`
+  (Adding `--user user12345` only filters a Telegram Desktop *archive* export; for a normal message-list JSON it just tags the filename — see the `--user` caveat above.)
+- **Subchat extraction from JSON** — "pull the reply thread under this message out of the export":
+  `telegram-download-chat ./chat/messages.json --subchat https://t.me/c/123456/789 --subchat-name design-thread`
+- **Folder download** — "download every chat in my Work folder":
+  `telegram-download-chat folder:Work`
+- **HTML / PDF export** — "export this chat as a readable HTML page and a PDF":
+  `telegram-download-chat @chat --html --pdf`
+- **Proxy + preset** — "use my socks proxy and the 'archive' preset":
+  `telegram-download-chat @chat --proxy-url socks5://127.0.0.1:1080 --preset archive`
+
+## Constraints — when to stop and ask
+
+- **Confirm before large/long downloads.** If the user gives no `-l/--limit` and no date range on a live chat, the download is unbounded. Confirm scope (or suggest a `--last-days` / `-l` cap) before starting.
+- **Never invent `api_id` / `api_hash`.** They come only from https://my.telegram.org. If `--show-config` shows them missing, ask the user to add them — do not guess.
+- **Live login needs a real terminal.** The first live download prompts for phone number, login code, and optional 2FA password. Run it as a foreground `! <cmd>` so the user can type the code; never assume it can run fully unattended.
+- **Respect a user-set `--proxy-url` / proxy config.** Don't strip or override the proxy the user configured.
+- **Don't modify project source code.** This skill only invokes the CLI and reports output paths. For GUI / MCP / web usage, defer — they are out of scope here.

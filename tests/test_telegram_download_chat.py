@@ -2753,6 +2753,34 @@ class TestHtmlThreadsAndAnchors:
         # The nested reply cites its parent (msg 100), not the topic root.
         assert '<a href="#msg-100">' in html
 
+    def test_discussion_subthread_is_not_a_topic(self, tmp_path):
+        """A reply_to_top_id WITHOUT forum_topic is a discussion sub-thread, not
+        a forum topic — it must not produce a tab or topic header."""
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        messages = [
+            # Real forum topic 2426.
+            self._msg(
+                10,
+                0,
+                1,
+                "in topic",
+                reply={"reply_to_msg_id": 2426, "forum_topic": True},
+            )
+            | {"forum_topic_title": "Планёрки"},
+            # Discussion sub-thread: reply_to_top_id set, NO forum_topic.
+            self._msg(11, 1, 2, "subthread reply", reply={"reply_to_top_id": 5149}),
+            self._msg(12, 2, 3, "another subthread", reply={"reply_to_top_id": 5149}),
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert 'data-topic="2426">Планёрки</button>' in html
+        # The sub-thread id never becomes a tab or header.
+        assert "5149" not in html
+        assert "Thread #5149" not in html
+        # Only the one real topic header.
+        assert html.count('class="threadsep"') == 1
+
     def test_forum_topic_id_and_title_helpers(self):
         from telegram_download_chat.core.render import (
             _forum_topic_id,
@@ -2764,9 +2792,17 @@ class TestHtmlThreadsAndAnchors:
             _forum_topic_id({"reply_to": {"reply_to_msg_id": 9, "forum_topic": True}})
             == 9
         )
-        # Nested: reply_to_top_id wins over reply_to_msg_id.
+        # Nested forum reply: reply_to_top_id wins over reply_to_msg_id.
         assert (
-            _forum_topic_id({"reply_to": {"reply_to_top_id": 9, "reply_to_msg_id": 3}})
+            _forum_topic_id(
+                {
+                    "reply_to": {
+                        "reply_to_top_id": 9,
+                        "reply_to_msg_id": 3,
+                        "forum_topic": True,
+                    }
+                }
+            )
             == 9
         )
         # Topic-create message is its own topic.
@@ -2778,6 +2814,9 @@ class TestHtmlThreadsAndAnchors:
         )
         # Plain reply / private chat -> no topic.
         assert _forum_topic_id({"reply_to": {"reply_to_msg_id": 3}}) is None
+        # Discussion sub-thread (reply_to_top_id WITHOUT forum_topic) is NOT a
+        # forum topic -> None (those messages belong to the General topic).
+        assert _forum_topic_id({"reply_to": {"reply_to_top_id": 5149}}) is None
         # Title: stored title wins, then topic-create, else empty.
         assert _forum_topic_title({"forum_topic_title": "Stored"}) == "Stored"
         assert (

@@ -825,14 +825,17 @@ def _forum_topic_id(msg: Dict[str, Any]) -> Optional[Any]:
     message falls outside a windowed (e.g. ``--last-days``) download.
     """
     reply_to = msg.get("reply_to")
-    if isinstance(reply_to, dict):
+    # Only ``forum_topic`` replies identify a real forum topic. A bare
+    # ``reply_to_top_id`` without ``forum_topic`` is a discussion sub-thread
+    # (its top id is an ordinary message, not a topic), so it must NOT be
+    # treated as a topic — those messages belong to the General topic.
+    if isinstance(reply_to, dict) and reply_to.get("forum_topic"):
         top = reply_to.get("reply_to_top_id")
         if top is not None:
             return top
-        if reply_to.get("forum_topic"):
-            rmid = reply_to.get("reply_to_msg_id")
-            if rmid is not None:
-                return rmid
+        rmid = reply_to.get("reply_to_msg_id")
+        if rmid is not None:
+            return rmid
     action = msg.get("action")
     if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
         return msg.get("id")

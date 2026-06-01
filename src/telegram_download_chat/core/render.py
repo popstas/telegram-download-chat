@@ -64,6 +64,13 @@ a:hover{text-decoration:underline}
   background:#168acd;flex-shrink:0}
 .hdr-info .name{font-weight:600;font-size:16px}
 .hdr-info .sub{font-size:12px;color:#999;margin-top:2px}
+/* Topic tabs */
+.tabs{position:sticky;top:67px;z-index:9;display:flex;gap:6px;flex-wrap:wrap;
+  background:#f0f2f5;padding:8px 14px;border-bottom:1px solid #d8dce0}
+.topic-tab{border:none;background:#e1e6eb;color:#3a4a5a;border-radius:14px;
+  padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;line-height:1.3}
+.topic-tab:hover{background:#d4dae0}
+.topic-tab.active{background:#168acd;color:#fff}
 /* Messages area */
 .msgs{flex:1;padding:16px 12px 32px;display:flex;flex-direction:column;gap:1px}
 /* Date separator */
@@ -150,6 +157,7 @@ a:hover{text-decoration:underline}
 /* Print */
 @media print{
   .hdr{position:static;box-shadow:none}
+  .tabs{display:none}
   .bbl,.grp{break-inside:avoid;page-break-inside:avoid}
 }
 </style>
@@ -163,16 +171,24 @@ a:hover{text-decoration:underline}
     <div class="sub">{{ message_count }} messages &middot; Exported by telegram-download-chat</div>
   </div>
 </div>
+{%- if topics %}
+<div class="tabs">
+  <button class="topic-tab active" data-topic="all">All</button>
+  {%- for t in topics %}
+  <button class="topic-tab" data-topic="{{ t.id }}">{{ t.name | e }}</button>
+  {%- endfor %}
+</div>
+{%- endif %}
 <div class="msgs">
 {%- for item in items %}
 {%- if item.type == "date_sep" %}
-<div class="datesep"><span>{{ item.label | e }}</span></div>
+<div class="datesep" data-topic="__date__"><span>{{ item.label | e }}</span></div>
 {%- elif item.type == "thread" %}
-<div class="threadsep"><span>&mdash; {{ item.name | e }} &mdash;</span></div>
+<div class="threadsep" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>&mdash; {{ item.name | e }} &mdash;</span></div>
 {%- elif item.type == "service" %}
-<div class="svc"><span>{{ item.text | e }}</span></div>
+<div class="svc" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>{{ item.text | e }}</span></div>
 {%- elif item.type == "group" %}
-<div class="grp{% if item.is_outgoing %} out{% endif %}">
+<div class="grp{% if item.is_outgoing %} out{% endif %}" data-topic="{{ item.topic if item.topic is not none else 'none' }}">
   {%- if not item.is_outgoing %}
   <div class="av" style="background:{{ item.sender_color }}">{{ item.initials | e }}</div>
   {%- else %}
@@ -247,6 +263,40 @@ a:hover{text-decoration:underline}
 {%- endfor %}
 </div>
 </div>
+{%- if topics %}
+<script>
+(function(){
+  var msgs = document.querySelector('.msgs');
+  var tabs = document.querySelectorAll('.topic-tab');
+  if(!msgs || !tabs.length) return;
+  function apply(topic){
+    var items = msgs.children, i, el, t;
+    for(i=0;i<items.length;i++){
+      el = items[i]; t = el.getAttribute('data-topic');
+      if(el.classList.contains('datesep')){ el.style.display=''; continue; }
+      if(topic==='all'){ el.style.display=''; }
+      else if(el.classList.contains('threadsep')){ el.style.display='none'; }
+      else { el.style.display = (t===topic) ? '' : 'none'; }
+    }
+    // Hide date separators with no visible content before the next separator.
+    if(topic!=='all'){
+      var seen=false;
+      for(i=items.length-1;i>=0;i--){
+        el = items[i];
+        if(el.classList.contains('datesep')){ el.style.display = seen ? '' : 'none'; seen=false; }
+        else if(el.style.display!=='none'){ seen=true; }
+      }
+    }
+    for(i=0;i<tabs.length;i++){
+      tabs[i].classList.toggle('active', tabs[i].getAttribute('data-topic')===topic);
+    }
+  }
+  for(var k=0;k<tabs.length;k++){
+    tabs[k].addEventListener('click', function(){ apply(this.getAttribute('data-topic')); });
+  }
+})();
+</script>
+{%- endif %}
 </body>
 </html>"""
 
@@ -288,6 +338,14 @@ class RenderMixin:
         from markupsafe import Markup
 
         items = self._preprocess_messages(messages, attachments_dir, with_threads=True)
+        # Ordered, de-duplicated forum topics for the tab bar (first appearance).
+        topics: List[Dict[str, Any]] = []
+        seen_topics: set = set()
+        for item in items:
+            tid = item.get("topic")
+            if tid is not None and tid not in seen_topics:
+                seen_topics.add(tid)
+                topics.append({"id": tid, "name": item.get("topic_name") or str(tid)})
         env = Environment(loader=BaseLoader(), autoescape=True)
         env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
         env.filters["fmt_entities"] = lambda text, entities: Markup(
@@ -298,6 +356,7 @@ class RenderMixin:
             chat_title=chat_title,
             message_count=len(messages),
             items=items,
+            topics=topics,
             media_prefix=media_prefix,
             media_links=media_links,
         )
@@ -391,7 +450,19 @@ class RenderMixin:
                 flush()
                 svc = _service_text(action, msg)
                 if svc:
-                    items.append({"type": "service", "text": svc})
+                    svc_topic, svc_topic_name = (
+                        _message_topic(msg.get("id"), thread_root, id_to_msg)
+                        if with_threads
+                        else (None, None)
+                    )
+                    items.append(
+                        {
+                            "type": "service",
+                            "text": svc,
+                            "topic": svc_topic,
+                            "topic_name": svc_topic_name,
+                        }
+                    )
                 prev_sender_id = None
                 prev_msg_time = None
                 continue
@@ -427,16 +498,35 @@ class RenderMixin:
                     flush()
                     root_msg = id_to_msg.get(root)
                     name = _thread_name(root_msg, root)
-                    items.append({"type": "thread", "name": name})
+                    # Tag the header with its forum topic (if any) so topic tabs
+                    # can hide non-forum reply-thread headers when filtering.
+                    t_id, t_name = _message_topic(mid, thread_root, id_to_msg)
+                    items.append(
+                        {
+                            "type": "thread",
+                            "name": name,
+                            "topic": t_id,
+                            "topic_name": t_name,
+                        }
+                    )
                     # New thread block starts a fresh sender group.
                     prev_sender_id = None
                     prev_msg_time = None
                 prev_thread_id = display_thread
 
             # ── Grouping ─────────────────────────────────────────────
+            # A message's forum topic also bounds a sender group, so a topic
+            # boundary never merges into the previous group (which would
+            # mislabel it for the topic tabs).
+            msg_topic, msg_topic_name = (
+                _message_topic(msg.get("id"), thread_root, id_to_msg)
+                if with_threads
+                else (None, None)
+            )
             same_group = (
                 current_group is not None
                 and prev_sender_id == sender_id
+                and current_group.get("topic") == msg_topic
                 and prev_msg_time is not None
                 and msg_dt is not None
                 and abs((msg_dt - prev_msg_time).total_seconds()) < 120
@@ -450,6 +540,8 @@ class RenderMixin:
                     "sender_name": sender_name,
                     "sender_color": _sender_color(sender_name),
                     "initials": _sender_initials(sender_name),
+                    "topic": msg_topic,
+                    "topic_name": msg_topic_name,
                     "messages": [],
                 }
 
@@ -724,6 +816,30 @@ def _thread_name(root_msg: Optional[Dict[str, Any]], root_id: Any) -> str:
         if line:
             return line
     return f"Thread #{root_id}"
+
+
+def _message_topic(
+    mid: Any,
+    thread_root: Dict[Any, Any],
+    id_to_msg: Dict[Any, Dict[str, Any]],
+) -> tuple:
+    """Return ``(topic_id, topic_name)`` when the message belongs to a forum
+    topic, else ``(None, None)``.
+
+    A message belongs to a topic when its reply-chain root is a
+    ``MessageActionTopicCreate`` service message (the topic id is that root's id
+    and the name is its title). Messages outside any topic — the General topic
+    or non-forum chats — return ``(None, None)``.
+    """
+    if mid is None:
+        return (None, None)
+    root = thread_root.get(mid, mid)
+    root_msg = id_to_msg.get(root)
+    if isinstance(root_msg, dict):
+        action = root_msg.get("action")
+        if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
+            return (root, _thread_name(root_msg, root))
+    return (None, None)
 
 
 def _html_escape(text: str) -> str:

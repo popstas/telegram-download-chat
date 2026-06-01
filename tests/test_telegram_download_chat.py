@@ -2689,3 +2689,123 @@ class TestHtmlThreadsAndAnchors:
         assert _thread_root(3, parent_of, id_to_msg) == 1
         assert _thread_root(2, parent_of, id_to_msg) == 1
         assert _thread_root(1, parent_of, id_to_msg) == 1
+
+
+class TestHtmlTopicTabs:
+    """HTML export forum-topic tabs (All + per-topic filtering)."""
+
+    @staticmethod
+    def _renderer():
+        from telegram_download_chat.core.render import RenderMixin
+
+        return RenderMixin()
+
+    @staticmethod
+    def _msg(mid, minute, sender, text, reply=None, action=None):
+        m = {
+            "id": mid,
+            "date": f"2026-01-01T10:{minute:02d}:00+00:00",
+            "from_id": {"user_id": sender},
+            "user_display_name": f"User{sender}",
+            "message": text,
+        }
+        if reply is not None:
+            m["reply_to"] = reply
+        if action is not None:
+            m["action"] = action
+        return m
+
+    @classmethod
+    def _topic_create(cls, mid, minute, title):
+        return cls._msg(
+            mid,
+            minute,
+            1,
+            "",
+            action={"_": "MessageActionTopicCreate", "title": title},
+        )
+
+    def _forum_messages(self):
+        # Topic "Formatting" (root 1) and "Topic 2" (root 5), plus one General
+        # message with no topic (root = itself).
+        return [
+            self._topic_create(1, 0, "Formatting"),
+            self._msg(2, 1, 2, "fmt one", reply={"reply_to_msg_id": 1}),
+            self._msg(3, 2, 3, "fmt two", reply={"reply_to_msg_id": 1}),
+            self._topic_create(5, 3, "Topic 2"),
+            self._msg(6, 4, 2, "t2 one", reply={"reply_to_msg_id": 5}),
+            self._msg(9, 5, 4, "General message"),  # no topic
+        ]
+
+    def test_message_topic_precedence(self):
+        from telegram_download_chat.core.render import _message_topic
+
+        id_to_msg = {
+            1: {"id": 1, "action": {"_": "MessageActionTopicCreate", "title": "T"}},
+            2: {"id": 2, "message": "hi"},
+        }
+        thread_root = {1: 1, 2: 1, 9: 9}
+        assert _message_topic(2, thread_root, id_to_msg) == (1, "T")
+        assert _message_topic(1, thread_root, id_to_msg) == (1, "T")
+        # Root not a topic-create message -> no topic.
+        assert _message_topic(9, {9: 9}, {9: {"id": 9, "message": "x"}}) == (
+            None,
+            None,
+        )
+        assert _message_topic(None, thread_root, id_to_msg) == (None, None)
+
+    def test_tab_bar_lists_all_plus_topics(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(self._forum_messages(), out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert '<div class="tabs">' in html
+        assert '<button class="topic-tab active" data-topic="all">All</button>' in html
+        assert 'data-topic="1">Formatting</button>' in html
+        assert 'data-topic="5">Topic 2</button>' in html
+
+    def test_groups_carry_topic_data_attribute(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(self._forum_messages(), out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert '<div class="grp" data-topic="1">' in html
+        assert '<div class="grp" data-topic="5">' in html
+        # The General message is in its own untopiced group, not absorbed.
+        assert '<div class="grp" data-topic="none">' in html
+
+    def test_general_message_not_absorbed_into_topic_group(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(self._forum_messages(), out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        # The General bubble lives inside a data-topic="none" group.
+        import re
+
+        m = re.search(r'data-topic="none">.*?General message', html, re.S)
+        assert m is not None
+
+    def test_no_tabs_for_non_forum_chat(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [
+                self._msg(1, 0, 1, "hello"),
+                self._msg(2, 5, 2, "re", reply={"reply_to_msg_id": 1}),
+            ],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        assert '<div class="tabs">' not in html
+        # The .topic-tab CSS rule is always present; the buttons are not.
+        assert '<button class="topic-tab' not in html
+
+    def test_filter_script_present_only_with_topics(self, tmp_path):
+        renderer = self._renderer()
+        forum = tmp_path / "forum.html"
+        plain = tmp_path / "plain.html"
+        renderer.render_html(self._forum_messages(), forum, chat_title="t")
+        renderer.render_html([self._msg(1, 0, 1, "hi")], plain, chat_title="t")
+        assert "addEventListener" in forum.read_text(encoding="utf-8")
+        assert "addEventListener" not in plain.read_text(encoding="utf-8")

@@ -170,6 +170,18 @@ def test_e2e_thread_name_uses_forum_topic_title(exported):
     ), "expected the 'Formatting' forum topic name as a thread header"
 
 
+def test_e2e_html_topic_tabs(exported):
+    """The export renders forum-topic tabs: All + a "Formatting" tab, and
+    message groups carry data-topic attributes for client-side filtering."""
+    html = exported["html_text"]
+    assert '<div class="tabs">' in html, "expected a topic tab bar"
+    assert (
+        '<button class="topic-tab active" data-topic="all">All</button>' in html
+    ), "expected a default 'All' tab"
+    assert ">Formatting</button>" in html, "expected a 'Formatting' topic tab"
+    assert 'class="grp' in html and "data-topic=" in html
+
+
 def test_e2e_html_reposts(exported):
     """Reposted / forwarded messages are surfaced in the export."""
     html = exported["html_text"]

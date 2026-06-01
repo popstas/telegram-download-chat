@@ -18,3 +18,4 @@
 - [x] e2e test doesn't download and render media.
 - [x] pdf render: monospace font cyrillic is broken — register a Unicode mono font (DejaVu Sans Mono / Noto Sans Mono / Liberation Mono / Consolas) for code/pre spans instead of built-in Courier.
 - [x] Получать названия threads (использовать имя топика форума, напр. "Formatting", вместо первой строки корневого сообщения). Проверять через e2e tests; один из топиков тестовой группы: Formatting.
+- [ ] HTML export: add topic tabs at the top of the page. Default tab "All" shows all messages as now. Each other tab is a forum topic (by topic name, e.g. "Formatting", "Topic 2") and filters to show only that topic's messages. Verify via e2e tests against the test group.

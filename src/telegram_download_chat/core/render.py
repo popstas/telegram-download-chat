@@ -426,10 +426,7 @@ class RenderMixin:
                 if display_thread is not None and display_thread != prev_thread_id:
                     flush()
                     root_msg = id_to_msg.get(root)
-                    name = (
-                        first_line(root_msg.get("message") if root_msg else "")
-                        or f"Thread #{root}"
-                    )
+                    name = _thread_name(root_msg, root)
                     items.append({"type": "thread", "name": name})
                     # New thread block starts a fresh sender group.
                     prev_sender_id = None
@@ -704,6 +701,29 @@ def first_line(text: Optional[str], limit: int = 60) -> str:
     if len(line) > limit:
         line = line[:limit].rstrip() + "…"
     return line
+
+
+# Telegram service actions that carry a forum-topic title.
+_TOPIC_TITLE_ACTIONS = ("MessageActionTopicCreate", "MessageActionTopicEdit")
+
+
+def _thread_name(root_msg: Optional[Dict[str, Any]], root_id: Any) -> str:
+    """Best display name for a reply-thread / forum-topic root.
+
+    A forum topic's title lives on its ``MessageActionTopicCreate`` service
+    message, not in any message text — prefer it. Otherwise fall back to the
+    root message's first line, then ``Thread #<id>``.
+    """
+    if root_msg is not None:
+        action = root_msg.get("action")
+        if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
+            title = first_line(action.get("title"))
+            if title:
+                return title
+        line = first_line(root_msg.get("message"))
+        if line:
+            return line
+    return f"Thread #{root_id}"
 
 
 def _html_escape(text: str) -> str:

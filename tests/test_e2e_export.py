@@ -161,6 +161,15 @@ def test_e2e_html_thread_headers(exported):
     assert 'class="threadsep"' in html, "expected thread header separators"
 
 
+def test_e2e_thread_name_uses_forum_topic_title(exported):
+    """Thread headers carry the forum topic title (e.g. "Formatting"), not the
+    root message's first line / a Thread #<id> fallback."""
+    html = exported["html_text"]
+    assert (
+        "&mdash; Formatting &mdash;" in html
+    ), "expected the 'Formatting' forum topic name as a thread header"
+
+
 def test_e2e_html_reposts(exported):
     """Reposted / forwarded messages are surfaced in the export."""
     html = exported["html_text"]

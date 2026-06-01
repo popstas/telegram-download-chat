@@ -2607,6 +2607,58 @@ class TestHtmlThreadsAndAnchors:
         html = out.read_text(encoding="utf-8")
         assert "Thread #1" in html
 
+    def test_thread_name_uses_forum_topic_title(self, tmp_path):
+        """A forum-topic thread is named by its MessageActionTopicCreate title,
+        not the (empty) root message text."""
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        root = self._msg(1, 0, 1, "")
+        root["action"] = {"_": "MessageActionTopicCreate", "title": "Formatting"}
+        messages = [
+            root,
+            self._msg(2, 5, 2, "bold sample", reply={"reply_to_msg_id": 1}),
+            self._msg(3, 10, 2, "more", reply={"reply_to_msg_id": 1}),
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert "&mdash; Formatting &mdash;" in html
+        assert "Thread #1" not in html
+
+    def test_thread_name_ignores_non_topic_action_title(self, tmp_path):
+        """A non-topic service action that happens to carry a title (e.g.
+        channel migrate) must not be used as the thread name."""
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        root = self._msg(1, 0, 1, "Real Root Text")
+        root["action"] = {
+            "_": "MessageActionChannelMigrateFrom",
+            "title": "Old Chat Name",
+        }
+        messages = [
+            root,
+            self._msg(2, 5, 2, "child", reply={"reply_to_msg_id": 1}),
+            self._msg(3, 10, 2, "child2", reply={"reply_to_msg_id": 1}),
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        # Falls back to the root message's first line, not the migrate title.
+        assert "Old Chat Name" not in html
+        assert "Real Root Text" in html
+
+    def test_thread_name_helper_precedence(self):
+        from telegram_download_chat.core.render import _thread_name
+
+        topic = {"action": {"_": "MessageActionTopicCreate", "title": "Formatting"}}
+        assert _thread_name(topic, 1) == "Formatting"
+        assert _thread_name({"message": "hello world"}, 2) == "hello world"
+        assert _thread_name({"message": ""}, 3) == "Thread #3"
+        assert _thread_name(None, 4) == "Thread #4"
+        migrate = {
+            "action": {"_": "MessageActionChannelMigrateFrom", "title": "Old"},
+            "message": "root text",
+        }
+        assert _thread_name(migrate, 5) == "root text"
+
     def test_preprocess_threads_opt_in_only(self):
         renderer = self._renderer()
         messages = [

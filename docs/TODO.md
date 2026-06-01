@@ -16,3 +16,5 @@
 - [x] After a `--media` download, show the count of downloaded media files and their total size.
 - [x] html render: Don't cite messages that are thread roots.
 - [x] e2e test doesn't download and render media.
+- [x] pdf render: monospace font cyrillic is broken — register a Unicode mono font (DejaVu Sans Mono / Noto Sans Mono / Liberation Mono / Consolas) for code/pre spans instead of built-in Courier.
+- [x] Получать названия threads (использовать имя топика форума, напр. "Formatting", вместо первой строки корневого сообщения). Проверять через e2e tests; один из топиков тестовой группы: Formatting.

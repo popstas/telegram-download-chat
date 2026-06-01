@@ -22,109 +22,6 @@ A powerful command-line, GUI and web interface utility to download and analyze T
 - Filter messages by sub-conversations from message threads
 
 
-## Installation
-
-### Prerequisites
-- Python 3.8 or higher
-- pip (Python package manager)
-
-### Install from PyPI (recommended)
-
-```bash
-pip install telegram-download-chat
-```
-
-### Using uv (alternative package manager)
-
-Run it directly without installing:
-
-```bash
-uvx telegram-download-chat username
-```
-
-Or install it as a persistent tool:
-
-```bash
-uv tool install telegram-download-chat
-```
-
-### GUI Version (Optional)
-
-For those who prefer a graphical interface, a GUI version is available. 
-
-Windows build is available in the [releases](https://github.com/popstas/telegram-download-chat/releases/latest) page.
-
-1. Install with GUI dependencies:
-   ```bash
-   pip install "telegram-download-chat[gui]"
-   ```
-
-2. Launch the GUI:
-   ```bash
-   telegram-download-chat gui
-   ```
-
-### Web Interface
-
-A lightweight web interface built with Streamlit is also available.
-
-1. Install with web dependencies:
-   ```bash
-   pip install "telegram-download-chat[web]"
-   ```
-
-2. Launch the web UI:
-   ```bash
-   telegram-download-chat-web
-   ```
-
-## Configuration
-
-### API Credentials
-
-To use this tool, you'll need to obtain API credentials from [my.telegram.org](https://my.telegram.org):
-
-1. Go to [API Development Tools](https://my.telegram.org/apps)
-2. Log in with your phone number
-   - **Important**: Do not use a VPN when obtaining API credentials
-3. Create a new application
-4. Copy the `api_id` and `api_hash` to your `config.yml`
-
-### Configuration File
-
-The configuration file is automatically created on first run in your application data directory:
-- **Windows**: `%APPDATA%\telegram-download-chat\config.yml`
-- **macOS**: `~/Library/Application Support/telegram-download-chat/config.yml`
-- **Linux**: `~/.local/share/telegram-download-chat/config.yml`
-
-#### Example Configuration
-
-```yaml
-# Telegram API credentials (required)
-settings:
-  api_id: your_api_id       # Get from https://my.telegram.org
-  api_hash: your_api_hash   # Get from https://my.telegram.org
-  session_name: session     # Optional: Custom session file name
-  request_delay: 1          # Delay between API requests in seconds
-  max_retries: 5            # Maximum number of retry attempts
-  log_level: INFO           # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-  log_file: app.log        # Path to log file (relative to app dir or absolute)
-
-# Map user IDs to display names for text exports
-# Names for users and bots are automatically fetched and stored here, you can change them here.
-users_map:
-  123456: "Alice"
-  789012: "Bob"
-
-# Presets for frequently used argument sets
-presets:
-  - name: short
-    args:
-      limit: 100
-```
-
-You can also specify a custom config file location using the `--config` flag.
-
 ## Usage
 
 For the first run, you will need to log in to your Telegram account. A browser window will open for authentication.
@@ -236,6 +133,137 @@ options:
   -v, --version         Show program's version number and exit
 ```
 
+## Installation
+
+### Prerequisites
+- Python 3.8 or higher
+- pip (Python package manager)
+
+### Install from PyPI (recommended)
+
+```bash
+pip install telegram-download-chat
+```
+
+### Using uv (alternative package manager)
+
+Run it directly without installing:
+
+```bash
+uvx telegram-download-chat username
+```
+
+Or install it as a persistent tool:
+
+```bash
+uv tool install telegram-download-chat
+```
+
+### GUI Version (Optional)
+
+For those who prefer a graphical interface, a GUI version is available.
+
+Windows build is available in the [releases](https://github.com/popstas/telegram-download-chat/releases/latest) page.
+
+1. Install with GUI dependencies:
+   ```bash
+   pip install "telegram-download-chat[gui]"
+   ```
+
+2. Launch the GUI:
+   ```bash
+   telegram-download-chat gui
+   ```
+
+### Web Interface
+
+A lightweight web interface built with Streamlit is also available.
+
+1. Install with web dependencies:
+   ```bash
+   pip install "telegram-download-chat[web]"
+   ```
+
+2. Launch the web UI:
+   ```bash
+   telegram-download-chat-web
+   ```
+
+## AI agent plugins (Claude, Cursor, Codex)
+
+The CLI ships as an installable skill/plugin for AI coding agents, so you can ask
+your agent to "download/export this Telegram chat" and it drives the CLI for you.
+All three are generated from one source of truth —
+`skills/telegram-download-chat/SKILL.md` — by `scripts/gen_agent_plugins.py`
+(a test fails if they drift). After editing the skill, run:
+
+```bash
+python scripts/gen_agent_plugins.py
+```
+
+- **Claude Code** — add this repo as a plugin marketplace, then install the
+  plugin (bundles the skill under `skills/`):
+  ```
+  /plugin marketplace add popstas/telegram-download-chat
+  /plugin install telegram-download-chat
+  ```
+  Manifests: `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`.
+
+- **Cursor** — the project rule `.cursor/rules/telegram-download-chat.mdc` is
+  picked up automatically when this repo is open. To use it elsewhere, copy that
+  file into the target project's `.cursor/rules/`.
+
+- **Codex** (OpenAI Codex CLI) — copy `.codex/prompts/telegram-download-chat.md`
+  into `~/.codex/prompts/` to expose a `/telegram-download-chat` slash command
+  (pass the chat id / username / export path as the argument).
+
+## Configuration
+
+### API Credentials
+
+To use this tool, you'll need to obtain API credentials from [my.telegram.org](https://my.telegram.org):
+
+1. Go to [API Development Tools](https://my.telegram.org/apps)
+2. Log in with your phone number
+   - **Important**: Do not use a VPN when obtaining API credentials
+3. Create a new application
+4. Copy the `api_id` and `api_hash` to your `config.yml`
+
+### Configuration File
+
+The configuration file is automatically created on first run in your application data directory:
+- **Windows**: `%APPDATA%\telegram-download-chat\config.yml`
+- **macOS**: `~/Library/Application Support/telegram-download-chat/config.yml`
+- **Linux**: `~/.local/share/telegram-download-chat/config.yml`
+
+#### Example Configuration
+
+```yaml
+# Telegram API credentials (required)
+settings:
+  api_id: your_api_id       # Get from https://my.telegram.org
+  api_hash: your_api_hash   # Get from https://my.telegram.org
+  session_name: session     # Optional: Custom session file name
+  request_delay: 1          # Delay between API requests in seconds
+  max_retries: 5            # Maximum number of retry attempts
+  log_level: INFO           # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  log_file: app.log        # Path to log file (relative to app dir or absolute)
+
+# Map user IDs to display names for text exports
+# Names for users and bots are automatically fetched and stored here, you can change them here.
+users_map:
+  123456: "Alice"
+  789012: "Bob"
+
+# Presets for frequently used argument sets
+presets:
+  - name: short
+    args:
+      limit: 100
+```
+
+You can also specify a custom config file location using the `--config` flag.
+
 ## Advanced Features
 
 ### Extract Messages from Telegram Archive
@@ -313,8 +341,45 @@ For users who prefer a visual interface, the application includes an optional GU
 
 ```bash
 # Launch the GUI application
-telegram-download-chat --gui
+telegram-download-chat gui
 ```
+
+### Choosing What to Download (Chat Identifiers)
+
+The large **Chat** field at the top of the Download tab accepts the same
+identifiers as the CLI's positional `chat` argument (`@username, link or
+chat_id`). Enter exactly one of the following, depending on what you want to
+download:
+
+| What you want to download | What to type in the Chat field | Notes |
+|---------------------------|--------------------------------|-------|
+| Your own **Saved Messages** | `me` | `me` always resolves to your own account, so its message history is your Saved Messages. You can also use your own `@username` or numeric user ID. |
+| A **private group** you belong to | the invite link, e.g. `https://t.me/+AbCdEf123456`, or the group's numeric ID (negative, e.g. `-1001234567890`) | You must already be a member — the tool downloads through your account and cannot join on your behalf. Private groups have no public `@username`, so use the invite link or the numeric ID. |
+| A **public** chat, group or channel | `@username` or its `https://t.me/username` link | Public entities can be addressed by their `@username`. |
+
+Tips:
+
+- The invite link is the same `t.me/+…` link you used to join the private group;
+  open the group in Telegram → group name → **Invite Links** to copy it again.
+- To find a numeric ID, run the CLI once with `--debug`, or check the
+  `chats_map` / `users_map` entries written to your `config.yml` after a first
+  download.
+- All other fields (limit, dates, media, HTML/PDF, etc.) under **Settings**
+  apply to whichever chat you entered.
+
+This help is also shown inside the app: click **ⓘ How to fill this?** under the
+field to expand the full list. An **ⓘ** icon with a hover tooltip next to the
+Chat label is also available but off by default. Toggle either via
+`gui_chat_hint_tooltip` (default off) / `gui_chat_hint_help` (default on) in
+`config.yml`.
+
+### Checking for Updates
+
+The **Settings** tab has a **Software Update** group showing the current
+version. Click **Check updates** to query GitHub for the latest release. If a
+newer version is available the button is replaced by **Download**: on Windows it
+fetches the `telegram-download-chat.exe` asset directly, and on other platforms
+it opens the releases page in your browser.
 
 ## Output Formats
 
@@ -363,6 +428,15 @@ When using the `--media` flag, media files are downloaded alongside the message 
 ```
 
 Files are named `<message_id>_<original_filename>` and sorted into category subdirectories.
+
+### HTML / PDF Export (`[chat_name]/messages.html`, `[chat_name]/messages.pdf`)
+
+Generated when the `--html` / `--pdf` flags are used (alongside the usual JSON/TXT output, and combinable with `--media` for inline images). Both render inline Telegram formatting — **bold**, *italic*, underline, strikethrough, `code`, spoilers, and links (only `http(s)`, `mailto`, and `tg` schemes are kept; bare domains default to `https://`; others such as `javascript:` are stripped). The HTML view additionally:
+
+- Groups messages into reply threads separated by a thread header.
+- Turns reply quotes into clickable links that jump to the cited message (when that message is part of the export).
+
+The TXT and JSON output is unchanged by these flags.
 
 Supported media types:
 - **Photos**: Downloaded as JPG files
@@ -502,6 +576,41 @@ Or using uvx:
 ### Prerequisites
 
 Before using the MCP server, you must authenticate via CLI or GUI at least once to create a valid Telegram session.
+
+## Testing
+
+Run the standard test suite (fast, no network):
+
+```bash
+pytest
+```
+
+### Running the e2e suite
+
+The end-to-end export tests (`tests/test_e2e_export.py`, marked `@pytest.mark.e2e`)
+validate the HTML/PDF export against a live private Telegram group that contains
+all formatting, replies, and reposts. They are **skipped by default** and are not
+part of CI, because they require:
+
+- Real API credentials in your `config.yml` (`api_id` / `api_hash`, not the
+  placeholders), and
+- An authenticated `session.session` for an account that is a **member** of the
+  test group.
+
+Enable them explicitly with the `TG_E2E` opt-in and the `e2e` marker:
+
+```bash
+# Run only the e2e export tests against the default test group
+TG_E2E=1 pytest -m e2e
+
+# Override the target group (must be an account you are a member of)
+TG_E2E=1 TG_E2E_GROUP="https://t.me/+XXXXXXXX" pytest -m e2e
+```
+
+The e2e download uses `--overwrite` (a clean download) so the export reflects the
+live group rather than a cached/resumed partial. When `TG_E2E` is unset, or the
+credentials/session are missing, the tests skip with a clear reason and the
+default `pytest` run is unaffected.
 
 ## Contributing
 

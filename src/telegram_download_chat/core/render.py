@@ -57,19 +57,34 @@ a:hover{text-decoration:underline}
 .wrap{max-width:900px;margin:0 auto;display:flex;flex-direction:column;min-height:100vh;background:inherit}
 /* Header */
 .hdr{background:#fff;border-bottom:1px solid #ddd;padding:12px 16px;
-  display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10;
+  display:flex;align-items:center;gap:12px;position:static;
   box-shadow:0 1px 3px rgba(0,0,0,0.08)}
 .hdr-av{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;
   justify-content:center;font-weight:700;font-size:18px;color:#fff;
   background:#168acd;flex-shrink:0}
 .hdr-info .name{font-weight:600;font-size:16px}
 .hdr-info .sub{font-size:12px;color:#999;margin-top:2px}
+/* Topic tabs */
+.tabs{position:sticky;top:0;z-index:9;display:flex;gap:6px;flex-wrap:wrap;
+  background:#f0f2f5;padding:8px 14px;border-bottom:1px solid #d8dce0}
+.topic-tab{border:none;background:#e1e6eb;color:#3a4a5a;border-radius:14px;
+  padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;line-height:1.3}
+.topic-tab:hover{background:#d4dae0}
+.topic-tab.active{background:#168acd;color:#fff}
 /* Messages area */
 .msgs{flex:1;padding:16px 12px 32px;display:flex;flex-direction:column;gap:1px}
 /* Date separator */
 .datesep{text-align:center;margin:14px 0 10px;user-select:none}
 .datesep span{background:rgba(0,0,0,0.22);color:#fff;border-radius:14px;
   padding:5px 14px;font-size:12px;font-weight:500}
+/* Thread separator */
+.threadsep{text-align:center;margin:16px 0 8px;user-select:none}
+.threadsep span{display:inline-block;max-width:80%;color:#5a6b7b;font-size:12px;
+  font-weight:600;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Spoiler */
+.spoiler{background:#1f2c33;color:transparent;border-radius:4px;padding:0 2px;
+  cursor:pointer;transition:color .15s ease,background .15s ease}
+.spoiler:hover{background:rgba(0,0,0,0.06);color:inherit}
 /* Service message */
 .svc{text-align:center;margin:8px auto;user-select:none}
 .svc span{background:rgba(0,0,0,0.16);color:#fff;border-radius:12px;
@@ -89,7 +104,8 @@ a:hover{text-decoration:underline}
 .sname{font-size:13px;font-weight:600;margin-bottom:3px;padding-left:14px}
 /* Bubble */
 .bbl{background:#fff;border-radius:18px;padding:8px 12px 6px;
-  box-shadow:0 1px 2px rgba(0,0,0,0.14);position:relative;word-break:break-word;max-width:100%}
+  box-shadow:0 1px 2px rgba(0,0,0,0.14);position:relative;word-break:break-word;max-width:100%;
+  scroll-margin-top:60px}
 .grp.out .bbl{background:#d9fdd3}
 /* Squarish inner corners for consecutive bubbles */
 .grp:not(.out) .bbl{border-bottom-left-radius:5px}
@@ -142,6 +158,7 @@ a:hover{text-decoration:underline}
 /* Print */
 @media print{
   .hdr{position:static;box-shadow:none}
+  .tabs{display:none}
   .bbl,.grp{break-inside:avoid;page-break-inside:avoid}
 }
 </style>
@@ -155,14 +172,24 @@ a:hover{text-decoration:underline}
     <div class="sub">{{ message_count }} messages &middot; Exported by telegram-download-chat</div>
   </div>
 </div>
+{%- if topics %}
+<div class="tabs">
+  <button class="topic-tab active" data-topic="all">All</button>
+  {%- for t in topics %}
+  <button class="topic-tab" data-topic="{{ t.id }}">{{ t.name | e }}</button>
+  {%- endfor %}
+</div>
+{%- endif %}
 <div class="msgs">
 {%- for item in items %}
 {%- if item.type == "date_sep" %}
-<div class="datesep"><span>{{ item.label | e }}</span></div>
+<div class="datesep" data-topic="__date__"><span>{{ item.label | e }}</span></div>
+{%- elif item.type == "thread" %}
+<div class="threadsep" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>&mdash; {{ item.name | e }} &mdash;</span></div>
 {%- elif item.type == "service" %}
-<div class="svc"><span>{{ item.text | e }}</span></div>
+<div class="svc" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>{{ item.text | e }}</span></div>
 {%- elif item.type == "group" %}
-<div class="grp{% if item.is_outgoing %} out{% endif %}">
+<div class="grp{% if item.is_outgoing %} out{% endif %}" data-topic="{{ item.topic if item.topic is not none else 'none' }}">
   {%- if not item.is_outgoing %}
   <div class="av" style="background:{{ item.sender_color }}">{{ item.initials | e }}</div>
   {%- else %}
@@ -173,12 +200,12 @@ a:hover{text-decoration:underline}
     <div class="sname" style="color:{{ item.sender_color }}">{{ item.sender_name | e }}</div>
     {%- endif %}
     {%- for msg in item.messages %}
-    <div class="bbl">
+    <div class="bbl"{% if msg.id is not none %} id="msg-{{ msg.id }}"{% endif %}>
       {%- if msg.fwd_from_name %}
       <div class="fwd">&#8627; Forwarded from {{ msg.fwd_from_name | e }}</div>
       {%- endif %}
       {%- if msg.reply_text %}
-      <div class="rq">{{ msg.reply_text | e }}</div>
+      <div class="rq">{% if msg.reply_to_id is not none %}<a href="#msg-{{ msg.reply_to_id }}">{{ msg.reply_text | e }}</a>{% else %}{{ msg.reply_text | e }}{% endif %}</div>
       {%- endif %}
       {%- if msg.attachment_path %}
         {%- set src = (media_prefix + msg.attachment_path) | urlencode_path %}
@@ -222,7 +249,7 @@ a:hover{text-decoration:underline}
         {%- endif %}
       {%- endif %}
       {%- if msg.text %}
-      <div class="txt">{{ msg.text | e }}</div>
+      <div class="txt">{{ msg.text | fmt_entities(msg.entities) }}</div>
       {%- endif %}
       <div class="meta">
         {%- if msg.edited %}<span class="edited">edited</span>{%- endif %}
@@ -237,6 +264,40 @@ a:hover{text-decoration:underline}
 {%- endfor %}
 </div>
 </div>
+{%- if topics %}
+<script>
+(function(){
+  var msgs = document.querySelector('.msgs');
+  var tabs = document.querySelectorAll('.topic-tab');
+  if(!msgs || !tabs.length) return;
+  function apply(topic){
+    var items = msgs.children, i, el, t;
+    for(i=0;i<items.length;i++){
+      el = items[i]; t = el.getAttribute('data-topic');
+      if(el.classList.contains('datesep')){ el.style.display=''; continue; }
+      if(topic==='all'){ el.style.display=''; }
+      else if(el.classList.contains('threadsep')){ el.style.display='none'; }
+      else { el.style.display = (t===topic) ? '' : 'none'; }
+    }
+    // Hide date separators with no visible content before the next separator.
+    if(topic!=='all'){
+      var seen=false;
+      for(i=items.length-1;i>=0;i--){
+        el = items[i];
+        if(el.classList.contains('datesep')){ el.style.display = seen ? '' : 'none'; seen=false; }
+        else if(el.style.display!=='none'){ seen=true; }
+      }
+    }
+    for(i=0;i<tabs.length;i++){
+      tabs[i].classList.toggle('active', tabs[i].getAttribute('data-topic')===topic);
+    }
+  }
+  for(var k=0;k<tabs.length;k++){
+    tabs[k].addEventListener('click', function(){ apply(this.getAttribute('data-topic')); });
+  }
+})();
+</script>
+{%- endif %}
 </body>
 </html>"""
 
@@ -275,14 +336,28 @@ class RenderMixin:
                 # Cross-drive on Windows — use absolute file:// URI
                 media_prefix = Path(attachments_dir).resolve().as_uri() + "/"
 
-        items = self._preprocess_messages(messages, attachments_dir)
+        from markupsafe import Markup
+
+        items = self._preprocess_messages(messages, attachments_dir, with_threads=True)
+        # Ordered, de-duplicated forum topics for the tab bar (first appearance).
+        topics: List[Dict[str, Any]] = []
+        seen_topics: set = set()
+        for item in items:
+            tid = item.get("topic")
+            if tid is not None and tid not in seen_topics:
+                seen_topics.add(tid)
+                topics.append({"id": tid, "name": item.get("topic_name") or str(tid)})
         env = Environment(loader=BaseLoader(), autoescape=True)
         env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
+        env.filters["fmt_entities"] = lambda text, entities: Markup(
+            format_entities(text, entities, "html")
+        )
         tmpl = env.from_string(HTML_TEMPLATE)
         html = tmpl.render(
             chat_title=chat_title,
             message_count=len(messages),
             items=items,
+            topics=topics,
             media_prefix=media_prefix,
             media_links=media_links,
         )
@@ -307,18 +382,79 @@ class RenderMixin:
         self,
         messages: List[Dict[str, Any]],
         attachments_dir: Optional[Path],
+        with_threads: bool = False,
     ) -> List[Dict[str, Any]]:
-        """Convert flat message list into structured render items."""
+        """Convert flat message list into structured render items.
+
+        When ``with_threads`` is True (HTML only), a ``thread`` item is injected
+        whenever the conversation switches to a different reply-chain thread, so
+        the reader can follow interleaved threads. Standalone messages (threads
+        of a single message) produce no header.
+        """
         items: List[Dict[str, Any]] = []
         current_group: Optional[Dict[str, Any]] = None
         prev_date: Optional[str] = None
         prev_sender_id: Any = None
         prev_msg_time: Optional[datetime] = None
+        prev_thread_id: Any = None
 
         _epoch = datetime.min.replace(tzinfo=timezone.utc)
         sorted_msgs = sorted(
             messages, key=lambda m: _parse_dt(m.get("date") or "") or _epoch
         )
+
+        # ── Message index ────────────────────────────────────────────────
+        # Map message id -> message so reply citations can resolve an anchor
+        # to the parent bubble when the parent is present in the export.
+        id_to_msg: Dict[Any, Dict[str, Any]] = {}
+        for m in sorted_msgs:
+            mid = m.get("id")
+            if mid is None:
+                continue
+            id_to_msg[mid] = m
+
+        # Thread/topic headers (and root-citation suppression) only make sense in
+        # forum supergroups, which actually have topics. In private chats and
+        # regular groups a reply is just a quote, so render it via the inline
+        # reply citation only — no "--- name ---" topic separators.
+        is_forum = with_threads and _is_forum(sorted_msgs)
+
+        # Forum topic grouping: every message maps to its forum topic id (not its
+        # reply-chain root), so a windowed download whose topic-create messages
+        # fall outside the range still groups cleanly. Names come from an
+        # in-window topic-create title or the stored forum_topic_title, falling
+        # back to "Thread #<id>".
+        topic_of: Dict[Any, Any] = {}
+        topic_titles: Dict[Any, str] = {}
+        if is_forum:
+            for m in sorted_msgs:
+                mid = m.get("id")
+                tid = _forum_topic_id(m)
+                if mid is not None:
+                    topic_of[mid] = tid
+                if tid is not None and tid not in topic_titles:
+                    name = _forum_topic_title(m)
+                    if name:
+                        topic_titles[tid] = name
+            for tid in set(topic_of.values()):
+                if tid is None or tid in topic_titles:
+                    continue
+                # No fetched/created title. If the topic id is an in-window
+                # message, name it by that message's first line; else Thread #id.
+                root_msg = id_to_msg.get(tid)
+                line = (
+                    first_line(root_msg.get("message"))
+                    if isinstance(root_msg, dict)
+                    else ""
+                )
+                topic_titles[tid] = line or f"Thread #{tid}"
+
+        def _topic_for(m: Dict[str, Any]) -> tuple:
+            """(topic_id, topic_name) for a message in the current export."""
+            if not is_forum:
+                return (None, None)
+            tid = topic_of.get(m.get("id"))
+            return (tid, topic_titles.get(tid) if tid is not None else None)
 
         def flush() -> None:
             nonlocal current_group
@@ -346,7 +482,15 @@ class RenderMixin:
                 flush()
                 svc = _service_text(action, msg)
                 if svc:
-                    items.append({"type": "service", "text": svc})
+                    svc_topic, svc_topic_name = _topic_for(msg)
+                    items.append(
+                        {
+                            "type": "service",
+                            "text": svc,
+                            "topic": svc_topic,
+                            "topic_name": svc_topic_name,
+                        }
+                    )
                 prev_sender_id = None
                 prev_msg_time = None
                 continue
@@ -372,10 +516,32 @@ class RenderMixin:
                 str(sender_id) if sender_id else "Unknown"
             )
 
+            # ── Topic header (HTML, forum supergroups only) ──────────
+            msg_topic, msg_topic_name = _topic_for(msg)
+            if is_forum:
+                if msg_topic is not None and msg_topic != prev_thread_id:
+                    flush()
+                    items.append(
+                        {
+                            "type": "thread",
+                            "name": msg_topic_name or f"Thread #{msg_topic}",
+                            "topic": msg_topic,
+                            "topic_name": msg_topic_name,
+                        }
+                    )
+                    # New topic block starts a fresh sender group.
+                    prev_sender_id = None
+                    prev_msg_time = None
+                prev_thread_id = msg_topic
+
             # ── Grouping ─────────────────────────────────────────────
+            # A message's forum topic also bounds a sender group, so a topic
+            # boundary never merges into the previous group (which would
+            # mislabel it for the topic tabs).
             same_group = (
                 current_group is not None
                 and prev_sender_id == sender_id
+                and current_group.get("topic") == msg_topic
                 and prev_msg_time is not None
                 and msg_dt is not None
                 and abs((msg_dt - prev_msg_time).total_seconds()) < 120
@@ -389,6 +555,8 @@ class RenderMixin:
                     "sender_name": sender_name,
                     "sender_color": _sender_color(sender_name),
                     "initials": _sender_initials(sender_name),
+                    "topic": msg_topic,
+                    "topic_name": msg_topic_name,
                     "messages": [],
                 }
 
@@ -448,11 +616,37 @@ class RenderMixin:
                         pass
 
             reply_text: Optional[str] = None
-            reply_to = msg.get("reply_to")
-            if isinstance(reply_to, dict):
-                qt = reply_to.get("quote_text")
-                if qt:
-                    reply_text = str(qt)[:150]
+            reply_to_id: Optional[Any] = None
+            parent_id = _reply_parent_id(msg)
+            parent_msg = id_to_msg.get(parent_id) if parent_id is not None else None
+            # Don't cite a parent that is the message's own topic root: the
+            # forum topic header already shows it, so the citation is redundant.
+            # Only applies to forums — elsewhere there is no header, so the root
+            # reply is cited normally. Nested replies (parent != topic) still
+            # cite their immediate parent.
+            parent_is_thread_root = (
+                is_forum and parent_id is not None and parent_id == msg_topic
+            )
+            if parent_is_thread_root:
+                # Suppress the citation; the topic header carries the context.
+                pass
+            elif parent_msg is not None and parent_msg is not msg:
+                # Parent is in the export: cite its first line and anchor to it.
+                cited = first_line(parent_msg.get("message"))
+                reply_to = msg.get("reply_to")
+                if not cited and isinstance(reply_to, dict):
+                    qt = reply_to.get("quote_text")
+                    if qt:
+                        cited = str(qt)[:150]
+                reply_text = cited or f"Message #{parent_id}"
+                reply_to_id = parent_id
+            else:
+                # Parent not in export: fall back to the stored quote text.
+                reply_to = msg.get("reply_to")
+                if isinstance(reply_to, dict):
+                    qt = reply_to.get("quote_text")
+                    if qt:
+                        reply_text = str(qt)[:150]
 
             fwd_name: Optional[str] = None
             fwd_from = msg.get("fwd_from")
@@ -463,9 +657,11 @@ class RenderMixin:
                 {  # type: ignore[index]
                     "id": msg.get("id"),
                     "text": msg.get("message") or "",
+                    "entities": msg.get("entities") or [],
                     "time": _fmt_time(date_str),
                     "edited": bool(msg.get("edit_date")),
                     "reply_text": reply_text,
+                    "reply_to_id": reply_to_id,
                     "fwd_from_name": fwd_name,
                     "attachment_path": att_path,
                     "attachment_filename": att_filename,
@@ -563,6 +759,342 @@ def _xml_escape(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Inline entity formatting (#80) — shared by HTML and PDF
+# ---------------------------------------------------------------------------
+
+# URL schemes permitted in links; anything else (e.g. javascript:, data:) is
+# dropped and the link text is rendered as plain text.
+_ALLOWED_URL_SCHEMES = {"http", "https", "mailto", "tg"}
+
+_SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*):")
+
+
+def _reply_parent_id(msg: Dict[str, Any]) -> Optional[Any]:
+    """Return the id of the message this one replies to, or None."""
+    reply_to = msg.get("reply_to")
+    if isinstance(reply_to, dict):
+        pid = reply_to.get("reply_to_msg_id")
+        if pid is not None:
+            return pid
+    return msg.get("reply_to_msg_id")
+
+
+def _thread_root(
+    msg_id: Any,
+    parent_of: Dict[Any, Any],
+    id_to_msg: Dict[Any, Dict[str, Any]],
+) -> Any:
+    """Walk the reply chain to its root, following only in-export parents.
+
+    Cycle-guarded: a reply loop stops at the first repeated id.
+    """
+    seen: set = set()
+    cur = msg_id
+    while True:
+        if cur in seen:
+            break
+        seen.add(cur)
+        parent = parent_of.get(cur)
+        if parent is None or parent == cur or parent not in id_to_msg:
+            break
+        cur = parent
+    return cur
+
+
+def first_line(text: Optional[str], limit: int = 60) -> str:
+    """Return the first non-empty line of ``text``, truncated to ``limit`` chars."""
+    if not text:
+        return ""
+    line = str(text).split("\n", 1)[0].strip()
+    if len(line) > limit:
+        line = line[:limit].rstrip() + "…"
+    return line
+
+
+# Telegram service actions that carry a forum-topic title.
+_TOPIC_TITLE_ACTIONS = ("MessageActionTopicCreate", "MessageActionTopicEdit")
+
+
+def _forum_topic_id(msg: Dict[str, Any]) -> Optional[Any]:
+    """Return the forum topic id a message belongs to, or None.
+
+    Mirrors ``core/topics.py::_extract_topic_id``: prefer ``reply_to_top_id``,
+    then ``reply_to_msg_id`` when the reply header is ``forum_topic``. A
+    topic-create service message is its own topic. Grouping by this id — rather
+    than the reply chain — keeps topics intact even when the topic-create
+    message falls outside a windowed (e.g. ``--last-days``) download.
+    """
+    reply_to = msg.get("reply_to")
+    # Only ``forum_topic`` replies identify a real forum topic. A bare
+    # ``reply_to_top_id`` without ``forum_topic`` is a discussion sub-thread
+    # (its top id is an ordinary message, not a topic), so it must NOT be
+    # treated as a topic — those messages belong to the General topic.
+    if isinstance(reply_to, dict) and reply_to.get("forum_topic"):
+        top = reply_to.get("reply_to_top_id")
+        if top is not None:
+            return top
+        rmid = reply_to.get("reply_to_msg_id")
+        if rmid is not None:
+            return rmid
+    action = msg.get("action")
+    if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
+        return msg.get("id")
+    return None
+
+
+def _forum_topic_title(msg: Dict[str, Any]) -> str:
+    """Best topic title known *from this message*: the stored
+    ``forum_topic_title`` (fetched at download time), else a topic-create
+    action title. Empty string when neither is available."""
+    title = msg.get("forum_topic_title")
+    if title:
+        return first_line(title)
+    action = msg.get("action")
+    if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
+        return first_line(action.get("title"))
+    return ""
+
+
+def _is_forum(messages: List[Dict[str, Any]]) -> bool:
+    """True when the export comes from a forum supergroup (has topics).
+
+    Detected by a topic-create/-edit service message or any reply header
+    marked ``forum_topic``. Only forums show thread/topic headers; private
+    chats and regular groups render replies via the inline citation alone.
+    """
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        action = m.get("action")
+        if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
+            return True
+        reply_to = m.get("reply_to")
+        if isinstance(reply_to, dict) and reply_to.get("forum_topic"):
+            return True
+    return False
+
+
+def _thread_name(root_msg: Optional[Dict[str, Any]], root_id: Any) -> str:
+    """Best display name for a reply-thread / forum-topic root.
+
+    A forum topic's title lives on its ``MessageActionTopicCreate`` service
+    message, not in any message text — prefer it. Otherwise fall back to the
+    root message's first line, then ``Thread #<id>``.
+    """
+    if root_msg is not None:
+        action = root_msg.get("action")
+        if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
+            title = first_line(action.get("title"))
+            if title:
+                return title
+        line = first_line(root_msg.get("message"))
+        if line:
+            return line
+    return f"Thread #{root_id}"
+
+
+def _message_topic(
+    mid: Any,
+    thread_root: Dict[Any, Any],
+    id_to_msg: Dict[Any, Dict[str, Any]],
+) -> tuple:
+    """Return ``(topic_id, topic_name)`` when the message belongs to a forum
+    topic, else ``(None, None)``.
+
+    A message belongs to a topic when its reply-chain root is a
+    ``MessageActionTopicCreate`` service message (the topic id is that root's id
+    and the name is its title). Messages outside any topic — the General topic
+    or non-forum chats — return ``(None, None)``.
+    """
+    if mid is None:
+        return (None, None)
+    root = thread_root.get(mid, mid)
+    root_msg = id_to_msg.get(root)
+    if isinstance(root_msg, dict):
+        action = root_msg.get("action")
+        if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
+            return (root, _thread_name(root_msg, root))
+    return (None, None)
+
+
+def _html_escape(text: str) -> str:
+    """Escape text for HTML body content (keeps newlines intact)."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def _escape_segment(text: str, dialect: str) -> str:
+    """Escape a plain-text segment for the given dialect."""
+    if dialect == "pdf":
+        return _xml_escape(text).replace("\n", "<br/>")
+    return _html_escape(text)
+
+
+def _safe_href(url: Optional[str]) -> Optional[str]:
+    """Return ``url`` if its scheme is allowlisted, else None (link is dropped)."""
+    if not url:
+        return None
+    candidate = str(url).strip()
+    if not candidate:
+        return None
+    # Reject embedded ASCII control characters (incl. the tab/newline/CR that
+    # browsers strip when parsing a URL). Without this, "java\nscript:alert(1)"
+    # has no scheme our regex can see, slips past the allowlist, and is emitted
+    # as an href that the browser collapses back to "javascript:alert(1)".
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in candidate):
+        return None
+    match = _SCHEME_RE.match(candidate)
+    if match and match.group(1).lower() not in _ALLOWED_URL_SCHEMES:
+        return None
+    return candidate
+
+
+def _normalize_link_href(url: Optional[str]) -> Optional[str]:
+    """Sanitize a link target for an ``href``.
+
+    Telegram marks bare domains (e.g. ``example.com``) without a scheme; a
+    schemeless href resolves relative to the local export file instead of
+    opening the site, so default those to ``https://``. The result is then run
+    through the scheme allowlist (:func:`_safe_href`).
+    """
+    if not url:
+        return None
+    candidate = str(url).strip()
+    if not candidate:
+        return None
+    if not _SCHEME_RE.match(candidate):
+        candidate = "https://" + candidate
+    return _safe_href(candidate)
+
+
+def _escape_attr(value: str, dialect: str) -> str:
+    """Escape an attribute value (href) for the given dialect."""
+    if dialect == "pdf":
+        return _xml_escape(value)
+    return _html_escape(value)
+
+
+def _entity_tags(
+    etype: str, ent: Dict[str, Any], dialect: str, span_text: str
+) -> Optional[tuple]:
+    """Map a Telegram entity type to (open_tag, close_tag) for the dialect.
+
+    Returns ``None`` to skip the entity (unsupported, or a link with a
+    disallowed scheme).
+    """
+    if etype == "MessageEntityBold":
+        return ("<b>", "</b>")
+    if etype == "MessageEntityItalic":
+        return ("<i>", "</i>")
+    if etype == "MessageEntityUnderline":
+        return ("<u>", "</u>")
+    if etype in ("MessageEntityStrike", "MessageEntityStrikethrough"):
+        return ("<s>", "</s>") if dialect == "html" else ("<strike>", "</strike>")
+    if etype in ("MessageEntityCode", "MessageEntityPre"):
+        if dialect == "html":
+            return ("<code>", "</code>")
+        return (f'<font face="{_pdf_mono_font_face()}">', "</font>")
+    if etype == "MessageEntitySpoiler":
+        if dialect == "html":
+            return ('<span class="spoiler">', "</span>")
+        return ("", "")
+    if etype == "MessageEntityTextUrl":
+        href = _normalize_link_href(ent.get("url"))
+        if not href:
+            return None
+        return (f'<a href="{_escape_attr(href, dialect)}">', "</a>")
+    if etype in ("MessageEntityUrl", "MessageEntityEmail"):
+        if etype == "MessageEntityEmail":
+            href = _safe_href("mailto:" + span_text.strip())
+        else:
+            href = _normalize_link_href(span_text)
+        if not href:
+            return None
+        return (f'<a href="{_escape_attr(href, dialect)}">', "</a>")
+    # Unsupported entity types (mentions, hashtags, etc.) carry no formatting.
+    return None
+
+
+def _utf16_boundaries(text: str) -> Dict[int, int]:
+    """Map UTF-16 code-unit offsets to Python string indices.
+
+    Telegram entity offsets/lengths are measured in UTF-16 code units, so a
+    character outside the BMP (e.g. an emoji) counts as 2.
+    """
+    boundaries: Dict[int, int] = {}
+    u = 0
+    for i, ch in enumerate(text):
+        boundaries[u] = i
+        u += 1 if ord(ch) <= 0xFFFF else 2
+    boundaries[u] = len(text)
+    return boundaries
+
+
+def format_entities(
+    text: Optional[str],
+    entities: Optional[List[Dict[str, Any]]],
+    dialect: str = "html",
+) -> str:
+    """Render ``text`` with inline Telegram ``entities`` for HTML or PDF.
+
+    ``dialect`` is ``"html"`` or ``"pdf"``. Overlapping spans are wrapped
+    segment-by-segment to guarantee well-formed nesting. HTML keeps literal
+    ``\\n`` (the bubble uses ``white-space:pre-wrap``); PDF converts ``\\n``
+    to ``<br/>``.
+    """
+    body = text or ""
+    if dialect not in ("html", "pdf"):
+        dialect = "html"
+    if not entities:
+        return _escape_segment(body, dialect)
+
+    boundaries = _utf16_boundaries(body)
+    n = len(body)
+    spans: List[tuple] = []
+    for ent in entities:
+        if not isinstance(ent, dict):
+            continue
+        etype = ent.get("_") or ent.get("type") or ""
+        off = ent.get("offset")
+        length = ent.get("length")
+        if not isinstance(off, int) or not isinstance(length, int) or length <= 0:
+            continue
+        start = boundaries.get(off)
+        # Clamp an entity that runs past the text end (Telethon offsets are
+        # normally exact, but be defensive) to the last boundary rather than
+        # dropping the whole span.
+        end = boundaries.get(off + length, n)
+        if start is None or start >= end:
+            continue
+        tags = _entity_tags(etype, ent, dialect, body[start:end])
+        if tags is None:
+            continue
+        spans.append((start, end, tags[0], tags[1]))
+
+    if not spans:
+        return _escape_segment(body, dialect)
+
+    points = sorted({0, n} | {s for s, _, _, _ in spans} | {e for _, e, _, _ in spans})
+    out: List[str] = []
+    for a, b in zip(points, points[1:]):
+        if a >= b:
+            continue
+        segment = _escape_segment(body[a:b], dialect)
+        active = [sp for sp in spans if sp[0] <= a and sp[1] >= b]
+        # Outer (longer) spans wrap inner ones: sort by start asc, end desc.
+        active.sort(key=lambda sp: (sp[0], -sp[1]))
+        open_tags = "".join(sp[2] for sp in active)
+        close_tags = "".join(sp[3] for sp in reversed(active))
+        out.append(open_tags + segment + close_tags)
+    return "".join(out)
+
+
+# ---------------------------------------------------------------------------
 # PDF rendering — module-level to keep RenderMixin clean
 # ---------------------------------------------------------------------------
 
@@ -644,7 +1176,47 @@ def _find_unicode_ttf_oblique() -> Optional[str]:
     return None
 
 
+def _find_unicode_mono_ttf() -> Optional[str]:
+    """Find a Unicode-capable monospace TTF for PDF code spans.
+
+    Built-in ReportLab ``Courier`` has no Cyrillic glyphs, so code spans with
+    Cyrillic render as tofu. Prefer a real Unicode mono font when present.
+    """
+    candidates = [
+        # DejaVu Sans Mono — broad Cyrillic/Latin coverage, common on Linux
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+        # Noto Sans Mono
+        "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
+        "/usr/share/fonts/noto/NotoSansMono-Regular.ttf",
+        # Liberation Mono
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/liberation-mono/LiberationMono-Regular.ttf",
+        # macOS
+        "/System/Library/Fonts/Menlo.ttc",
+        "/Library/Fonts/Courier New.ttf",
+        # Windows — Consolas / Courier New both carry Cyrillic
+        "C:/Windows/Fonts/consola.ttf",
+        "C:/Windows/Fonts/cour.ttf",
+    ]
+    for path in candidates:
+        if Path(path).is_file():
+            return path
+    return None
+
+
 _font_cache: Optional[Dict[str, str]] = None
+
+# Font face used for PDF code/pre spans. Defaults to the built-in ``Courier``
+# (no Cyrillic) and is upgraded to a registered Unicode mono font by
+# ``_register_unicode_fonts`` when one is available on the system.
+_pdf_mono_face: str = "Courier"
+
+
+def _pdf_mono_font_face() -> str:
+    """Return the font face to use for PDF monospace (code) spans."""
+    return _pdf_mono_face
 
 
 def _register_unicode_fonts() -> Dict[str, str]:
@@ -703,6 +1275,17 @@ def _register_unicode_fonts() -> Dict[str, str]:
     if oblique:
         pdfmetrics.registerFont(TTFont("UnicodeSans-Oblique", oblique))
         font_map["oblique"] = "UnicodeSans-Oblique"
+
+    # Monospace font for code/pre spans — Courier lacks Cyrillic glyphs.
+    global _pdf_mono_face
+    mono = _find_unicode_mono_ttf()
+    if mono:
+        pdfmetrics.registerFont(TTFont("UnicodeMono", mono))
+        font_map["mono"] = "UnicodeMono"
+        _pdf_mono_face = "UnicodeMono"
+    else:
+        font_map["mono"] = "Courier"
+        _pdf_mono_face = "Courier"
 
     _font_cache = font_map
     return _font_cache
@@ -956,7 +1539,10 @@ def _render_pdf_reportlab(
                 text = msg_data.get("text") or ""
                 if text:
                     parts.append(
-                        Paragraph(_xml_escape(text).replace("\n", "<br/>"), s_text)
+                        Paragraph(
+                            format_entities(text, msg_data.get("entities"), "pdf"),
+                            s_text,
+                        )
                     )
 
                 tick = " \u2713\u2713" if is_out else ""

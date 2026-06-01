@@ -2,11 +2,13 @@
 
 import asyncio
 import logging
+import threading
+import webbrowser
 from pathlib import Path
 from typing import Any, Dict
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
@@ -27,7 +29,7 @@ from telethon.errors import (
     SessionPasswordNeededError,
 )
 
-from ...core import TelegramChatDownloader
+from ...core import TelegramChatDownloader, update_checker
 from ...core.auth_utils import TelegramAuth, TelegramAuthError
 from ...paths import get_app_dir
 from ..auth import SessionManager
@@ -46,6 +48,11 @@ class SettingsTab(QWidget):
     # Signals for code request completion
     code_request_done = Signal(str)
     code_request_error = Signal(str)
+
+    # Signal emitted when an update check finishes (request id + result dict
+    # from update_checker.check_for_update). The id lets a stale, slower check
+    # be ignored when a newer one has already been started.
+    update_check_done = Signal(int, dict)
 
     def __init__(self, parent=None):
         """Initialize the settings tab.
@@ -73,6 +80,9 @@ class SettingsTab(QWidget):
 
         # Session Management Group
         self._setup_session_group(layout)
+
+        # Software Update Group
+        self._setup_update_group(layout)
 
         # Add stretch to push everything to the top
         layout.addStretch()
@@ -279,6 +289,46 @@ class SettingsTab(QWidget):
         # Add session group to parent layout
         parent_layout.addWidget(session_group)
 
+    def _setup_update_group(self, parent_layout):
+        """Set up the software update group."""
+        update_group = QGroupBox("Software Update")
+        update_group.setStyleSheet("QGroupBox { margin-top: 5px; }")
+        update_layout = QVBoxLayout(update_group)
+        update_layout.setContentsMargins(5, 15, 5, 5)
+        update_layout.setSpacing(10)
+
+        # URL of an available update (populated after a successful check)
+        self._update_download_url = None
+
+        # Monotonic id of the most recently started update check. Results from
+        # any earlier check are ignored so a slow/stale response can't overwrite
+        # the UI (or download URL) set by a newer one.
+        self._update_request_id = 0
+
+        # Status label showing the result of the last check
+        self.update_status_label = QLabel(
+            f"Current version: {update_checker.get_current_version()}"
+        )
+        self.update_status_label.setWordWrap(True)
+        update_layout.addWidget(self.update_status_label)
+
+        # "Check updates" / "Download" buttons (only one visible at a time)
+        button_layout = QHBoxLayout()
+        self.check_updates_btn = QPushButton("Check updates")
+        self.check_updates_btn.clicked.connect(self._check_for_updates)
+        button_layout.addWidget(self.check_updates_btn)
+
+        self.download_update_btn = QPushButton("Download")
+        self.download_update_btn.setStyleSheet("QPushButton { font-weight: bold; }")
+        self.download_update_btn.clicked.connect(self._download_update)
+        self.download_update_btn.setVisible(False)
+        button_layout.addWidget(self.download_update_btn)
+        button_layout.addStretch()
+
+        update_layout.addLayout(button_layout)
+
+        parent_layout.addWidget(update_group)
+
     def _connect_signals(self):
         """Connect signals to slots."""
         # API Credentials
@@ -294,6 +344,9 @@ class SettingsTab(QWidget):
         # Async results from background threads
         self.code_request_done.connect(self._on_code_request_done)
         self.code_request_error.connect(self._on_code_error)
+
+        # Update check result (from a background thread)
+        self.update_check_done.connect(self._on_update_check_done)
 
         # Logout
         self.logout_btn.clicked.connect(self.session_manager.logout)
@@ -712,6 +765,96 @@ class SettingsTab(QWidget):
             logging.error(f"Error in async task: {e}")
             # Show error in the UI
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+
+    def _check_for_updates(self):
+        """Check GitHub for a newer release in a background thread.
+
+        The button is intentionally left enabled so it can be clicked again.
+        """
+        self.update_status_label.setText("Checking for updates...")
+
+        self._update_request_id += 1
+        request_id = self._update_request_id
+
+        def run_check():
+            try:
+                result = update_checker.check_for_update()
+            except Exception as exc:  # pragma: no cover - defensive
+                logging.error(f"Update check failed: {exc}", exc_info=True)
+                result = {
+                    "current": update_checker.get_current_version(),
+                    "latest": None,
+                    "update_available": False,
+                    "download_url": None,
+                    "error": str(exc),
+                }
+            self.update_check_done.emit(request_id, result)
+
+        thread = threading.Thread(target=run_check, daemon=True)
+        thread.start()
+
+    def _on_update_check_done(self, request_id: int, result: dict):
+        """Handle the result of an update check (runs on the GUI thread)."""
+        # Drop results from a superseded check so a slow/stale response can't
+        # clobber the state set by a newer one.
+        if request_id != self._update_request_id:
+            return
+        self._apply_update_check_result(result)
+
+    def _apply_update_check_result(self, result: dict):
+        """Update the UI to reflect an update-check result.
+
+        When an update is available the "Check updates" button is replaced with
+        a "Download" button; otherwise "Check updates" stays visible (and
+        clickable) so the user can re-check.
+        """
+        error = result.get("error")
+        latest = result.get("latest")
+        current = result.get("current") or update_checker.get_current_version()
+        update_available = bool(result.get("update_available"))
+
+        if error:
+            self.update_status_label.setText(f"Update check failed: {error}")
+            self._update_download_url = None
+            self.download_update_btn.setVisible(False)
+            self.check_updates_btn.setVisible(True)
+            return
+
+        if update_available and latest:
+            # download_url is a Windows installer asset; only follow it on
+            # Windows. Other platforms open the releases page in the browser.
+            if update_checker.is_windows():
+                self._update_download_url = (
+                    result.get("download_url") or update_checker.get_releases_page_url()
+                )
+            else:
+                self._update_download_url = update_checker.get_releases_page_url()
+            self.update_status_label.setText(
+                f"Update available: {latest} (current: {current})"
+            )
+            self.check_updates_btn.setVisible(False)
+            self.download_update_btn.setVisible(True)
+        else:
+            self._update_download_url = None
+            shown = latest or current
+            self.update_status_label.setText(f"You're up to date (latest: {shown})")
+            self.download_update_btn.setVisible(False)
+            self.check_updates_btn.setVisible(True)
+
+    def _download_update(self):
+        """Open/download the available update build."""
+        # URL was resolved in _apply_update_check_result (Windows installer
+        # asset on Windows, releases page elsewhere).
+        url = self._update_download_url or update_checker.get_releases_page_url()
+        # QDesktopServices.openUrl reports failure by returning False (no
+        # desktop URL handler), not by raising, so fall back on a falsy return
+        # as well as on an exception.
+        try:
+            opened = QDesktopServices.openUrl(QUrl(url))
+        except Exception:  # pragma: no cover - fallback
+            opened = False
+        if not opened:
+            webbrowser.open(url)
 
     def _set_logged_in(
         self, logged_in: bool, skip_validation: bool = False, show_login: bool = False

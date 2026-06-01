@@ -319,6 +319,8 @@ class MainWindow(QMainWindow):
             self.worker_thread.log.connect(self._on_worker_log)
             self.worker_thread.progress.connect(self._on_worker_progress)
             self.worker_thread.status_update.connect(self.status_bar.showMessage)
+            self.worker_thread.media_progress.connect(self._on_media_progress)
+            self.worker_thread.message_progress.connect(self._on_message_progress)
             self.worker_thread.finished.connect(self._on_worker_finished)
 
             # Update UI
@@ -452,6 +454,35 @@ class MainWindow(QMainWindow):
             self.download_tab, "update_progress"
         ):
             self.download_tab.update_progress(current, maximum)
+
+    def _on_media_progress(self, current: int, total: int, file: str):
+        """Handle a structured media-download progress event.
+
+        Args:
+            current: Number of media files processed so far.
+            total: Total media files to process.
+            file: Relative path of the file just downloaded (may be empty).
+        """
+        if (
+            total > 0
+            and hasattr(self, "download_tab")
+            and hasattr(self.download_tab, "update_progress")
+        ):
+            self.download_tab.update_progress(current, total)
+
+    def _on_message_progress(self, fetched: int, last_date: str):
+        """Handle a structured message-fetch progress event.
+
+        Args:
+            fetched: Total messages fetched so far.
+            last_date: ISO date of the last (oldest) message in the batch.
+        """
+        if last_date:
+            self.status_bar.showMessage(
+                f"Fetched {fetched} messages (up to {last_date})"
+            )
+        else:
+            self.status_bar.showMessage(f"Fetched {fetched} messages")
 
     def _on_worker_finished(self, files: List[str], was_stopped: bool):
         """Handle worker thread completion.

@@ -8,7 +8,7 @@ Telegram Download Chat is a Python CLI utility that downloads and analyzes Teleg
 
 ### Key Components
 
-- **Core Engine** (`core/` package): Contains `TelegramChatDownloader` plus helper modules (`auth`, `config`, `download`, `entities`, `media`, `messages`, `context`, `render`) built on Telethon
+- **Core Engine** (`core/` package): Contains `TelegramChatDownloader` plus helper modules (`auth`, `config`, `download`, `entities`, `media`, `messages`, `context`, `render`, `progress`, `update_checker`) built on Telethon
 - **CLI Interface** (`cli.py`): Command-line interface with argument parsing and async message processing
 - **GUI Interface** (`gui_app.py`): PySide6-based graphical interface with threading for async operations
 - **MCP Server** (`mcp/` package): Model Context Protocol server exposing Telegram chat tools for AI assistants
@@ -45,6 +45,10 @@ pytest -v
 
 # Run specific test
 pytest tests/test_telegram_download_chat.py::TestClass::test_method
+
+# Opt-in end-to-end export tests against a live Telegram group (skipped by default).
+# Requires an authenticated session and membership in the test group.
+TG_E2E=1 pytest -m e2e   # override the group via TG_E2E_GROUP
 ```
 
 ### Code Quality
@@ -130,6 +134,15 @@ python main.py  # Launches GUI by default
 - `--html`: Render a Telegram Web-style HTML page (uses Jinja2 templates)
 - `--pdf`: Render a PDF document (uses ReportLab)
 - Both flags work alongside existing JSON/TXT output and can be combined with `--media` for inline images
+
+### Structured GUI Progress
+- The core emits machine-readable progress events (`core/progress.py`) as single JSON stdout lines prefixed with `@@TDCPROGRESS@@` (`PROGRESS_PREFIX`), gated by the `TDC_STRUCTURED_PROGRESS` env var (`PROGRESS_ENV_VAR`).
+- The GUI worker sets that env var on the CLI subprocess and parses the lines (`parse_progress_line`) into Qt signals instead of scraping log text; normal CLI runs stay clean. Event types: `messages`, `media`, `media_summary`. In-process callers/tests can pass a `sink` callable to `emit_progress`.
+- GUI stylesheet helpers live in `gui/utils/styles.py` (e.g. `style_checkboxes`) so unchecked checkboxes match the input background.
+
+### Update Checker (Windows GUI)
+- `core/update_checker.py` queries GitHub `releases/latest`, parses the `vX.Y.Z` tag, and compares versions. The installer download URL (`telegram-download-chat.exe`) is resolved on Windows only; other platforms open the releases page.
+- Surfaced via the Settings tab "Software Update" group; stale concurrent checks are discarded via a monotonic request-id guard.
 
 ### PyInstaller Integration
 - Custom hooks in `_pyinstaller/` for bundling

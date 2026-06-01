@@ -608,6 +608,36 @@ class TestGroupMessagesByTopic:
         assert set(grouped.keys()) == {"10"}
 
 
+class TestAnnotateForumTopicTitles:
+    """annotate_forum_topic_titles stamps forum_topic_title onto messages."""
+
+    def test_annotates_by_top_id_and_forum_topic_and_create(self):
+        from telegram_download_chat.core.topics import annotate_forum_topic_titles
+
+        topics = {10: "Planning", 11: "Tasks"}
+        messages = [
+            {"id": 11, "action": {"_": "MessageActionTopicCreate", "title": "Tasks"}},
+            {"id": 1, "reply_to": {"reply_to_top_id": 10}},  # nested in topic 10
+            {"id": 2, "reply_to": {"reply_to_msg_id": 11, "forum_topic": True}},
+            {"id": 3, "reply_to": {"reply_to_msg_id": 5}},  # plain reply, no topic
+            {"id": 4},  # no reply, no topic
+        ]
+        annotate_forum_topic_titles(messages, topics)
+
+        assert messages[0]["forum_topic_title"] == "Tasks"  # topic-create own id
+        assert messages[1]["forum_topic_title"] == "Planning"  # reply_to_top_id
+        assert messages[2]["forum_topic_title"] == "Tasks"  # forum_topic msg id
+        assert "forum_topic_title" not in messages[3]
+        assert "forum_topic_title" not in messages[4]
+
+    def test_unknown_topic_id_is_skipped(self):
+        from telegram_download_chat.core.topics import annotate_forum_topic_titles
+
+        messages = [{"id": 1, "reply_to": {"reply_to_top_id": 999}}]
+        annotate_forum_topic_titles(messages, {10: "Known"})
+        assert "forum_topic_title" not in messages[0]
+
+
 class TestSlugifyTopic:
     """Tests for slugify_topic."""
 
@@ -2164,3 +2194,825 @@ class TestHtmlMediaLinks:
         # The .media-ref count therefore equals the number of image/sticker/
         # video/audio messages — exactly one in this fixture.
         assert html.count('class="media-ref"') == 1
+
+
+class TestFormatEntities:
+    """Unit tests for the inline entity formatter (#80)."""
+
+    def test_no_entities_html_escapes_and_keeps_newlines(self):
+        from telegram_download_chat.core.render import format_entities
+
+        out = format_entities("a < b & c\nd", [], "html")
+        assert out == "a &lt; b &amp; c\nd"
+
+    def test_no_entities_pdf_converts_newlines(self):
+        from telegram_download_chat.core.render import format_entities
+
+        out = format_entities("a < b\nc", [], "pdf")
+        assert out == "a &lt; b<br/>c"
+
+    def test_bold_italic_html(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "hello world"
+        entities = [
+            {"_": "MessageEntityBold", "offset": 0, "length": 5},
+            {"_": "MessageEntityItalic", "offset": 6, "length": 5},
+        ]
+        out = format_entities(text, entities, "html")
+        assert out == "<b>hello</b> <i>world</i>"
+
+    def test_underline_strike_code_html(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "abcdefghi"
+        entities = [
+            {"_": "MessageEntityUnderline", "offset": 0, "length": 3},
+            {"_": "MessageEntityStrike", "offset": 3, "length": 3},
+            {"_": "MessageEntityCode", "offset": 6, "length": 3},
+        ]
+        out = format_entities(text, entities, "html")
+        assert out == "<u>abc</u><s>def</s><code>ghi</code>"
+
+    def test_strike_and_code_pdf_dialect(self):
+        from telegram_download_chat.core.render import (
+            _pdf_mono_font_face,
+            format_entities,
+        )
+
+        text = "abcdef"
+        entities = [
+            {"_": "MessageEntityStrike", "offset": 0, "length": 3},
+            {"_": "MessageEntityCode", "offset": 3, "length": 3},
+        ]
+        out = format_entities(text, entities, "pdf")
+        face = _pdf_mono_font_face()
+        assert out == f'<strike>abc</strike><font face="{face}">def</font>'
+
+    def test_overlapping_nested_spans_well_formed(self):
+        from telegram_download_chat.core.render import format_entities
+
+        # Bold covers whole word, italic covers the middle — they overlap.
+        text = "abcd"
+        entities = [
+            {"_": "MessageEntityBold", "offset": 0, "length": 4},
+            {"_": "MessageEntityItalic", "offset": 1, "length": 2},
+        ]
+        out = format_entities(text, entities, "html")
+        # Segment-by-segment wrapping re-opens tags at each boundary, keeping
+        # the markup well-formed (no improperly crossed tags) even when spans
+        # overlap. The result renders identically to nested tags.
+        assert out == "<b>a</b><b><i>bc</i></b><b>d</b>"
+        # Well-formedness: every opening tag has a matching close in order.
+        assert out.count("<b>") == out.count("</b>")
+        assert out.count("<i>") == out.count("</i>")
+
+    def test_utf16_emoji_offset_mapping(self):
+        from telegram_download_chat.core.render import format_entities
+
+        # Emoji is 1 Python char but 2 UTF-16 code units, so the bold entity
+        # after it starts at UTF-16 offset 2.
+        text = "😀ok"
+        entities = [{"_": "MessageEntityBold", "offset": 2, "length": 2}]
+        out = format_entities(text, entities, "html")
+        assert out == "😀<b>ok</b>"
+
+    def test_text_url_link_html(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "click here"
+        entities = [
+            {
+                "_": "MessageEntityTextUrl",
+                "offset": 6,
+                "length": 4,
+                "url": "https://example.com",
+            }
+        ]
+        out = format_entities(text, entities, "html")
+        assert out == 'click <a href="https://example.com">here</a>'
+
+    def test_plain_url_entity_uses_text_as_href(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "see https://x.io"
+        entities = [{"_": "MessageEntityUrl", "offset": 4, "length": 12}]
+        out = format_entities(text, entities, "html")
+        assert out == 'see <a href="https://x.io">https://x.io</a>'
+
+    def test_schemeless_url_entity_defaults_to_https(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "see example.com"
+        entities = [{"_": "MessageEntityUrl", "offset": 4, "length": 11}]
+        out = format_entities(text, entities, "html")
+        assert out == 'see <a href="https://example.com">example.com</a>'
+
+    def test_javascript_scheme_dropped(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "danger"
+        entities = [
+            {
+                "_": "MessageEntityTextUrl",
+                "offset": 0,
+                "length": 6,
+                "url": "javascript:alert(1)",
+            }
+        ]
+        out = format_entities(text, entities, "html")
+        # Link wrapper dropped; text rendered as escaped plain text.
+        assert out == "danger"
+        assert "javascript" not in out
+        assert "<a" not in out
+
+    def test_javascript_scheme_with_embedded_control_char_dropped(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "danger"
+        # Browsers strip tab/newline/CR from URLs, so "java\nscript:" would be
+        # collapsed back to "javascript:". The link must be dropped, not emitted.
+        for raw in (
+            "java\nscript:alert(1)",
+            "java\tscript:alert(1)",
+            "java\rscript:alert(1)",
+            "\x01javascript:alert(1)",
+        ):
+            entities = [
+                {
+                    "_": "MessageEntityTextUrl",
+                    "offset": 0,
+                    "length": 6,
+                    "url": raw,
+                }
+            ]
+            out = format_entities(text, entities, "html")
+            assert out == "danger"
+            assert "<a" not in out
+
+    def test_email_entity_uses_mailto_href(self):
+        from telegram_download_chat.core.render import format_entities
+
+        text = "write me@x.io now"
+        entities = [{"_": "MessageEntityEmail", "offset": 6, "length": 7}]
+        out = format_entities(text, entities, "html")
+        assert out == 'write <a href="mailto:me@x.io">me@x.io</a> now'
+
+    def test_pre_entity_maps_to_code_like_code(self):
+        from telegram_download_chat.core.render import (
+            _pdf_mono_font_face,
+            format_entities,
+        )
+
+        text = "abcdef"
+        entities = [{"_": "MessageEntityPre", "offset": 0, "length": 3}]
+        assert format_entities(text, entities, "html") == "<code>abc</code>def"
+        face = _pdf_mono_font_face()
+        assert (
+            format_entities(text, entities, "pdf")
+            == f'<font face="{face}">abc</font>def'
+        )
+
+    def test_schemeless_text_url_defaults_to_https(self):
+        from telegram_download_chat.core.render import format_entities
+
+        # A scheme-less text-link href would resolve relative to the local
+        # export file, so it is defaulted to https:// like bare-domain URLs.
+        text = "here"
+        entities = [
+            {
+                "_": "MessageEntityTextUrl",
+                "offset": 0,
+                "length": 4,
+                "url": "example.com/page",
+            }
+        ]
+        out = format_entities(text, entities, "html")
+        assert out == '<a href="https://example.com/page">here</a>'
+
+    def test_unknown_dialect_falls_back_to_html(self):
+        from telegram_download_chat.core.render import format_entities
+
+        out = format_entities("a < b", [], "bogus")
+        assert out == "a &lt; b"
+
+    def test_first_line_truncates(self):
+        from telegram_download_chat.core.render import first_line
+
+        assert first_line("hello\nworld") == "hello"
+        assert first_line("") == ""
+        assert first_line(None) == ""
+        long = "x" * 80
+        result = first_line(long, limit=60)
+        assert result.endswith("…")
+        assert len(result) == 61
+
+    def test_html_render_applies_entities(self, tmp_path):
+        from telegram_download_chat.core.render import RenderMixin
+
+        renderer = RenderMixin()
+        out = tmp_path / "out.html"
+        messages = [
+            {
+                "id": 1,
+                "date": "2026-01-01T10:00:00+00:00",
+                "from_id": {"user_id": 1},
+                "user_display_name": "Alice",
+                "message": "bold text",
+                "entities": [{"_": "MessageEntityBold", "offset": 0, "length": 4}],
+            }
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert "<b>bold</b> text" in html
+
+    def test_pdf_smoke_with_entities(self, tmp_path):
+        pytest.importorskip("reportlab")
+        from telegram_download_chat.core.render import RenderMixin
+
+        renderer = RenderMixin()
+        out = tmp_path / "out.pdf"
+        messages = [
+            {
+                "id": 1,
+                "date": "2026-01-01T10:00:00+00:00",
+                "from_id": {"user_id": 1},
+                "user_display_name": "Alice",
+                "message": "bold and link",
+                "entities": [
+                    {"_": "MessageEntityBold", "offset": 0, "length": 4},
+                    {
+                        "_": "MessageEntityTextUrl",
+                        "offset": 9,
+                        "length": 4,
+                        "url": "https://example.com",
+                    },
+                ],
+            }
+        ]
+        renderer.render_pdf(messages, out, chat_title="t")
+        assert out.exists()
+        assert out.stat().st_size > 0
+        assert out.read_bytes().startswith(b"%PDF")
+
+    def test_pdf_code_span_uses_unicode_mono_font(self, tmp_path):
+        """Registering Unicode fonts upgrades PDF code spans off Courier so
+        Cyrillic in monospace renders. Skips if no Unicode mono font is present."""
+        pytest.importorskip("reportlab")
+        from telegram_download_chat.core.render import (
+            _find_unicode_mono_ttf,
+            _pdf_mono_font_face,
+            _register_unicode_fonts,
+            format_entities,
+        )
+
+        if _find_unicode_mono_ttf() is None:
+            pytest.skip("no Unicode monospace font on this system")
+
+        _register_unicode_fonts()
+        face = _pdf_mono_font_face()
+        assert face != "Courier", "expected a registered Unicode mono font"
+
+        # Cyrillic inside a code span flows through with the Unicode mono face.
+        text = "код"
+        entities = [{"_": "MessageEntityCode", "offset": 0, "length": 3}]
+        out = format_entities(text, entities, "pdf")
+        assert out == f'<font face="{face}">код</font>'
+
+    def test_pdf_smoke_with_cyrillic_code(self, tmp_path):
+        """A PDF with a Cyrillic code span renders without error."""
+        pytest.importorskip("reportlab")
+        from telegram_download_chat.core.render import RenderMixin
+
+        renderer = RenderMixin()
+        out = tmp_path / "cyr.pdf"
+        messages = [
+            {
+                "id": 1,
+                "date": "2026-01-01T10:00:00+00:00",
+                "from_id": {"user_id": 1},
+                "user_display_name": "Алиса",
+                "message": "пример кода",
+                "entities": [
+                    {"_": "MessageEntityCode", "offset": 7, "length": 4},
+                ],
+            }
+        ]
+        renderer.render_pdf(messages, out, chat_title="тест")
+        assert out.exists()
+        assert out.read_bytes().startswith(b"%PDF")
+
+
+class TestHtmlThreadsAndAnchors:
+    """HTML reply anchors + thread headers (#80, Task 4)."""
+
+    @staticmethod
+    def _renderer():
+        from telegram_download_chat.core.render import RenderMixin
+
+        return RenderMixin()
+
+    @staticmethod
+    def _msg(mid, minute, sender, text, reply=None):
+        m = {
+            "id": mid,
+            "date": f"2026-01-01T10:{minute:02d}:00+00:00",
+            "from_id": {"user_id": sender},
+            "user_display_name": f"User{sender}",
+            "message": text,
+        }
+        if reply is not None:
+            m["reply_to"] = reply
+        return m
+
+    def test_bubble_anchor_ids(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [self._msg(1, 0, 1, "hello"), self._msg(2, 5, 2, "world")],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        assert 'id="msg-1"' in html
+        assert 'id="msg-2"' in html
+
+    def test_reply_anchor_when_parent_in_export(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [
+                self._msg(1, 0, 1, "Topic Alpha"),
+                self._msg(
+                    2,
+                    5,
+                    2,
+                    "re alpha",
+                    reply={"reply_to_msg_id": 1, "forum_topic": True},
+                ),
+                # Nested reply to msg 2, still in topic 1 (reply_to_top_id=1).
+                self._msg(
+                    3,
+                    10,
+                    3,
+                    "re re alpha",
+                    reply={
+                        "reply_to_top_id": 1,
+                        "reply_to_msg_id": 2,
+                        "forum_topic": True,
+                    },
+                ),
+            ],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        # A reply to a NON-root parent cites that parent's first line + anchor.
+        assert '<a href="#msg-2">re alpha</a>' in html
+        # A reply to the topic root is NOT cited (the topic header shows it).
+        assert 'href="#msg-1"' not in html
+
+    def test_reply_to_thread_root_is_not_cited(self, tmp_path):
+        """In a forum, a direct reply to a topic root shows no citation — the
+        topic header already carries the root's first line."""
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [
+                self._msg(1, 0, 1, "Topic Alpha"),
+                self._msg(
+                    2,
+                    5,
+                    2,
+                    "re alpha",
+                    reply={"reply_to_msg_id": 1, "forum_topic": True},
+                ),
+            ],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        # No reply-quote citing the root, and no reply-quote block at all here.
+        assert 'href="#msg-1"' not in html
+        assert 'class="rq"' not in html
+        # The thread header still identifies the root.
+        assert html.count('class="threadsep"') == 1
+        assert "Topic Alpha" in html
+
+    def test_reply_anchor_fallback_to_quote_text(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [
+                self._msg(
+                    5,
+                    0,
+                    1,
+                    "reply to missing",
+                    reply={"reply_to_msg_id": 999, "quote_text": "old quote"},
+                )
+            ],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        # Parent not in export: show stored quote text, no anchor link.
+        assert "old quote" in html
+        assert 'href="#msg-999"' not in html
+
+    def test_thread_headers_on_change_and_recurrence(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        messages = [
+            self._msg(1, 0, 1, "Topic Alpha"),
+            self._msg(
+                2, 5, 2, "re alpha", reply={"reply_to_msg_id": 1, "forum_topic": True}
+            ),
+            self._msg(3, 10, 3, "just a standalone note"),
+            self._msg(
+                4,
+                15,
+                2,
+                "alpha again",
+                reply={"reply_to_msg_id": 1, "forum_topic": True},
+            ),
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        # Header on first appearance + recurrence after the standalone message.
+        assert html.count('class="threadsep"') == 2
+        # Header text is the root message's first line.
+        assert "Topic Alpha" in html
+        # The standalone message itself still renders.
+        assert "just a standalone note" in html
+
+    def test_standalone_messages_get_no_thread_header(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [self._msg(1, 0, 1, "one"), self._msg(2, 5, 2, "two")],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        assert 'class="threadsep"' not in html
+
+    def test_no_thread_headers_in_private_chat(self, tmp_path):
+        """Replies in a non-forum chat (no forum_topic markers) get NO topic
+        headers, and a reply to a root IS cited normally (no suppression)."""
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [
+                self._msg(1, 0, 1, "Hello there"),
+                self._msg(2, 5, 2, "re hello", reply={"reply_to_msg_id": 1}),
+            ],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        # No forum -> no topic separators and no tabs.
+        assert 'class="threadsep"' not in html
+        assert '<div class="tabs">' not in html
+        # The reply to the root IS cited (no header to provide context).
+        assert '<a href="#msg-1">Hello there</a>' in html
+
+    def test_thread_name_fallback_when_root_has_no_text(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        messages = [
+            self._msg(1, 0, 1, ""),  # root has no text
+            self._msg(
+                2, 5, 2, "child", reply={"reply_to_msg_id": 1, "forum_topic": True}
+            ),
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert "Thread #1" in html
+
+    def test_thread_name_uses_forum_topic_title(self, tmp_path):
+        """A forum-topic thread is named by its MessageActionTopicCreate title."""
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        root = self._msg(1, 0, 1, "")
+        root["action"] = {"_": "MessageActionTopicCreate", "title": "Formatting"}
+        messages = [
+            root,
+            self._msg(
+                2,
+                5,
+                2,
+                "bold sample",
+                reply={"reply_to_msg_id": 1, "forum_topic": True},
+            ),
+            self._msg(
+                3, 10, 2, "more", reply={"reply_to_msg_id": 1, "forum_topic": True}
+            ),
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert "&mdash; Formatting &mdash;" in html
+        assert "Thread #1" not in html
+
+    def test_windowed_topic_uses_stored_forum_topic_title(self, tmp_path):
+        """When the topic-create message is outside the window, the topic is
+        named/grouped from the stored forum_topic_title (fetched at download),
+        with nested replies still grouped into that topic."""
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        messages = [
+            # Topic 2425 ("Планёрка") — no topic-create message in the export.
+            self._msg(
+                100,
+                0,
+                1,
+                "top level",
+                reply={"reply_to_msg_id": 2425, "forum_topic": True},
+            )
+            | {"forum_topic_title": "Планёрка"},
+            self._msg(
+                101,
+                5,
+                2,
+                "nested reply",
+                reply={
+                    "reply_to_top_id": 2425,
+                    "reply_to_msg_id": 100,
+                    "forum_topic": True,
+                },
+            )
+            | {"forum_topic_title": "Планёрка"},
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        # One topic header named from the stored title (not Thread #2425), one tab.
+        assert "&mdash; Планёрка &mdash;" in html
+        assert "Thread #2425" not in html
+        assert 'data-topic="2425">Планёрка</button>' in html
+        assert html.count('class="threadsep"') == 1
+        # The nested reply cites its parent (msg 100), not the topic root.
+        assert '<a href="#msg-100">' in html
+
+    def test_discussion_subthread_is_not_a_topic(self, tmp_path):
+        """A reply_to_top_id WITHOUT forum_topic is a discussion sub-thread, not
+        a forum topic — it must not produce a tab or topic header."""
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        messages = [
+            # Real forum topic 2426.
+            self._msg(
+                10,
+                0,
+                1,
+                "in topic",
+                reply={"reply_to_msg_id": 2426, "forum_topic": True},
+            )
+            | {"forum_topic_title": "Планёрки"},
+            # Discussion sub-thread: reply_to_top_id set, NO forum_topic.
+            self._msg(11, 1, 2, "subthread reply", reply={"reply_to_top_id": 5149}),
+            self._msg(12, 2, 3, "another subthread", reply={"reply_to_top_id": 5149}),
+        ]
+        renderer.render_html(messages, out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert 'data-topic="2426">Планёрки</button>' in html
+        # The sub-thread id never becomes a tab or header.
+        assert "5149" not in html
+        assert "Thread #5149" not in html
+        # Only the one real topic header.
+        assert html.count('class="threadsep"') == 1
+
+    def test_forum_topic_id_and_title_helpers(self):
+        from telegram_download_chat.core.render import (
+            _forum_topic_id,
+            _forum_topic_title,
+        )
+
+        # Top-level: reply_to_msg_id under forum_topic is the topic.
+        assert (
+            _forum_topic_id({"reply_to": {"reply_to_msg_id": 9, "forum_topic": True}})
+            == 9
+        )
+        # Nested forum reply: reply_to_top_id wins over reply_to_msg_id.
+        assert (
+            _forum_topic_id(
+                {
+                    "reply_to": {
+                        "reply_to_top_id": 9,
+                        "reply_to_msg_id": 3,
+                        "forum_topic": True,
+                    }
+                }
+            )
+            == 9
+        )
+        # Topic-create message is its own topic.
+        assert (
+            _forum_topic_id(
+                {"id": 7, "action": {"_": "MessageActionTopicCreate", "title": "T"}}
+            )
+            == 7
+        )
+        # Plain reply / private chat -> no topic.
+        assert _forum_topic_id({"reply_to": {"reply_to_msg_id": 3}}) is None
+        # Discussion sub-thread (reply_to_top_id WITHOUT forum_topic) is NOT a
+        # forum topic -> None (those messages belong to the General topic).
+        assert _forum_topic_id({"reply_to": {"reply_to_top_id": 5149}}) is None
+        # Title: stored title wins, then topic-create, else empty.
+        assert _forum_topic_title({"forum_topic_title": "Stored"}) == "Stored"
+        assert (
+            _forum_topic_title(
+                {"action": {"_": "MessageActionTopicCreate", "title": "Created"}}
+            )
+            == "Created"
+        )
+        assert (
+            _forum_topic_title(
+                {"action": {"_": "MessageActionChannelMigrateFrom", "title": "Old"}}
+            )
+            == ""
+        )
+
+    def test_thread_name_helper_precedence(self):
+        from telegram_download_chat.core.render import _thread_name
+
+        topic = {"action": {"_": "MessageActionTopicCreate", "title": "Formatting"}}
+        assert _thread_name(topic, 1) == "Formatting"
+        assert _thread_name({"message": "hello world"}, 2) == "hello world"
+        assert _thread_name({"message": ""}, 3) == "Thread #3"
+        assert _thread_name(None, 4) == "Thread #4"
+        migrate = {
+            "action": {"_": "MessageActionChannelMigrateFrom", "title": "Old"},
+            "message": "root text",
+        }
+        assert _thread_name(migrate, 5) == "root text"
+
+    def test_preprocess_threads_opt_in_only(self):
+        renderer = self._renderer()
+        messages = [
+            self._msg(1, 0, 1, "root"),
+            self._msg(
+                2, 5, 2, "child", reply={"reply_to_msg_id": 1, "forum_topic": True}
+            ),
+        ]
+        # PDF path (default) must not inject thread items.
+        plain = renderer._preprocess_messages(messages, None)
+        assert all(it["type"] != "thread" for it in plain)
+        # HTML path opts in (forum -> topic headers).
+        threaded = renderer._preprocess_messages(messages, None, with_threads=True)
+        assert any(it["type"] == "thread" for it in threaded)
+
+    def test_thread_root_cycle_guarded(self):
+        from telegram_download_chat.core.render import _thread_root
+
+        id_to_msg = {1: {"id": 1}, 2: {"id": 2}}
+        parent_of = {1: 2, 2: 1}  # reply loop
+        # Must terminate (no infinite loop) and return one of the ids.
+        assert _thread_root(1, parent_of, id_to_msg) in (1, 2)
+
+    def test_thread_root_resolves_chain_to_root(self):
+        from telegram_download_chat.core.render import _thread_root
+
+        # 3 -> 2 -> 1 (each replies to the previous); root of all is 1.
+        id_to_msg = {1: {"id": 1}, 2: {"id": 2}, 3: {"id": 3}}
+        parent_of = {3: 2, 2: 1}
+        assert _thread_root(3, parent_of, id_to_msg) == 1
+        assert _thread_root(2, parent_of, id_to_msg) == 1
+        assert _thread_root(1, parent_of, id_to_msg) == 1
+
+
+class TestHtmlTopicTabs:
+    """HTML export forum-topic tabs (All + per-topic filtering)."""
+
+    @staticmethod
+    def _renderer():
+        from telegram_download_chat.core.render import RenderMixin
+
+        return RenderMixin()
+
+    @staticmethod
+    def _msg(mid, minute, sender, text, reply=None, action=None):
+        m = {
+            "id": mid,
+            "date": f"2026-01-01T10:{minute:02d}:00+00:00",
+            "from_id": {"user_id": sender},
+            "user_display_name": f"User{sender}",
+            "message": text,
+        }
+        if reply is not None:
+            m["reply_to"] = reply
+        if action is not None:
+            m["action"] = action
+        return m
+
+    @classmethod
+    def _topic_create(cls, mid, minute, title):
+        return cls._msg(
+            mid,
+            minute,
+            1,
+            "",
+            action={"_": "MessageActionTopicCreate", "title": title},
+        )
+
+    @staticmethod
+    def _ftop(topic_id):
+        # A top-level message in a forum topic: replies to the topic root.
+        return {"reply_to_msg_id": topic_id, "forum_topic": True}
+
+    def _forum_messages(self):
+        # Topic "Formatting" (id 1) and "Topic 2" (id 5), plus one General
+        # message with no topic.
+        return [
+            self._topic_create(1, 0, "Formatting"),
+            self._msg(2, 1, 2, "fmt one", reply=self._ftop(1)),
+            self._msg(3, 2, 3, "fmt two", reply=self._ftop(1)),
+            self._topic_create(5, 3, "Topic 2"),
+            self._msg(6, 4, 2, "t2 one", reply=self._ftop(5)),
+            self._msg(9, 5, 4, "General message"),  # no topic
+        ]
+
+    def test_is_forum_detection(self):
+        from telegram_download_chat.core.render import _is_forum
+
+        # Topic-create service message marks a forum.
+        assert _is_forum(
+            [{"id": 1, "action": {"_": "MessageActionTopicCreate", "title": "T"}}]
+        )
+        # A forum_topic reply header marks a forum.
+        assert _is_forum([{"id": 2, "reply_to": {"forum_topic": True}}])
+        # Plain replies / private chats are not forums.
+        assert not _is_forum([{"id": 1}, {"id": 2, "reply_to": {"reply_to_msg_id": 1}}])
+        assert not _is_forum([])
+
+    def test_message_topic_precedence(self):
+        from telegram_download_chat.core.render import _message_topic
+
+        id_to_msg = {
+            1: {"id": 1, "action": {"_": "MessageActionTopicCreate", "title": "T"}},
+            2: {"id": 2, "message": "hi"},
+        }
+        thread_root = {1: 1, 2: 1, 9: 9}
+        assert _message_topic(2, thread_root, id_to_msg) == (1, "T")
+        assert _message_topic(1, thread_root, id_to_msg) == (1, "T")
+        # Root not a topic-create message -> no topic.
+        assert _message_topic(9, {9: 9}, {9: {"id": 9, "message": "x"}}) == (
+            None,
+            None,
+        )
+        assert _message_topic(None, thread_root, id_to_msg) == (None, None)
+
+    def test_tab_bar_lists_all_plus_topics(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(self._forum_messages(), out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert '<div class="tabs">' in html
+        assert '<button class="topic-tab active" data-topic="all">All</button>' in html
+        assert 'data-topic="1">Formatting</button>' in html
+        assert 'data-topic="5">Topic 2</button>' in html
+
+    def test_groups_carry_topic_data_attribute(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(self._forum_messages(), out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        assert '<div class="grp" data-topic="1">' in html
+        assert '<div class="grp" data-topic="5">' in html
+        # The General message is in its own untopiced group, not absorbed.
+        assert '<div class="grp" data-topic="none">' in html
+
+    def test_general_message_not_absorbed_into_topic_group(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(self._forum_messages(), out, chat_title="t")
+        html = out.read_text(encoding="utf-8")
+        # The General bubble lives inside a data-topic="none" group.
+        import re
+
+        m = re.search(r'data-topic="none">.*?General message', html, re.S)
+        assert m is not None
+
+    def test_no_tabs_for_non_forum_chat(self, tmp_path):
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [
+                self._msg(1, 0, 1, "hello"),
+                self._msg(2, 5, 2, "re", reply={"reply_to_msg_id": 1}),
+            ],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        assert '<div class="tabs">' not in html
+        # The .topic-tab CSS rule is always present; the buttons are not.
+        assert '<button class="topic-tab' not in html
+
+    def test_filter_script_present_only_with_topics(self, tmp_path):
+        renderer = self._renderer()
+        forum = tmp_path / "forum.html"
+        plain = tmp_path / "plain.html"
+        renderer.render_html(self._forum_messages(), forum, chat_title="t")
+        renderer.render_html([self._msg(1, 0, 1, "hi")], plain, chat_title="t")
+        assert "addEventListener" in forum.read_text(encoding="utf-8")
+        assert "addEventListener" not in plain.read_text(encoding="utf-8")

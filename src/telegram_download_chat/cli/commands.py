@@ -391,6 +391,20 @@ async def process_chat_download(
 
     full_chat_title = await downloader.get_entity_full_name(chat_identifier)
 
+    # For forum supergroups, fetch topic titles up front so the HTML/PDF export
+    # can name topics (and build tabs) even when their topic-create messages
+    # fall outside a windowed download. Best-effort: a failure must not block
+    # the export. save_messages() reads downloader._forum_topic_titles.
+    downloader._forum_topic_titles = {}
+    try:
+        forum_entity = await downloader.get_entity(chat_identifier)
+        if getattr(forum_entity, "forum", False):
+            downloader._forum_topic_titles = await fetch_forum_topics(
+                downloader, forum_entity
+            )
+    except Exception as e:  # pragma: no cover - network/permission dependent
+        downloader.logger.debug(f"Could not fetch forum topics: {e}")
+
     split_messages: Dict[str, List[Any]] = {}
     topic_dirs: Dict[str, Path] = {}
     try:

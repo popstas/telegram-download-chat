@@ -413,6 +413,15 @@ class MessagesMixin:
             except Exception as e:
                 self.logger.warning(f"Failed to serialize message: {e}")
 
+        # Forum supergroups: stamp topic titles fetched at download time so the
+        # HTML/PDF export can name topics even when their topic-create messages
+        # fall outside a windowed download.
+        forum_titles = getattr(self, "_forum_topic_titles", None)
+        if forum_titles:
+            from .topics import annotate_forum_topic_titles
+
+            annotate_forum_topic_titles(serializable_messages, forum_titles)
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(serializable_messages, f, ensure_ascii=False, indent=2)

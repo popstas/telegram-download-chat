@@ -185,16 +185,17 @@ class DownloadTab(QWidget):
             self.chat_help_btn.setText("ⓘ How to fill this? ▶")
             self.chat_help_btn.setAutoRaise(True)
             self.chat_help_btn.setCursor(Qt.PointingHandCursor)
-            self.chat_help_btn.setStyleSheet(
-                "QToolButton { border: none; color: #5a6b7b; }"
-            )
+            # No explicit text color: inherit the theme palette so it stays
+            # readable on both light and dark themes (matches the Settings tab).
+            self.chat_help_btn.setStyleSheet("QToolButton { border: none; }")
             self.chat_help_btn.clicked.connect(self._toggle_chat_help)
             parent_layout.addWidget(self.chat_help_btn)
 
             self.chat_help_label = QLabel(_chat_hint_html())
             self.chat_help_label.setWordWrap(True)
             self.chat_help_label.setOpenExternalLinks(True)
-            self.chat_help_label.setStyleSheet("color:#5a6b7b; margin:2px 0 6px 6px;")
+            # Margin only, no color — inherit the theme's text color.
+            self.chat_help_label.setStyleSheet("margin:2px 0 6px 6px;")
             self.chat_help_label.setVisible(False)
             parent_layout.addWidget(self.chat_help_label)
 

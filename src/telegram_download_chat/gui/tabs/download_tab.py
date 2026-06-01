@@ -106,8 +106,9 @@ class DownloadTab(QWidget):
     def _chat_hint_flags(self):
         """Return ``(show_tooltip, show_help)`` for the Chat-field hint.
 
-        Both default to True (help is shown out of the box) and can be disabled
-        via ``settings.gui_chat_hint_tooltip`` / ``settings.gui_chat_hint_help``.
+        The collapsible help block is shown by default; the ⓘ icon + tooltip is
+        off by default. Override via ``settings.gui_chat_hint_tooltip`` /
+        ``settings.gui_chat_hint_help``.
         """
         try:
             from ..utils.config import ConfigManager
@@ -115,11 +116,11 @@ class DownloadTab(QWidget):
             config = ConfigManager()
             config.load()
             return (
-                bool(config.get("settings.gui_chat_hint_tooltip", True)),
+                bool(config.get("settings.gui_chat_hint_tooltip", False)),
                 bool(config.get("settings.gui_chat_hint_help", True)),
             )
         except Exception:
-            return True, True
+            return False, True
 
     def _setup_chat_input(self, parent_layout):
         """Set up the chat input section.

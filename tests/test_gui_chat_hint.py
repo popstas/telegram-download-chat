@@ -10,6 +10,10 @@ from unittest.mock import patch
 
 import pytest
 
+# Skip the whole module when the optional GUI dependency is absent (CI installs
+# the package without [gui]). Importing download_tab pulls in PySide6.
+pytest.importorskip("PySide6")
+
 # Allow the Qt-based tests to run without a display (e.g. CI).
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -49,6 +53,30 @@ def test_hint_text_mentions_saved_messages_and_formats():
         assert needle in tip
         assert needle in html
     assert html.startswith("<ul")
+
+
+def test_default_flags_tooltip_off_help_on(qapp):
+    """With no config overrides, the tooltip is off and the help block is on."""
+    from telegram_download_chat.gui.tabs.download_tab import DownloadTab
+    from telegram_download_chat.gui.utils import config as cfg_mod
+
+    class _EmptyConfig:
+        def load(self):
+            pass
+
+        def get(self, key, default=None):
+            return default  # no overrides -> use defaults
+
+    # _chat_hint_flags imports ConfigManager from gui.utils.config at call time.
+    with patch.object(cfg_mod, "ConfigManager", _EmptyConfig), patch.object(
+        DownloadTab, "_load_settings", lambda self: None
+    ):
+        tab = DownloadTab()
+
+    assert tab.chat_info_btn is None  # tooltip off by default
+    assert tab.chat_edit.toolTip() == ""
+    assert tab.chat_help_btn is not None  # help on by default
+    assert tab.chat_help_label is not None
 
 
 def test_both_flags_on(qapp):

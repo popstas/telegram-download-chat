@@ -1,0 +1,14 @@
+{
+  "name": "telegram-download-chat",
+  "owner": {
+    "name": "popstas",
+    "url": "https://github.com/popstas/telegram-download-chat"
+  },
+  "plugins": [
+    {
+      "name": "telegram-download-chat",
+      "source": "./",
+      "description": "Download, export, convert, filter, and analyze Telegram chats via the telegram-download-chat CLI. Download messages from a chat/group/channel, convert an existing JSON export to TXT/HTML/PDF, filter by date/user/keyword, download media, extract subchats (reply threads), and download whole folders. Triggers on \"download telegram chat\", \"export telegram\", \"convert telegram export\", \"скачать чат телеграм\", \"telegram-download-chat\"."
+    }
+  ]
+}

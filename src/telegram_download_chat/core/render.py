@@ -403,32 +403,58 @@ class RenderMixin:
             messages, key=lambda m: _parse_dt(m.get("date") or "") or _epoch
         )
 
-        # ── Thread/reply index ───────────────────────────────────────────
-        # Map message id -> message and id -> parent id so we can resolve
-        # reply anchors (parent in export) and walk reply chains to a root.
+        # ── Message index ────────────────────────────────────────────────
+        # Map message id -> message so reply citations can resolve an anchor
+        # to the parent bubble when the parent is present in the export.
         id_to_msg: Dict[Any, Dict[str, Any]] = {}
-        parent_of: Dict[Any, Any] = {}
         for m in sorted_msgs:
             mid = m.get("id")
             if mid is None:
                 continue
             id_to_msg[mid] = m
-            pid = _reply_parent_id(m)
-            if pid is not None and pid != mid:
-                parent_of[mid] = pid
 
-        thread_root: Dict[Any, Any] = {}
-        thread_size: Dict[Any, int] = {}
         # Thread/topic headers (and root-citation suppression) only make sense in
         # forum supergroups, which actually have topics. In private chats and
         # regular groups a reply is just a quote, so render it via the inline
         # reply citation only — no "--- name ---" topic separators.
         is_forum = with_threads and _is_forum(sorted_msgs)
-        if with_threads:
-            for mid in id_to_msg:
-                root = _thread_root(mid, parent_of, id_to_msg)
-                thread_root[mid] = root
-                thread_size[root] = thread_size.get(root, 0) + 1
+
+        # Forum topic grouping: every message maps to its forum topic id (not its
+        # reply-chain root), so a windowed download whose topic-create messages
+        # fall outside the range still groups cleanly. Names come from an
+        # in-window topic-create title or the stored forum_topic_title, falling
+        # back to "Thread #<id>".
+        topic_of: Dict[Any, Any] = {}
+        topic_titles: Dict[Any, str] = {}
+        if is_forum:
+            for m in sorted_msgs:
+                mid = m.get("id")
+                tid = _forum_topic_id(m)
+                if mid is not None:
+                    topic_of[mid] = tid
+                if tid is not None and tid not in topic_titles:
+                    name = _forum_topic_title(m)
+                    if name:
+                        topic_titles[tid] = name
+            for tid in set(topic_of.values()):
+                if tid is None or tid in topic_titles:
+                    continue
+                # No fetched/created title. If the topic id is an in-window
+                # message, name it by that message's first line; else Thread #id.
+                root_msg = id_to_msg.get(tid)
+                line = (
+                    first_line(root_msg.get("message"))
+                    if isinstance(root_msg, dict)
+                    else ""
+                )
+                topic_titles[tid] = line or f"Thread #{tid}"
+
+        def _topic_for(m: Dict[str, Any]) -> tuple:
+            """(topic_id, topic_name) for a message in the current export."""
+            if not is_forum:
+                return (None, None)
+            tid = topic_of.get(m.get("id"))
+            return (tid, topic_titles.get(tid) if tid is not None else None)
 
         def flush() -> None:
             nonlocal current_group
@@ -456,11 +482,7 @@ class RenderMixin:
                 flush()
                 svc = _service_text(action, msg)
                 if svc:
-                    svc_topic, svc_topic_name = (
-                        _message_topic(msg.get("id"), thread_root, id_to_msg)
-                        if with_threads
-                        else (None, None)
-                    )
+                    svc_topic, svc_topic_name = _topic_for(msg)
                     items.append(
                         {
                             "type": "service",
@@ -494,41 +516,28 @@ class RenderMixin:
                 str(sender_id) if sender_id else "Unknown"
             )
 
-            # ── Thread header (HTML, forum supergroups only) ─────────
+            # ── Topic header (HTML, forum supergroups only) ──────────
+            msg_topic, msg_topic_name = _topic_for(msg)
             if is_forum:
-                mid = msg.get("id")
-                root = thread_root.get(mid, mid) if mid is not None else None
-                is_standalone = root is None or thread_size.get(root, 1) <= 1
-                display_thread = None if is_standalone else root
-                if display_thread is not None and display_thread != prev_thread_id:
+                if msg_topic is not None and msg_topic != prev_thread_id:
                     flush()
-                    root_msg = id_to_msg.get(root)
-                    name = _thread_name(root_msg, root)
-                    # Tag the header with its forum topic (if any) so topic tabs
-                    # can hide non-forum reply-thread headers when filtering.
-                    t_id, t_name = _message_topic(mid, thread_root, id_to_msg)
                     items.append(
                         {
                             "type": "thread",
-                            "name": name,
-                            "topic": t_id,
-                            "topic_name": t_name,
+                            "name": msg_topic_name or f"Thread #{msg_topic}",
+                            "topic": msg_topic,
+                            "topic_name": msg_topic_name,
                         }
                     )
-                    # New thread block starts a fresh sender group.
+                    # New topic block starts a fresh sender group.
                     prev_sender_id = None
                     prev_msg_time = None
-                prev_thread_id = display_thread
+                prev_thread_id = msg_topic
 
             # ── Grouping ─────────────────────────────────────────────
             # A message's forum topic also bounds a sender group, so a topic
             # boundary never merges into the previous group (which would
             # mislabel it for the topic tabs).
-            msg_topic, msg_topic_name = (
-                _message_topic(msg.get("id"), thread_root, id_to_msg)
-                if with_threads
-                else (None, None)
-            )
             same_group = (
                 current_group is not None
                 and prev_sender_id == sender_id
@@ -610,17 +619,16 @@ class RenderMixin:
             reply_to_id: Optional[Any] = None
             parent_id = _reply_parent_id(msg)
             parent_msg = id_to_msg.get(parent_id) if parent_id is not None else None
-            # Don't cite a parent that is itself a thread root: the forum topic
-            # header already shows the root's first line, so a citation right
-            # below it is redundant noise. Only applies to forums — elsewhere
-            # there is no header, so the root reply is cited normally.
+            # Don't cite a parent that is the message's own topic root: the
+            # forum topic header already shows it, so the citation is redundant.
+            # Only applies to forums — elsewhere there is no header, so the root
+            # reply is cited normally. Nested replies (parent != topic) still
+            # cite their immediate parent.
             parent_is_thread_root = (
-                is_forum
-                and parent_id is not None
-                and thread_root.get(parent_id) == parent_id
+                is_forum and parent_id is not None and parent_id == msg_topic
             )
             if parent_is_thread_root:
-                # Suppress the citation; the thread header carries the context.
+                # Suppress the citation; the topic header carries the context.
                 pass
             elif parent_msg is not None and parent_msg is not msg:
                 # Parent is in the export: cite its first line and anchor to it.
@@ -805,6 +813,43 @@ def first_line(text: Optional[str], limit: int = 60) -> str:
 
 # Telegram service actions that carry a forum-topic title.
 _TOPIC_TITLE_ACTIONS = ("MessageActionTopicCreate", "MessageActionTopicEdit")
+
+
+def _forum_topic_id(msg: Dict[str, Any]) -> Optional[Any]:
+    """Return the forum topic id a message belongs to, or None.
+
+    Mirrors ``core/topics.py::_extract_topic_id``: prefer ``reply_to_top_id``,
+    then ``reply_to_msg_id`` when the reply header is ``forum_topic``. A
+    topic-create service message is its own topic. Grouping by this id — rather
+    than the reply chain — keeps topics intact even when the topic-create
+    message falls outside a windowed (e.g. ``--last-days``) download.
+    """
+    reply_to = msg.get("reply_to")
+    if isinstance(reply_to, dict):
+        top = reply_to.get("reply_to_top_id")
+        if top is not None:
+            return top
+        if reply_to.get("forum_topic"):
+            rmid = reply_to.get("reply_to_msg_id")
+            if rmid is not None:
+                return rmid
+    action = msg.get("action")
+    if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
+        return msg.get("id")
+    return None
+
+
+def _forum_topic_title(msg: Dict[str, Any]) -> str:
+    """Best topic title known *from this message*: the stored
+    ``forum_topic_title`` (fetched at download time), else a topic-create
+    action title. Empty string when neither is available."""
+    title = msg.get("forum_topic_title")
+    if title:
+        return first_line(title)
+    action = msg.get("action")
+    if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
+        return first_line(action.get("title"))
+    return ""
 
 
 def _is_forum(messages: List[Dict[str, Any]]) -> bool:

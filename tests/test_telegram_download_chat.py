@@ -608,6 +608,36 @@ class TestGroupMessagesByTopic:
         assert set(grouped.keys()) == {"10"}
 
 
+class TestAnnotateForumTopicTitles:
+    """annotate_forum_topic_titles stamps forum_topic_title onto messages."""
+
+    def test_annotates_by_top_id_and_forum_topic_and_create(self):
+        from telegram_download_chat.core.topics import annotate_forum_topic_titles
+
+        topics = {10: "Planning", 11: "Tasks"}
+        messages = [
+            {"id": 11, "action": {"_": "MessageActionTopicCreate", "title": "Tasks"}},
+            {"id": 1, "reply_to": {"reply_to_top_id": 10}},  # nested in topic 10
+            {"id": 2, "reply_to": {"reply_to_msg_id": 11, "forum_topic": True}},
+            {"id": 3, "reply_to": {"reply_to_msg_id": 5}},  # plain reply, no topic
+            {"id": 4},  # no reply, no topic
+        ]
+        annotate_forum_topic_titles(messages, topics)
+
+        assert messages[0]["forum_topic_title"] == "Tasks"  # topic-create own id
+        assert messages[1]["forum_topic_title"] == "Planning"  # reply_to_top_id
+        assert messages[2]["forum_topic_title"] == "Tasks"  # forum_topic msg id
+        assert "forum_topic_title" not in messages[3]
+        assert "forum_topic_title" not in messages[4]
+
+    def test_unknown_topic_id_is_skipped(self):
+        from telegram_download_chat.core.topics import annotate_forum_topic_titles
+
+        messages = [{"id": 1, "reply_to": {"reply_to_top_id": 999}}]
+        annotate_forum_topic_titles(messages, {10: "Known"})
+        assert "forum_topic_title" not in messages[0]
+
+
 class TestSlugifyTopic:
     """Tests for slugify_topic."""
 
@@ -2520,12 +2550,17 @@ class TestHtmlThreadsAndAnchors:
                     "re alpha",
                     reply={"reply_to_msg_id": 1, "forum_topic": True},
                 ),
+                # Nested reply to msg 2, still in topic 1 (reply_to_top_id=1).
                 self._msg(
                     3,
                     10,
                     3,
                     "re re alpha",
-                    reply={"reply_to_msg_id": 2, "forum_topic": True},
+                    reply={
+                        "reply_to_top_id": 1,
+                        "reply_to_msg_id": 2,
+                        "forum_topic": True,
+                    },
                 ),
             ],
             out,
@@ -2534,7 +2569,7 @@ class TestHtmlThreadsAndAnchors:
         html = out.read_text(encoding="utf-8")
         # A reply to a NON-root parent cites that parent's first line + anchor.
         assert '<a href="#msg-2">re alpha</a>' in html
-        # A reply to the thread root is NOT cited (the topic header shows it).
+        # A reply to the topic root is NOT cited (the topic header shows it).
         assert 'href="#msg-1"' not in html
 
     def test_reply_to_thread_root_is_not_cited(self, tmp_path):
@@ -2656,46 +2691,107 @@ class TestHtmlThreadsAndAnchors:
         assert "Thread #1" in html
 
     def test_thread_name_uses_forum_topic_title(self, tmp_path):
-        """A forum-topic thread is named by its MessageActionTopicCreate title,
-        not the (empty) root message text."""
+        """A forum-topic thread is named by its MessageActionTopicCreate title."""
         renderer = self._renderer()
         out = tmp_path / "out.html"
         root = self._msg(1, 0, 1, "")
         root["action"] = {"_": "MessageActionTopicCreate", "title": "Formatting"}
         messages = [
             root,
-            self._msg(2, 5, 2, "bold sample", reply={"reply_to_msg_id": 1}),
-            self._msg(3, 10, 2, "more", reply={"reply_to_msg_id": 1}),
+            self._msg(
+                2,
+                5,
+                2,
+                "bold sample",
+                reply={"reply_to_msg_id": 1, "forum_topic": True},
+            ),
+            self._msg(
+                3, 10, 2, "more", reply={"reply_to_msg_id": 1, "forum_topic": True}
+            ),
         ]
         renderer.render_html(messages, out, chat_title="t")
         html = out.read_text(encoding="utf-8")
         assert "&mdash; Formatting &mdash;" in html
         assert "Thread #1" not in html
 
-    def test_thread_name_ignores_non_topic_action_title(self, tmp_path):
-        """A non-topic service action that happens to carry a title (e.g.
-        channel migrate) must not be used as the thread name."""
+    def test_windowed_topic_uses_stored_forum_topic_title(self, tmp_path):
+        """When the topic-create message is outside the window, the topic is
+        named/grouped from the stored forum_topic_title (fetched at download),
+        with nested replies still grouped into that topic."""
         renderer = self._renderer()
         out = tmp_path / "out.html"
-        root = self._msg(1, 0, 1, "Real Root Text")
-        root["action"] = {
-            "_": "MessageActionChannelMigrateFrom",
-            "title": "Old Chat Name",
-        }
         messages = [
-            root,
+            # Topic 2425 ("Планёрка") — no topic-create message in the export.
             self._msg(
-                2, 5, 2, "child", reply={"reply_to_msg_id": 1, "forum_topic": True}
-            ),
+                100,
+                0,
+                1,
+                "top level",
+                reply={"reply_to_msg_id": 2425, "forum_topic": True},
+            )
+            | {"forum_topic_title": "Планёрка"},
             self._msg(
-                3, 10, 2, "child2", reply={"reply_to_msg_id": 1, "forum_topic": True}
-            ),
+                101,
+                5,
+                2,
+                "nested reply",
+                reply={
+                    "reply_to_top_id": 2425,
+                    "reply_to_msg_id": 100,
+                    "forum_topic": True,
+                },
+            )
+            | {"forum_topic_title": "Планёрка"},
         ]
         renderer.render_html(messages, out, chat_title="t")
         html = out.read_text(encoding="utf-8")
-        # Falls back to the root message's first line, not the migrate title.
-        assert "Old Chat Name" not in html
-        assert "Real Root Text" in html
+        # One topic header named from the stored title (not Thread #2425), one tab.
+        assert "&mdash; Планёрка &mdash;" in html
+        assert "Thread #2425" not in html
+        assert 'data-topic="2425">Планёрка</button>' in html
+        assert html.count('class="threadsep"') == 1
+        # The nested reply cites its parent (msg 100), not the topic root.
+        assert '<a href="#msg-100">' in html
+
+    def test_forum_topic_id_and_title_helpers(self):
+        from telegram_download_chat.core.render import (
+            _forum_topic_id,
+            _forum_topic_title,
+        )
+
+        # Top-level: reply_to_msg_id under forum_topic is the topic.
+        assert (
+            _forum_topic_id({"reply_to": {"reply_to_msg_id": 9, "forum_topic": True}})
+            == 9
+        )
+        # Nested: reply_to_top_id wins over reply_to_msg_id.
+        assert (
+            _forum_topic_id({"reply_to": {"reply_to_top_id": 9, "reply_to_msg_id": 3}})
+            == 9
+        )
+        # Topic-create message is its own topic.
+        assert (
+            _forum_topic_id(
+                {"id": 7, "action": {"_": "MessageActionTopicCreate", "title": "T"}}
+            )
+            == 7
+        )
+        # Plain reply / private chat -> no topic.
+        assert _forum_topic_id({"reply_to": {"reply_to_msg_id": 3}}) is None
+        # Title: stored title wins, then topic-create, else empty.
+        assert _forum_topic_title({"forum_topic_title": "Stored"}) == "Stored"
+        assert (
+            _forum_topic_title(
+                {"action": {"_": "MessageActionTopicCreate", "title": "Created"}}
+            )
+            == "Created"
+        )
+        assert (
+            _forum_topic_title(
+                {"action": {"_": "MessageActionChannelMigrateFrom", "title": "Old"}}
+            )
+            == ""
+        )
 
     def test_thread_name_helper_precedence(self):
         from telegram_download_chat.core.render import _thread_name
@@ -2779,15 +2875,20 @@ class TestHtmlTopicTabs:
             action={"_": "MessageActionTopicCreate", "title": title},
         )
 
+    @staticmethod
+    def _ftop(topic_id):
+        # A top-level message in a forum topic: replies to the topic root.
+        return {"reply_to_msg_id": topic_id, "forum_topic": True}
+
     def _forum_messages(self):
-        # Topic "Formatting" (root 1) and "Topic 2" (root 5), plus one General
-        # message with no topic (root = itself).
+        # Topic "Formatting" (id 1) and "Topic 2" (id 5), plus one General
+        # message with no topic.
         return [
             self._topic_create(1, 0, "Formatting"),
-            self._msg(2, 1, 2, "fmt one", reply={"reply_to_msg_id": 1}),
-            self._msg(3, 2, 3, "fmt two", reply={"reply_to_msg_id": 1}),
+            self._msg(2, 1, 2, "fmt one", reply=self._ftop(1)),
+            self._msg(3, 2, 3, "fmt two", reply=self._ftop(1)),
             self._topic_create(5, 3, "Topic 2"),
-            self._msg(6, 4, 2, "t2 one", reply={"reply_to_msg_id": 5}),
+            self._msg(6, 4, 2, "t2 one", reply=self._ftop(5)),
             self._msg(9, 5, 4, "General message"),  # no topic
         ]
 

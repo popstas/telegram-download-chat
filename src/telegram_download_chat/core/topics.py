@@ -141,9 +141,36 @@ def group_messages_by_topic(
     return buckets
 
 
+def annotate_forum_topic_titles(
+    messages: List[Any], topics_map: Dict[int, str]
+) -> None:
+    """Stamp ``forum_topic_title`` onto each message that belongs to a known
+    topic, in place.
+
+    This lets the HTML/PDF export name a topic (and build its tab) even when the
+    topic-create message falls outside a windowed download — the title is no
+    longer derivable from the message stream alone. Only operates on dict
+    messages (the serialized form).
+    """
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        topic_id = _extract_topic_id(msg)
+        if topic_id is None:
+            action = msg.get("action")
+            if (
+                isinstance(action, dict)
+                and action.get("_") == "MessageActionTopicCreate"
+            ):
+                topic_id = msg.get("id")
+        if topic_id is not None and topic_id in topics_map:
+            msg["forum_topic_title"] = topics_map[topic_id]
+
+
 __all__ = [
     "GENERAL_KEY",
     "GENERAL_TITLE",
+    "annotate_forum_topic_titles",
     "fetch_forum_topics",
     "group_messages_by_topic",
     "slugify_topic",

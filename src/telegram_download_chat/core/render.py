@@ -57,7 +57,7 @@ a:hover{text-decoration:underline}
 .wrap{max-width:900px;margin:0 auto;display:flex;flex-direction:column;min-height:100vh;background:inherit}
 /* Header */
 .hdr{background:#fff;border-bottom:1px solid #ddd;padding:12px 16px;
-  display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10;
+  display:flex;align-items:center;gap:12px;position:static;
   box-shadow:0 1px 3px rgba(0,0,0,0.08)}
 .hdr-av{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;
   justify-content:center;font-weight:700;font-size:18px;color:#fff;
@@ -65,7 +65,7 @@ a:hover{text-decoration:underline}
 .hdr-info .name{font-weight:600;font-size:16px}
 .hdr-info .sub{font-size:12px;color:#999;margin-top:2px}
 /* Topic tabs */
-.tabs{position:sticky;top:67px;z-index:9;display:flex;gap:6px;flex-wrap:wrap;
+.tabs{position:sticky;top:0;z-index:9;display:flex;gap:6px;flex-wrap:wrap;
   background:#f0f2f5;padding:8px 14px;border-bottom:1px solid #d8dce0}
 .topic-tab{border:none;background:#e1e6eb;color:#3a4a5a;border-radius:14px;
   padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;line-height:1.3}
@@ -104,7 +104,8 @@ a:hover{text-decoration:underline}
 .sname{font-size:13px;font-weight:600;margin-bottom:3px;padding-left:14px}
 /* Bubble */
 .bbl{background:#fff;border-radius:18px;padding:8px 12px 6px;
-  box-shadow:0 1px 2px rgba(0,0,0,0.14);position:relative;word-break:break-word;max-width:100%}
+  box-shadow:0 1px 2px rgba(0,0,0,0.14);position:relative;word-break:break-word;max-width:100%;
+  scroll-margin-top:60px}
 .grp.out .bbl{background:#d9fdd3}
 /* Squarish inner corners for consecutive bubbles */
 .grp:not(.out) .bbl{border-bottom-left-radius:5px}
@@ -418,6 +419,11 @@ class RenderMixin:
 
         thread_root: Dict[Any, Any] = {}
         thread_size: Dict[Any, int] = {}
+        # Thread/topic headers (and root-citation suppression) only make sense in
+        # forum supergroups, which actually have topics. In private chats and
+        # regular groups a reply is just a quote, so render it via the inline
+        # reply citation only — no "--- name ---" topic separators.
+        is_forum = with_threads and _is_forum(sorted_msgs)
         if with_threads:
             for mid in id_to_msg:
                 root = _thread_root(mid, parent_of, id_to_msg)
@@ -488,8 +494,8 @@ class RenderMixin:
                 str(sender_id) if sender_id else "Unknown"
             )
 
-            # ── Thread header (HTML only) ────────────────────────────
-            if with_threads:
+            # ── Thread header (HTML, forum supergroups only) ─────────
+            if is_forum:
                 mid = msg.get("id")
                 root = thread_root.get(mid, mid) if mid is not None else None
                 is_standalone = root is None or thread_size.get(root, 1) <= 1
@@ -604,12 +610,14 @@ class RenderMixin:
             reply_to_id: Optional[Any] = None
             parent_id = _reply_parent_id(msg)
             parent_msg = id_to_msg.get(parent_id) if parent_id is not None else None
-            # Don't cite a parent that is itself a thread root: the thread header
-            # (HTML only) already shows the root's first line, so a citation right
-            # below it is redundant noise. thread_root is empty when threads are
-            # off (PDF), so this never affects the PDF render.
+            # Don't cite a parent that is itself a thread root: the forum topic
+            # header already shows the root's first line, so a citation right
+            # below it is redundant noise. Only applies to forums — elsewhere
+            # there is no header, so the root reply is cited normally.
             parent_is_thread_root = (
-                parent_id is not None and thread_root.get(parent_id) == parent_id
+                is_forum
+                and parent_id is not None
+                and thread_root.get(parent_id) == parent_id
             )
             if parent_is_thread_root:
                 # Suppress the citation; the thread header carries the context.
@@ -797,6 +805,25 @@ def first_line(text: Optional[str], limit: int = 60) -> str:
 
 # Telegram service actions that carry a forum-topic title.
 _TOPIC_TITLE_ACTIONS = ("MessageActionTopicCreate", "MessageActionTopicEdit")
+
+
+def _is_forum(messages: List[Dict[str, Any]]) -> bool:
+    """True when the export comes from a forum supergroup (has topics).
+
+    Detected by a topic-create/-edit service message or any reply header
+    marked ``forum_topic``. Only forums show thread/topic headers; private
+    chats and regular groups render replies via the inline citation alone.
+    """
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        action = m.get("action")
+        if isinstance(action, dict) and action.get("_") in _TOPIC_TITLE_ACTIONS:
+            return True
+        reply_to = m.get("reply_to")
+        if isinstance(reply_to, dict) and reply_to.get("forum_topic"):
+            return True
+    return False
 
 
 def _thread_name(root_msg: Optional[Dict[str, Any]], root_id: Any) -> str:

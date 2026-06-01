@@ -2513,8 +2513,20 @@ class TestHtmlThreadsAndAnchors:
         renderer.render_html(
             [
                 self._msg(1, 0, 1, "Topic Alpha"),
-                self._msg(2, 5, 2, "re alpha", reply={"reply_to_msg_id": 1}),
-                self._msg(3, 10, 3, "re re alpha", reply={"reply_to_msg_id": 2}),
+                self._msg(
+                    2,
+                    5,
+                    2,
+                    "re alpha",
+                    reply={"reply_to_msg_id": 1, "forum_topic": True},
+                ),
+                self._msg(
+                    3,
+                    10,
+                    3,
+                    "re re alpha",
+                    reply={"reply_to_msg_id": 2, "forum_topic": True},
+                ),
             ],
             out,
             chat_title="t",
@@ -2522,18 +2534,24 @@ class TestHtmlThreadsAndAnchors:
         html = out.read_text(encoding="utf-8")
         # A reply to a NON-root parent cites that parent's first line + anchor.
         assert '<a href="#msg-2">re alpha</a>' in html
-        # A reply to the thread root is NOT cited (the thread header shows it).
+        # A reply to the thread root is NOT cited (the topic header shows it).
         assert 'href="#msg-1"' not in html
 
     def test_reply_to_thread_root_is_not_cited(self, tmp_path):
-        """A direct reply to a thread root shows no citation — the thread header
-        already carries the root's first line, so citing it again is redundant."""
+        """In a forum, a direct reply to a topic root shows no citation — the
+        topic header already carries the root's first line."""
         renderer = self._renderer()
         out = tmp_path / "out.html"
         renderer.render_html(
             [
                 self._msg(1, 0, 1, "Topic Alpha"),
-                self._msg(2, 5, 2, "re alpha", reply={"reply_to_msg_id": 1}),
+                self._msg(
+                    2,
+                    5,
+                    2,
+                    "re alpha",
+                    reply={"reply_to_msg_id": 1, "forum_topic": True},
+                ),
             ],
             out,
             chat_title="t",
@@ -2572,9 +2590,17 @@ class TestHtmlThreadsAndAnchors:
         out = tmp_path / "out.html"
         messages = [
             self._msg(1, 0, 1, "Topic Alpha"),
-            self._msg(2, 5, 2, "re alpha", reply={"reply_to_msg_id": 1}),
+            self._msg(
+                2, 5, 2, "re alpha", reply={"reply_to_msg_id": 1, "forum_topic": True}
+            ),
             self._msg(3, 10, 3, "just a standalone note"),
-            self._msg(4, 15, 2, "alpha again", reply={"reply_to_msg_id": 1}),
+            self._msg(
+                4,
+                15,
+                2,
+                "alpha again",
+                reply={"reply_to_msg_id": 1, "forum_topic": True},
+            ),
         ]
         renderer.render_html(messages, out, chat_title="t")
         html = out.read_text(encoding="utf-8")
@@ -2596,12 +2622,34 @@ class TestHtmlThreadsAndAnchors:
         html = out.read_text(encoding="utf-8")
         assert 'class="threadsep"' not in html
 
+    def test_no_thread_headers_in_private_chat(self, tmp_path):
+        """Replies in a non-forum chat (no forum_topic markers) get NO topic
+        headers, and a reply to a root IS cited normally (no suppression)."""
+        renderer = self._renderer()
+        out = tmp_path / "out.html"
+        renderer.render_html(
+            [
+                self._msg(1, 0, 1, "Hello there"),
+                self._msg(2, 5, 2, "re hello", reply={"reply_to_msg_id": 1}),
+            ],
+            out,
+            chat_title="t",
+        )
+        html = out.read_text(encoding="utf-8")
+        # No forum -> no topic separators and no tabs.
+        assert 'class="threadsep"' not in html
+        assert '<div class="tabs">' not in html
+        # The reply to the root IS cited (no header to provide context).
+        assert '<a href="#msg-1">Hello there</a>' in html
+
     def test_thread_name_fallback_when_root_has_no_text(self, tmp_path):
         renderer = self._renderer()
         out = tmp_path / "out.html"
         messages = [
             self._msg(1, 0, 1, ""),  # root has no text
-            self._msg(2, 5, 2, "child", reply={"reply_to_msg_id": 1}),
+            self._msg(
+                2, 5, 2, "child", reply={"reply_to_msg_id": 1, "forum_topic": True}
+            ),
         ]
         renderer.render_html(messages, out, chat_title="t")
         html = out.read_text(encoding="utf-8")
@@ -2636,8 +2684,12 @@ class TestHtmlThreadsAndAnchors:
         }
         messages = [
             root,
-            self._msg(2, 5, 2, "child", reply={"reply_to_msg_id": 1}),
-            self._msg(3, 10, 2, "child2", reply={"reply_to_msg_id": 1}),
+            self._msg(
+                2, 5, 2, "child", reply={"reply_to_msg_id": 1, "forum_topic": True}
+            ),
+            self._msg(
+                3, 10, 2, "child2", reply={"reply_to_msg_id": 1, "forum_topic": True}
+            ),
         ]
         renderer.render_html(messages, out, chat_title="t")
         html = out.read_text(encoding="utf-8")
@@ -2663,12 +2715,14 @@ class TestHtmlThreadsAndAnchors:
         renderer = self._renderer()
         messages = [
             self._msg(1, 0, 1, "root"),
-            self._msg(2, 5, 2, "child", reply={"reply_to_msg_id": 1}),
+            self._msg(
+                2, 5, 2, "child", reply={"reply_to_msg_id": 1, "forum_topic": True}
+            ),
         ]
         # PDF path (default) must not inject thread items.
         plain = renderer._preprocess_messages(messages, None)
         assert all(it["type"] != "thread" for it in plain)
-        # HTML path opts in.
+        # HTML path opts in (forum -> topic headers).
         threaded = renderer._preprocess_messages(messages, None, with_threads=True)
         assert any(it["type"] == "thread" for it in threaded)
 
@@ -2736,6 +2790,19 @@ class TestHtmlTopicTabs:
             self._msg(6, 4, 2, "t2 one", reply={"reply_to_msg_id": 5}),
             self._msg(9, 5, 4, "General message"),  # no topic
         ]
+
+    def test_is_forum_detection(self):
+        from telegram_download_chat.core.render import _is_forum
+
+        # Topic-create service message marks a forum.
+        assert _is_forum(
+            [{"id": 1, "action": {"_": "MessageActionTopicCreate", "title": "T"}}]
+        )
+        # A forum_topic reply header marks a forum.
+        assert _is_forum([{"id": 2, "reply_to": {"forum_topic": True}}])
+        # Plain replies / private chats are not forums.
+        assert not _is_forum([{"id": 1}, {"id": 2, "reply_to": {"reply_to_msg_id": 1}}])
+        assert not _is_forum([])
 
     def test_message_topic_precedence(self):
         from telegram_download_chat.core.render import _message_topic

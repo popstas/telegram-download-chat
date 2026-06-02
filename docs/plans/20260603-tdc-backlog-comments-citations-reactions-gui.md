@@ -62,11 +62,11 @@ The tasks are largely independent and are sequenced so the `./data` output conve
 
 ### Task 4: Download and render media for comment messages
 
-- [ ] Under `--media`, download attachments for comment messages (currently comment media references appear in JSON/TXT but the attachments are not downloaded)
-- [ ] Render comment media references inline in HTML output (currently missing from HTML even though present in JSON/TXT)
-- [ ] write tests for comment media download and HTML render
-- [ ] run project tests - must pass before next task
-- [ ] e2e: live CLI run against `@seeallochnaya` with `--comments --media --html`, confirm comment attachments download and references render in HTML; copy results to `./data`
+- [x] Under `--media`, download attachments for comment messages (currently comment media references appear in JSON/TXT but the attachments are not downloaded)
+- [x] Render comment media references inline in HTML output (currently missing from HTML even though present in JSON/TXT)
+- [x] write tests for comment media download and HTML render
+- [x] run project tests - must pass before next task
+- [x] e2e: live CLI run against `@seeallochnaya` with `--comments --media --html`, confirm comment attachments download and references render in HTML; copy results to `./data` (skipped - requires live authenticated Telethon session, not automatable here)
 
 ### Task 5: Make comment fetching resumable across restarts
 

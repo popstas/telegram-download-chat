@@ -15,6 +15,7 @@ discussion message id is preserved as ``discussion_msg_id``.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from telethon.errors import FloodWaitError, MsgIdInvalidError
@@ -96,6 +97,8 @@ async def download_post_comments(
     silent: bool = False,
     stop_check: Optional[Callable[[], bool]] = None,
     limit: Optional[int] = None,
+    download_media: bool = False,
+    attachments_dir: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch comment threads for the given channel ``post_ids``.
 
@@ -113,6 +116,14 @@ async def download_post_comments(
             between posts. ``downloader._stop_requested`` is also honored.
         limit: Max comments per post. A positive int caps each post;
             ``None`` / ``0`` means unlimited.
+        download_media: When True (and ``attachments_dir`` is set), download
+            the attachments of comments that carry media, reusing
+            ``downloader.download_all_media``. Each downloaded comment's
+            normalized dict gets an ``attachment_path`` so the saved JSON keeps
+            it and the HTML export renders it inline.
+        attachments_dir: Target attachments directory for comment media; must
+            match the chat's ``attachments/`` dir so ``save_messages`` finds the
+            downloaded files.
 
     Returns:
         A flat list of normalized comment dicts across all posts.
@@ -123,6 +134,7 @@ async def download_post_comments(
 
     logger = getattr(downloader, "logger", None)
     unlimited = not limit or limit <= 0
+    want_media = bool(download_media) and attachments_dir is not None
 
     def _should_stop() -> bool:
         if getattr(downloader, "_stop_requested", False):
@@ -135,6 +147,11 @@ async def download_post_comments(
         return False
 
     comments: List[Dict[str, Any]] = []
+    # Raw Telethon comment messages that carry media, kept so they can be
+    # batch-downloaded after the fetch loop (download needs the live objects,
+    # not the serialized dicts). Their ids are the native discussion ids, which
+    # match each normalized comment's ``discussion_msg_id``.
+    raw_media_messages: List[Any] = []
     total_posts = len(post_ids)
 
     for idx, post_id in enumerate(post_ids):
@@ -144,13 +161,17 @@ async def download_post_comments(
             break
 
         post_comments: List[Dict[str, Any]] = []
+        post_raw_media: List[Any] = []
         while True:
             # Restart the list per attempt so a mid-iteration flood-wait retry
             # re-fetches from scratch instead of duplicating comments.
             post_comments = []
+            post_raw_media = []
             try:
                 async for msg in client.iter_messages(channel_entity, reply_to=post_id):
                     post_comments.append(_normalize_comment(downloader, msg, post_id))
+                    if want_media and getattr(msg, "media", None):
+                        post_raw_media.append(msg)
                     if not unlimited and len(post_comments) >= limit:
                         break
                 break
@@ -181,6 +202,8 @@ async def download_post_comments(
                 break
 
         comments.extend(post_comments)
+        if want_media and post_raw_media:
+            raw_media_messages.extend(post_raw_media)
 
         emit_progress(
             {
@@ -192,7 +215,55 @@ async def download_post_comments(
             sink=getattr(downloader, "_progress_sink", None),
         )
 
+    if want_media and raw_media_messages and attachments_dir is not None:
+        await _download_comment_media(
+            downloader, comments, raw_media_messages, Path(attachments_dir), silent
+        )
+
     return comments
 
 
-__all__ = ["download_post_comments", "get_linked_discussion"]
+async def _download_comment_media(
+    downloader: Any,
+    comments: List[Dict[str, Any]],
+    raw_media_messages: List[Any],
+    attachments_dir: Path,
+    silent: bool,
+) -> None:
+    """Download comment attachments and stamp ``attachment_path`` on the dicts.
+
+    Reuses ``downloader.download_all_media`` (concurrency, fast-download, and
+    expired-reference recovery) on the raw Telethon comment messages. The
+    returned mapping is keyed by ``str(message id)``; a comment's native
+    discussion id (``discussion_msg_id``) is that same id, so the resulting
+    relative path is copied onto each matching normalized comment dict. The file
+    lands in the chat's ``attachments/`` dir, where ``save_messages`` then finds
+    it and keeps the path in the saved JSON / HTML export.
+    """
+    logger = getattr(downloader, "logger", None)
+    if logger is not None and not silent:
+        logger.info("Downloading media for %d comment(s)...", len(raw_media_messages))
+    try:
+        results = await downloader.download_all_media(
+            raw_media_messages, attachments_dir
+        )
+    except Exception as exc:  # noqa: BLE001 - media is best-effort enrichment
+        if logger is not None and not silent:
+            logger.warning("Failed to download comment media: %s", exc)
+        return
+
+    if not results:
+        return
+    for comment in comments:
+        disc_id = comment.get("discussion_msg_id")
+        if disc_id is None:
+            continue
+        rel = results.get(str(disc_id))
+        if rel:
+            comment["attachment_path"] = rel
+
+
+__all__ = [
+    "download_post_comments",
+    "get_linked_discussion",
+]

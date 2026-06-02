@@ -287,12 +287,17 @@ async def fetch_channel_comments(
     chat_identifier: Any,
     messages: List[Any],
     args: CLIOptions,
+    attachments_dir: Optional[Path] = None,
 ) -> List[Any]:
     """Fetch comments for downloaded channel posts when ``--comments`` is set.
 
     Returns a flat list of normalized comment dicts to append to ``messages``.
     Returns an empty list (with an info log) when the entity is not a broadcast
     channel or the channel has no linked discussion group.
+
+    When ``--media`` is active, ``attachments_dir`` points at the chat's
+    ``attachments/`` directory so comment attachments are downloaded there and
+    each comment dict gets an ``attachment_path`` for JSON/HTML output.
     """
     if not getattr(args, "comments", False):
         return []
@@ -329,6 +334,8 @@ async def fetch_channel_comments(
         entity,
         post_ids,
         limit=args.comments_limit,
+        download_media=bool(getattr(args, "media", False)),
+        attachments_dir=attachments_dir,
     )
     downloader.logger.info(f"Fetched {len(comments)} comment(s)")
     return comments
@@ -458,8 +465,18 @@ async def process_chat_download(
         messages = _dedup_messages(existing_messages + messages)
 
     if args.comments and messages:
+        # Under --media, download comment attachments into the same chat-level
+        # attachments/ dir the post media uses (split-by-date files share one
+        # parent dir, so this matches save_messages' attachments_dir too).
+        comments_attachments_dir = (
+            downloader.get_attachments_dir(Path(output_file)) if args.media else None
+        )
         comments = await fetch_channel_comments(
-            downloader, chat_identifier, messages, args
+            downloader,
+            chat_identifier,
+            messages,
+            args,
+            attachments_dir=comments_attachments_dir,
         )
         if comments:
             # Dedup so a resumed run doesn't accumulate comments already saved

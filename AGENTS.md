@@ -8,7 +8,7 @@ Telegram Download Chat is a Python CLI utility that downloads and analyzes Teleg
 
 ### Key Components
 
-- **Core Engine** (`core/` package): Contains `TelegramChatDownloader` plus helper modules (`auth`, `config`, `download`, `entities`, `media`, `messages`, `context`, `render`, `progress`, `comments`, `update_checker`) built on Telethon
+- **Core Engine** (`core/` package): Contains `TelegramChatDownloader` plus helper modules (`auth`, `config`, `download`, `entities`, `media`, `messages`, `context`, `render`, `progress`, `comments`, `citations`, `reactions`, `update_checker`) built on Telethon
 - **CLI Interface** (`cli.py`): Command-line interface with argument parsing and async message processing
 - **GUI Interface** (`gui_app.py`): PySide6-based graphical interface with threading for async operations
 - **MCP Server** (`mcp/` package): Model Context Protocol server exposing Telegram chat tools for AI assistants
@@ -137,10 +137,18 @@ python main.py  # Launches GUI by default
 - `--comments` (broadcast-channel only): resolves the channel's linked discussion supergroup (`GetFullChannelRequest` → `linked_chat_id`) and fetches the per-post comment threads via `iter_messages(channel_entity, reply_to=post_id)` (`core/comments.py`). Each comment is normalized so the existing render logic nests it under its post: `reply_to.reply_to_msg_id` and the top-level `reply_to_msg_id` are set to the channel post id, `comment_of=<post_id>` is added, and the native discussion id is preserved as `discussion_msg_id`. Comments are appended into the same `messages.json` (then deduped). Because comments live in a separate id space, comment records (those carrying `comment_of`) are excluded from the post-based resume cursor and `_dedup_messages` keys them by `(comment_of, id)` to avoid collisions with channel post ids.
 - `--comments-limit N`: caps comments fetched per post (requires `--comments`; omit/`0`/negative = unlimited). The GUI exposes this as a "Comments per post" dropdown (No limit / 10 / 50 / 100 / 500 / 1000) beside the "Download channel post comments" checkbox.
 - A `type: "comments"` structured progress event (posts done/total, comments so far) is emitted per post via `core/progress.py` and surfaced by `gui/worker.py` parallel to the `media` event. Comment fetching is implicitly bounded by the posts' date window, since comments are only fetched for posts actually downloaded.
+- Comment media: under `--media`, comments carrying media are downloaded into the chat's `attachments/` dir (reusing `download_all_media`) and each normalized comment dict is stamped with `attachment_path` so the saved JSON keeps it and HTML renders it inline. Comment dicts hold serialized (non-Telethon) media, so the post-media pass skips them and there is no double-download.
+- Comment resume: `--comments` runs are checkpointed per post in a `<chat>/messages.comments-progress.json` sidecar (`get_comments_checkpoint_path` / `load_` / `save_` / `clear_comments_checkpoint` in `core/comments.py`). `download_post_comments` invokes an `on_post_done(post_id)` callback after each post is fully scanned (not for transient failures, so a restart retries them); a restart skips already-scanned posts. The checkpoint is cleared on clean completion and on `--overwrite`. Correctness does not depend on it — the `(comment_of, id)` dedup keeps a no-checkpoint re-scan correct, just slower.
+
+### Citations (outside-window replies)
+- `core/citations.py`: after a download, `fetch_outside_window_citations` (in `cli/commands.py`) collects reply-target ids that are referenced but not present in `messages` (`collect_missing_cited_ids`) and fetches them by id via `get_messages(ids=...)` so JSON/TXT/HTML show the quoted citation. Runs unconditionally (covers both date-window and finite-`--limit` cases) and is best-effort — failures are logged and skipped. Comment records (`comment_of is not None`) are excluded from both the present-set and the missing-set, and fetched posts can't collide with the comment id-space because dedup keys comments by `(comment_of, id)`.
+
+### Reactions
+- `core/reactions.py`: `normalize_reactions` converts Telethon `MessageReactions` into a stable list `[{emoji|custom_emoji_id, count, chosen?, recent?}]`, applied in `messages.py` (`save_messages`) and `render.py`. Idempotent on already-normalized input (resume/convert paths). `render.py` renders them as reaction pills (emoji + count, `chosen` highlighted; custom emoji show a star placeholder with the document id in the tooltip).
 
 ### Export Formats
-- `--html`: Render a Telegram Web-style HTML page (uses Jinja2 templates)
-- `--pdf`: Render a PDF document (uses ReportLab)
+- `--html`: Render a Telegram Web-style HTML page (uses Jinja2 templates). Channel comments render in a collapsible per-post `<details>` block (collapsed shows the comment count); the redundant parent-post citation inside each comment is suppressed.
+- `--pdf`: Render a PDF document (uses ReportLab). Comments render inline (interleaved by timestamp) since the PDF path cannot collapse them.
 - Both flags work alongside existing JSON/TXT output and can be combined with `--media` for inline images
 
 ### Structured GUI Progress

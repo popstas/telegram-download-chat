@@ -130,7 +130,7 @@ def test_html_renders_emoji_pills(tmp_path):
     html = out.read_text(encoding="utf-8")
     assert 'class="reactions"' in html
     assert "👍" in html
-    assert ">5<" in html
+    assert 'class="reaction-count">5<' in html
     assert "❤" in html
 
 
@@ -154,7 +154,7 @@ def test_html_renders_custom_emoji_placeholder(tmp_path):
     )
     html = out.read_text(encoding="utf-8")
     assert "custom emoji 555" in html  # tooltip carries the document id
-    assert ">9<" in html
+    assert 'class="reaction-count">9<' in html
 
 
 def test_html_no_reactions_no_block(tmp_path):
@@ -179,7 +179,7 @@ def test_html_renders_raw_telethon_reactions(tmp_path):
     )
     html = out.read_text(encoding="utf-8")
     assert "👍" in html
-    assert ">7<" in html
+    assert 'class="reaction-count">7<' in html
 
 
 # ── Capture path (save_messages normalizes raw reactions in the JSON) ───────

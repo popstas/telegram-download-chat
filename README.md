@@ -356,6 +356,8 @@ The tool will process the archive and generate both JSON and TXT files with the 
 If the download is interrupted, you can simply run the same command again to resume from where it left off. The tool automatically saves progress to a temporary file.
 You can also resume later using `--since-id` with the last downloaded message ID or let the tool read it from the existing JSON file. Use `--overwrite` to replace existing output files instead of resuming.
 
+Interrupted `--comments` runs resume per-post via a `[chat_name]/messages.comments-progress.json` checkpoint, so a restart skips posts whose comments were already fetched. The checkpoint is cleared on clean completion and when `--overwrite` is used.
+
 ### User Mapping
 Display names for users and bots are collected automatically. You can override them in the `users_map` section:
 
@@ -432,8 +434,11 @@ Tips:
 - For broadcast channels, the **Download channel post comments** checkbox (with a
   **Comments per post** limit dropdown: No limit / 10 / 50 / 100 / 500 / 1000)
   fetches the comment threads from the channel's linked discussion group. Comments
-  are merged into the same `messages.json` and render nested under their parent
-  post in the TXT/HTML/PDF exports.
+  are merged into the same `messages.json`; in the HTML export they render in a
+  collapsible per-post block (collapsed shows the comment count), and in TXT/PDF
+  they nest under their parent post. Under `--media`, comment attachments are
+  downloaded into the chat's `attachments/` folder and rendered inline in HTML
+  like post media.
 
 This help is also shown inside the app: click **ⓘ How to fill this?** under the
 field to expand the full list. An **ⓘ** icon with a hover tooltip next to the
@@ -503,6 +508,10 @@ Generated when the `--html` / `--pdf` flags are used (alongside the usual JSON/T
 
 - Groups messages into reply threads separated by a thread header.
 - Turns reply quotes into clickable links that jump to the cited message (when that message is part of the export).
+- Renders reaction pills (emoji + count) under each message, mirroring the Telegram client; the reaction you chose is highlighted, and custom/premium emoji show a star placeholder with the document id in a tooltip.
+- Renders channel-post comments as a collapsible block per post (collapsed shows "N comments").
+
+When a downloaded reply cites a message whose date falls outside the requested `--min-date`/`--max-date` window (or a finite `--limit`), that referenced message is automatically fetched by id so the quoted citation is populated in JSON/TXT/HTML.
 
 The TXT and JSON output is unchanged by these flags.
 

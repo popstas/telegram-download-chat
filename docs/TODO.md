@@ -1,24 +1,24 @@
 # TODO
 
-- [ ] **(do first)** Create directory `./data`, add it to `.gitignore`, and update `CLAUDE.md` so e2e results are saved to `./data` (instead of `~/tmp/e2e-tdc`). All e2e in subsequent tasks writes to `./data`.
+- [x] **(do first)** Create directory `./data`, add it to `.gitignore`, and update `CLAUDE.md` so e2e results are saved to `./data` (instead of `~/tmp/e2e-tdc`). All e2e in subsequent tasks writes to `./data`.
 
-- [ ] Download replied/cited messages that fall outside the requested window. Example: downloading the last 7 days — message 1 (2026-05-01) was replied to by message 2 (2026-06-01). Current behavior: when message 2 is downloaded, the cited message 1 is empty because it's outside the date range. Expected: also fetch the referenced message 1 (by its id) so the citation is populated.
+- [x] Download replied/cited messages that fall outside the requested window. Example: downloading the last 7 days — message 1 (2026-05-01) was replied to by message 2 (2026-06-01). Current behavior: when message 2 is downloaded, the cited message 1 is empty because it's outside the date range. Expected: also fetch the referenced message 1 (by its id) so the citation is populated.
 
-- [ ] Don't cite channel post in comment messages. Only for channel comments.
-- [ ] Also download and render comment messages media, if not. Observed with `--comments`: comment media references appear in JSON and TXT, but the attachments are not downloaded under `--media` and the references are not rendered in HTML.
-- [ ] Make `--comments` resumable: restarting an interrupted job currently re-scans every post for comments instead of resuming. Checkpoint which posts already had comments fetched so a restart skips them (comment records live in a separate id space and are excluded from the post-based resume cursor).
+- [x] Don't cite channel post in comment messages. Only for channel comments.
+- [x] Also download and render comment messages media, if not. Observed with `--comments`: comment media references appear in JSON and TXT, but the attachments are not downloaded under `--media` and the references are not rendered in HTML.
+- [x] Make `--comments` resumable: restarting an interrupted job currently re-scans every post for comments instead of resuming. Checkpoint which posts already had comments fetched so a restart skips them (comment records live in a separate id space and are excluded from the post-based resume cursor).
 
-- [ ] Collect reactions for posts, comments, and regular chat messages (channels and other chats). Capture each message's reactions (emoji/custom-emoji + counts, and where available who reacted) into the saved JSON. Clarify the reactions data format first (inspect Telethon's `message.reactions` / `ReactionCount` / `MessageReactions`: standard emoji vs `ReactionCustomEmoji`, per-emoji counts, `recent_reactions`/`results`), then define a stable normalized shape to store. HTML render should reproduce Telegram's UI reactions — show the reaction pills (emoji + count) under each message the way the Telegram client does. Verify via e2e on a channel/post with reactions.
+- [x] Collect reactions for posts, comments, and regular chat messages (channels and other chats). Capture each message's reactions (emoji/custom-emoji + counts, and where available who reacted) into the saved JSON. Clarify the reactions data format first (inspect Telethon's `message.reactions` / `ReactionCount` / `MessageReactions`: standard emoji vs `ReactionCustomEmoji`, per-emoji counts, `recent_reactions`/`results`), then define a stable normalized shape to store. HTML render should reproduce Telegram's UI reactions — show the reaction pills (emoji + count) under each message the way the Telegram client does. Verify via e2e on a channel/post with reactions.
 
-- [ ] Add the application version number to the GUI window title.
+- [x] Add the application version number to the GUI window title.
 
-- [ ] Add a minimal Windows installer — portable version only for now. Support incremental updates if possible (most of the distribution is the Python runtime, so only the changed app files should need updating).
+- [x] Add a minimal Windows installer — portable version only for now. Support incremental updates if possible (most of the distribution is the Python runtime, so only the changed app files should need updating).
 
-- [ ] Make the GUI progress bars more visual: change the color from red to green and/or draw a progress line.
+- [x] Make the GUI progress bars more visual: change the color from red to green and/or draw a progress line.
 
-- [ ] Document CLI flags present in `--help` but missing from the README: `--split {month,year,topics}`, `--no-fast-download`, `--html`, `--html-media-links`, `--pdf`.
+- [x] Document CLI flags present in `--help` but missing from the README: `--split {month,year,topics}`, `--no-fast-download`, `--html`, `--html-media-links`, `--pdf`.
 
-- [ ] Make html render comments collapsible. Only for channel comments. Collapsed shows comment count, expanded shows the comment text.
+- [x] Make html render comments collapsible. Only for channel comments. Collapsed shows comment count, expanded shows the comment text.
 
 ## E2E verification (applies to comments/citations/media/reactions tasks)
 

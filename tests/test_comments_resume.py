@@ -226,12 +226,29 @@ async def test_checkpoint_kept_when_stopped(tmp_path):
 async def test_progressive_checkpoint_written_per_post(tmp_path):
     checkpoint = get_comments_checkpoint_path(tmp_path / "messages.json")
     downloader = _make_downloader({1: [_FakeComment(1001)], 2: [_FakeComment(1002)]})
+
+    # Capture the on-disk checkpoint at the moment post 2 starts scanning: it
+    # must already contain post 1, which proves the checkpoint is persisted
+    # after each post rather than once at the end of the run.
+    checkpoint_at_post2 = {}
+    orig_iter = downloader.client.iter_messages
+
+    def iter_messages(channel_entity, reply_to=None):
+        if reply_to == 2:
+            checkpoint_at_post2["state"] = load_comments_checkpoint(checkpoint)
+        return orig_iter(channel_entity, reply_to=reply_to)
+
+    downloader.client.iter_messages = iter_messages
+
     posts = [{"id": 1, "message": "post 1"}, {"id": 2, "message": "post 2"}]
     args = _args(comments=True)
 
     await fetch_channel_comments(
         downloader, "@chan", posts, args, checkpoint_path=checkpoint
     )
-    # Completed run clears the checkpoint, but both posts were queried.
+
+    # Post 1 was checkpointed before post 2 was queried (progressive write).
+    assert checkpoint_at_post2.get("state") == {1}
     assert downloader._seen_reply_to == [1, 2]
+    # A clean completion still clears the checkpoint at the end.
     assert not checkpoint.exists()

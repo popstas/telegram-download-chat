@@ -1,0 +1,229 @@
+"""Tests for core/comments.py — linked group resolution and per-post fetch."""
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+from telethon.errors import MsgIdInvalidError
+
+from telegram_download_chat.core.comments import (
+    download_post_comments,
+    get_linked_discussion,
+)
+
+
+class FakeMessage:
+    """Minimal stand-in for a Telethon message with to_dict()."""
+
+    def __init__(self, msg_id: int, reply_to=None):
+        self.id = msg_id
+        self._reply_to = reply_to
+
+    def to_dict(self):
+        data = {"_": "Message", "id": self.id, "message": f"comment {self.id}"}
+        if self._reply_to is not None:
+            data["reply_to"] = self._reply_to
+        return data
+
+
+class _AsyncIter:
+    """Wrap a list of items (or an exception) into an async iterator."""
+
+    def __init__(self, items=None, raises=None):
+        self._items = list(items or [])
+        self._raises = raises
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._raises is not None:
+            raise self._raises
+        if not self._items:
+            raise StopAsyncIteration
+        return self._items.pop(0)
+
+
+def _make_downloader(iter_factory):
+    """Build a fake downloader whose client.iter_messages uses iter_factory."""
+    client = MagicMock()
+    client.iter_messages = MagicMock(side_effect=iter_factory)
+
+    downloader = SimpleNamespace()
+    downloader.client = client
+    downloader.logger = MagicMock()
+    downloader._stop_requested = False
+    downloader._progress_sink = None
+    # Mirror messages.MessagesMixin.make_serializable behavior.
+    downloader.make_serializable = _make_serializable
+    return downloader
+
+
+def _make_serializable(obj):
+    if isinstance(obj, dict):
+        return {k: _make_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_make_serializable(x) for x in obj]
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    return str(obj)
+
+
+@pytest.mark.asyncio
+async def test_parent_id_normalization():
+    post_id = 500
+
+    def factory(entity, reply_to=None):
+        assert reply_to == post_id
+        return _AsyncIter([FakeMessage(1001), FakeMessage(1002)])
+
+    downloader = _make_downloader(factory)
+    comments = await download_post_comments(
+        downloader, object(), [post_id], silent=True
+    )
+
+    assert len(comments) == 2
+    for c in comments:
+        assert c["reply_to_msg_id"] == post_id
+        assert c["reply_to"]["reply_to_msg_id"] == post_id
+        assert c["comment_of"] == post_id
+    # Native discussion ids preserved.
+    assert {c["discussion_msg_id"] for c in comments} == {1001, 1002}
+    assert {c["id"] for c in comments} == {1001, 1002}
+
+
+@pytest.mark.asyncio
+async def test_normalization_preserves_existing_reply_to_fields():
+    post_id = 7
+
+    def factory(entity, reply_to=None):
+        msg = FakeMessage(42, reply_to={"_": "MessageReplyHeader", "quote_text": "q"})
+        return _AsyncIter([msg])
+
+    downloader = _make_downloader(factory)
+    comments = await download_post_comments(
+        downloader, object(), [post_id], silent=True
+    )
+
+    assert comments[0]["reply_to"]["quote_text"] == "q"
+    assert comments[0]["reply_to"]["reply_to_msg_id"] == post_id
+
+
+@pytest.mark.asyncio
+async def test_limit_caps_per_post():
+    def factory(entity, reply_to=None):
+        return _AsyncIter([FakeMessage(i) for i in range(100)])
+
+    downloader = _make_downloader(factory)
+    comments = await download_post_comments(
+        downloader, object(), [1, 2], silent=True, limit=10
+    )
+
+    # Two posts, capped at 10 each.
+    assert len(comments) == 20
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [None, 0])
+async def test_limit_none_or_zero_returns_all(limit):
+    def factory(entity, reply_to=None):
+        return _AsyncIter([FakeMessage(i) for i in range(25)])
+
+    downloader = _make_downloader(factory)
+    comments = await download_post_comments(
+        downloader, object(), [99], silent=True, limit=limit
+    )
+
+    assert len(comments) == 25
+
+
+@pytest.mark.asyncio
+async def test_comments_disabled_post_is_skipped():
+    def factory(entity, reply_to=None):
+        if reply_to == 1:
+            return _AsyncIter(raises=MsgIdInvalidError(request=None))
+        return _AsyncIter([FakeMessage(10), FakeMessage(11)])
+
+    downloader = _make_downloader(factory)
+    comments = await download_post_comments(downloader, object(), [1, 2], silent=True)
+
+    # Post 1 raised MsgIdInvalidError and was skipped; post 2 yielded 2 comments.
+    assert len(comments) == 2
+    assert all(c["comment_of"] == 2 for c in comments)
+
+
+@pytest.mark.asyncio
+async def test_stop_check_breaks_between_posts():
+    calls = {"n": 0}
+
+    def factory(entity, reply_to=None):
+        calls["n"] += 1
+        return _AsyncIter([FakeMessage(1)])
+
+    downloader = _make_downloader(factory)
+
+    def stop_after_first():
+        return calls["n"] >= 1
+
+    comments = await download_post_comments(
+        downloader, object(), [1, 2, 3], silent=True, stop_check=stop_after_first
+    )
+
+    # First post fetched (1 comment); stop_check then halts before post 2.
+    assert calls["n"] == 1
+    assert len(comments) == 1
+
+
+@pytest.mark.asyncio
+async def test_progress_events_emitted_per_post():
+    events = []
+
+    def factory(entity, reply_to=None):
+        return _AsyncIter([FakeMessage(1)])
+
+    downloader = _make_downloader(factory)
+    downloader._progress_sink = events.append
+
+    await download_post_comments(downloader, object(), [10, 20], silent=True)
+
+    assert [e["type"] for e in events] == ["comments", "comments"]
+    assert events[-1] == {
+        "type": "comments",
+        "posts_done": 2,
+        "posts_total": 2,
+        "comments": 2,
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_linked_discussion_returns_id():
+    full = SimpleNamespace(full_chat=SimpleNamespace(linked_chat_id=123456))
+
+    async def fake_client(request):
+        return full
+
+    downloader = SimpleNamespace(client=fake_client, logger=MagicMock())
+    linked = await get_linked_discussion(downloader, object())
+    assert linked == 123456
+
+
+@pytest.mark.asyncio
+async def test_get_linked_discussion_no_linked_group_returns_none():
+    full = SimpleNamespace(full_chat=SimpleNamespace(linked_chat_id=None))
+
+    async def fake_client(request):
+        return full
+
+    downloader = SimpleNamespace(client=fake_client, logger=MagicMock())
+    linked = await get_linked_discussion(downloader, object())
+    assert linked is None
+
+
+@pytest.mark.asyncio
+async def test_get_linked_discussion_swallows_errors():
+    async def fake_client(request):
+        raise RuntimeError("boom")
+
+    downloader = SimpleNamespace(client=fake_client, logger=MagicMock())
+    linked = await get_linked_discussion(downloader, object())
+    assert linked is None

@@ -87,9 +87,9 @@ The tasks are largely independent and are sequenced so the `./data` output conve
 
 ### Task 7: Add application version to the GUI window title
 
-- [ ] Add the application version number to the GUI window title
-- [ ] write tests asserting the window title includes the version
-- [ ] run project tests - must pass before next task
+- [x] Add the application version number to the GUI window title
+- [x] write tests asserting the window title includes the version
+- [x] run project tests - must pass before next task
 
 ### Task 8: More visual GUI progress bars
 

@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] Create directory `./data`, add it to `.gitignore`, and update `CLAUDE.md` so e2e results are saved to `./data` (instead of `~/tmp/e2e-tdc`).
+- [ ] **(do first)** Create directory `./data`, add it to `.gitignore`, and update `CLAUDE.md` so e2e results are saved to `./data` (instead of `~/tmp/e2e-tdc`). All e2e in subsequent tasks writes to `./data`.
 
 - [ ] Download replied/cited messages that fall outside the requested window. Example: downloading the last 7 days — message 1 (2026-05-01) was replied to by message 2 (2026-06-01). Current behavior: when message 2 is downloaded, the cited message 1 is empty because it's outside the date range. Expected: also fetch the referenced message 1 (by its id) so the citation is populated.
 
@@ -14,3 +14,9 @@
 - [ ] Add a minimal Windows installer — portable version only for now. Support incremental updates if possible (most of the distribution is the Python runtime, so only the changed app files should need updating).
 
 - [ ] Make the GUI progress bars more visual: change the color from red to green and/or draw a progress line.
+
+## E2E verification (applies to comments/citations/media/reactions tasks)
+
+- Target channel: `@seeallochnaya` (channel-with-comments).
+- Method: **live CLI run + inspect output** — run the real CLI with `--comments --media --html`, then inspect `messages.json` and the rendered HTML to confirm citations are populated, comment media is downloaded/rendered, channel-post citations are suppressed in comments, and reaction pills appear.
+- Copy results to `./data` (per task #1, done first).

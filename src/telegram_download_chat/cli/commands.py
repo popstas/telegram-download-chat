@@ -12,6 +12,10 @@ from typing import Any, Dict, List, Optional
 from telethon.tl.types import Channel, Chat, User
 
 from telegram_download_chat.core import TelegramChatDownloader
+from telegram_download_chat.core.comments import (
+    download_post_comments,
+    get_linked_discussion,
+)
 from telegram_download_chat.core.topics import (
     GENERAL_KEY,
     fetch_forum_topics,
@@ -24,14 +28,27 @@ from .arguments import CLIOptions
 
 
 def _dedup_messages(messages: List[Any]) -> List[Any]:
-    """Deduplicate messages by id, preserving original order."""
+    """Deduplicate messages by id, preserving original order.
+
+    Comments fetched from a channel's linked discussion group keep their native
+    discussion id, which lives in a separate id space from channel post ids and
+    can collide with them. Such records carry a ``comment_of`` marker and are
+    keyed by ``(comment_of, id)`` so a comment is never collapsed into a same-id
+    post and re-fetched comments still dedupe against each other on resume.
+    """
     seen: set = set()
     deduped = []
     for m in messages:
-        mid = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
-        if mid is None or mid not in seen:
+        if isinstance(m, dict):
+            mid = m.get("id")
+            comment_of = m.get("comment_of")
+        else:
+            mid = getattr(m, "id", None)
+            comment_of = getattr(m, "comment_of", None)
+        key = (comment_of, mid) if comment_of is not None else mid
+        if mid is None or key not in seen:
             if mid is not None:
-                seen.add(mid)
+                seen.add(key)
             deduped.append(m)
     return deduped
 
@@ -49,13 +66,41 @@ def _parse_date(value: Any) -> datetime | None:
 
 
 def split_messages_by_date(messages: List[Any], split_by: str) -> Dict[str, List[Any]]:
-    """Split messages by month or year based on message date."""
+    """Split messages by month or year based on message date.
+
+    Channel comments are bucketed by their parent post's date (not their own),
+    so a comment stays in the same file as the post it replies to and renders
+    nested under it even when the comment was written in a later month/year.
+    """
+
+    def _comment_of(msg: Any) -> Any:
+        return (
+            msg.get("comment_of")
+            if isinstance(msg, dict)
+            else getattr(msg, "comment_of", None)
+        )
+
+    def _raw_date(msg: Any) -> Any:
+        return msg.get("date") if isinstance(msg, dict) else getattr(msg, "date", None)
+
+    def _msg_id(msg: Any) -> Any:
+        return msg.get("id") if isinstance(msg, dict) else getattr(msg, "id", None)
+
+    # Map each real channel post id -> its raw date so comments can inherit it.
+    post_dates: Dict[Any, Any] = {}
+    for msg in messages:
+        if _comment_of(msg) is not None:
+            continue
+        mid = _msg_id(msg)
+        if mid is not None:
+            post_dates[mid] = _raw_date(msg)
 
     split_messages: Dict[str, List[Dict[str, Any]]] = {}
     for msg in messages:
-        raw_date = (
-            msg.get("date") if isinstance(msg, dict) else getattr(msg, "date", None)
-        )
+        raw_date = _raw_date(msg)
+        comment_of = _comment_of(msg)
+        if comment_of is not None and comment_of in post_dates:
+            raw_date = post_dates[comment_of]
         parsed_date = _parse_date(raw_date)
         if not parsed_date:
             continue
@@ -236,6 +281,58 @@ async def save_txt_with_status(
     )
 
 
+async def fetch_channel_comments(
+    downloader: TelegramChatDownloader,
+    chat_identifier: Any,
+    messages: List[Any],
+    args: CLIOptions,
+) -> List[Any]:
+    """Fetch comments for downloaded channel posts when ``--comments`` is set.
+
+    Returns a flat list of normalized comment dicts to append to ``messages``.
+    Returns an empty list (with an info log) when the entity is not a broadcast
+    channel or the channel has no linked discussion group.
+    """
+    if not getattr(args, "comments", False):
+        return []
+
+    entity = await downloader.get_entity(chat_identifier)
+    if not getattr(entity, "broadcast", False):
+        downloader.logger.info(
+            "--comments only applies to broadcast channels; skipping comments"
+        )
+        return []
+
+    linked = await get_linked_discussion(downloader, entity)
+    if not linked:
+        downloader.logger.info(
+            "Channel has no linked discussion group; skipping comments"
+        )
+        return []
+
+    # Only real channel posts get comments; skip any comment records that are
+    # already present (e.g. loaded from messages.json on a resumed run) so we
+    # don't fetch "comments of comments".
+    post_ids = [
+        m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
+        for m in messages
+        if not (isinstance(m, dict) and m.get("comment_of") is not None)
+    ]
+    post_ids = [pid for pid in post_ids if pid is not None]
+    if not post_ids:
+        return []
+
+    downloader.logger.info(f"Fetching comments for {len(post_ids)} post(s)...")
+    comments = await download_post_comments(
+        downloader,
+        entity,
+        post_ids,
+        limit=args.comments_limit,
+    )
+    downloader.logger.info(f"Fetched {len(comments)} comment(s)")
+    return comments
+
+
 async def process_chat_download(
     downloader: TelegramChatDownloader,
     chat_identifier: Any,
@@ -273,8 +370,13 @@ async def process_chat_download(
                 data = json.load(f)
                 if isinstance(data, list):
                     existing_messages = data
+                    # Exclude comment records: their ids come from the linked
+                    # discussion group, a different id space, and would poison
+                    # the post-based resume cursor.
                     ids = [
-                        m.get("id") for m in data if isinstance(m, dict) and "id" in m
+                        m.get("id")
+                        for m in data
+                        if isinstance(m, dict) and "id" in m and "comment_of" not in m
                     ]
                     if ids:
                         since_id = max(ids)
@@ -314,12 +416,20 @@ async def process_chat_download(
         download_kwargs["until_date"] = args.until
     if args.from_date:
         download_kwargs["from_date"] = args.from_date
+    # Backfill against a finite --limit counts real channel posts only: saved
+    # comments live in a separate id space and must not make the limit look
+    # already satisfied (matching the post-only resume cursor above).
+    existing_post_count = sum(
+        1
+        for m in existing_messages
+        if not (isinstance(m, dict) and m.get("comment_of") is not None)
+    )
     if since_id is not None:
         # If total_limit is set and we haven't reached it yet, skip since_id
         # so the download continues backwards from the oldest existing message
-        if args.limit > 0 and len(existing_messages) < args.limit:
+        if args.limit > 0 and existing_post_count < args.limit:
             downloader.logger.info(
-                f"Need {args.limit - len(existing_messages)} more message(s), "
+                f"Need {args.limit - existing_post_count} more message(s), "
                 f"continuing backwards"
             )
         else:
@@ -330,6 +440,15 @@ async def process_chat_download(
 
     if existing_messages:
         messages = _dedup_messages(existing_messages + messages)
+
+    if args.comments and messages:
+        comments = await fetch_channel_comments(
+            downloader, chat_identifier, messages, args
+        )
+        if comments:
+            # Dedup so a resumed run doesn't accumulate comments already saved
+            # in messages.json.
+            messages = _dedup_messages(messages + comments)
 
     if args.subchat:
         messages = filter_messages_by_subchat(messages, args.subchat)
@@ -873,6 +992,7 @@ __all__ = [
     "analyze_keywords",
     "save_messages_with_status",
     "save_txt_with_status",
+    "fetch_channel_comments",
     "process_chat_download",
     "convert",
     "folder",

@@ -81,6 +81,12 @@ telegram-download-chat username --media
 # Include media type indicators in TXT output (e.g. [photo], [file=report.pdf])
 telegram-download-chat username --media-placeholders
 
+# Download a channel together with the comments under each post
+telegram-download-chat channel_username --comments
+
+# Cap comments fetched per post (here: 50 per post)
+telegram-download-chat channel_username --comments --comments-limit 50
+
 # Show current configuration
 telegram-download-chat --show-config
 
@@ -128,6 +134,8 @@ options:
   --preset PRESET     Use preset from config
   --media               Download media attachments to a separate folder
   --media-placeholders  Insert media type indicators (e.g. [photo], [file=name.pdf]) in TXT output
+  --comments            Download post comments from a channel's linked discussion group (channel-only; no-op on other entities and channels without comments)
+  --comments-limit N    Max comments to fetch per post (requires --comments; omit for unlimited)
   --overwrite           Replace existing output files instead of resuming
   --proxy-url URL       Proxy URL for Telegram connection (socks5://host:1080, http://host:8080)
   -v, --version         Show program's version number and exit
@@ -366,6 +374,11 @@ Tips:
   download.
 - All other fields (limit, dates, media, HTML/PDF, etc.) under **Settings**
   apply to whichever chat you entered.
+- For broadcast channels, the **Download channel post comments** checkbox (with a
+  **Comments per post** limit dropdown: No limit / 10 / 50 / 100 / 500 / 1000)
+  fetches the comment threads from the channel's linked discussion group. Comments
+  are merged into the same `messages.json` and render nested under their parent
+  post in the TXT/HTML/PDF exports.
 
 This help is also shown inside the app: click **ⓘ How to fill this?** under the
 field to expand the full list. An **ⓘ** icon with a hover tooltip next to the

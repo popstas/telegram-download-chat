@@ -22,6 +22,7 @@ class WorkerThread(QThread):
     media_progress = Signal(int, int, str)  # current, total, file (relative path)
     message_progress = Signal(int, str)  # fetched count, last message date (ISO)
     media_summary = Signal(dict)  # post-media-download summary counters
+    comments_progress = Signal(int, int, int)  # posts_done, posts_total, comments
     finished = Signal(list, bool)  # files, was_stopped_by_user
 
     def __init__(self, cmd_args, output_dir):
@@ -128,6 +129,20 @@ class WorkerThread(QThread):
         elif etype == "media_summary":
             self.media_summary.emit(event)
             self.status_update.emit(self._format_media_summary(event))
+        elif etype == "comments":
+            try:
+                posts_done = int(event.get("posts_done") or 0)
+                posts_total = int(event.get("posts_total") or 0)
+                comments = int(event.get("comments") or 0)
+            except (TypeError, ValueError):
+                return
+            self.comments_progress.emit(posts_done, posts_total, comments)
+            if posts_total > 0:
+                self.progress.emit(posts_done, posts_total)
+                self.status_update.emit(
+                    f"Fetching comments {posts_done}/{posts_total} "
+                    f"({comments} comments)"
+                )
 
     @staticmethod
     def _format_media_summary(event):

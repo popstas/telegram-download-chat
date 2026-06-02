@@ -896,6 +896,45 @@ class TestSplitMessagesByDate:
         assert [m["id"] for m in result["2024-01"]] == [1, 2]
         assert [m["id"] for m in result["2024-02"]] == [3]
 
+    def test_comments_bucket_with_parent_post(self):
+        """A comment written in a later month stays in its parent post's bucket."""
+
+        messages = [
+            {"id": 10, "date": "2024-01-15T12:00:00+00:00"},
+            # Comment written in February but belongs to the January post.
+            {
+                "id": 5001,
+                "date": "2024-02-20T12:00:00+00:00",
+                "comment_of": 10,
+                "reply_to_msg_id": 10,
+            },
+            {"id": 11, "date": "2024-02-15T12:00:00+00:00"},
+        ]
+
+        result = split_messages_by_date(messages, "month")
+
+        assert set(result.keys()) == {"2024-01", "2024-02"}
+        # Comment 5001 follows post 10 into January, not its own February.
+        assert [m["id"] for m in result["2024-01"]] == [10, 5001]
+        assert [m["id"] for m in result["2024-02"]] == [11]
+
+    def test_orphan_comment_falls_back_to_own_date(self):
+        """A comment whose parent post is absent buckets by its own date."""
+
+        messages = [
+            {
+                "id": 5002,
+                "date": "2024-03-01T08:00:00+00:00",
+                "comment_of": 999,
+                "reply_to_msg_id": 999,
+            },
+        ]
+
+        result = split_messages_by_date(messages, "month")
+
+        assert set(result.keys()) == {"2024-03"}
+        assert [m["id"] for m in result["2024-03"]] == [5002]
+
     def test_splits_objects_by_year(self):
         """Message objects with datetime attributes are grouped by year."""
 
@@ -1177,6 +1216,58 @@ class TestSplitMessagesByDate:
         assert kwargs.get("since_id") == 10
         saved_msgs = mock_downloader.save_messages.call_args[0][0]
         assert len(saved_msgs) == 2
+
+    @pytest.mark.asyncio
+    async def test_resume_limit_counts_posts_not_comments(self, tmp_path):
+        """A finite --limit backfill must count real posts, not saved comments.
+
+        With 2 posts + 5 comments saved and --limit 5, the run still needs more
+        posts, so since_id must be skipped (continue backwards) rather than
+        treating the comment count as satisfying the limit.
+        """
+        from datetime import datetime
+
+        existing = [
+            {"id": 20, "date": "2025-07-10T12:00:00"},
+            {"id": 19, "date": "2025-07-09T12:00:00"},
+        ] + [
+            {
+                "id": 9000 + i,
+                "date": "2025-07-10T12:30:00",
+                "comment_of": 20,
+                "reply_to_msg_id": 20,
+            }
+            for i in range(5)
+        ]
+        chat_dir = tmp_path / "chat"
+        chat_dir.mkdir()
+        output_file = chat_dir / "messages.json"
+        output_file.write_text(json.dumps(existing))
+
+        mock_downloader = AsyncMock()
+        mock_downloader.config = {"settings": {"save_path": str(tmp_path)}}
+        mock_downloader.logger = MagicMock()
+        mock_downloader.get_entity_name = AsyncMock(return_value="chat")
+        mock_downloader.get_entity_full_name = AsyncMock(return_value="Chat")
+        mock_downloader.get_entity = AsyncMock(return_value=MagicMock(id=123))
+        msg = MagicMock()
+        msg.id = 18
+        msg.date = datetime(2025, 7, 8, 12, 0, 0)
+        mock_downloader.download_chat = AsyncMock(return_value=[msg])
+        mock_downloader.save_messages = AsyncMock()
+
+        with patch(
+            "sys.argv",
+            ["script_name", "chat", "--limit", "5"],
+        ), patch(
+            "telegram_download_chat.cli.TelegramChatDownloader",
+            return_value=mock_downloader,
+        ):
+            await async_main()
+
+        args, kwargs = mock_downloader.download_chat.call_args
+        # 2 posts < limit 5 → keep backfilling backwards, do not pin since_id.
+        assert kwargs.get("since_id") is None
 
     def test_apply_preset_helper(self):
         """apply_preset should update attributes on target object."""
@@ -1986,6 +2077,48 @@ def test_prepare_messages_for_txt_ordering_desc():
         340525,
         340522,
     ]
+
+
+def test_prepare_messages_for_txt_comment_id_collides_with_post():
+    """A comment whose native discussion id equals its parent post id must not
+    recurse forever; it nests under the post as a leaf."""
+    downloader = TelegramChatDownloader()
+    messages = [
+        {"id": 5, "date": "2025-07-01 10:00:00+00:00", "text": "post"},
+        # Comment normalized to reply to post 5, but its native discussion id
+        # happens to also be 5 (separate id space, collision).
+        {
+            "id": 5,
+            "date": "2025-07-01 10:05:00+00:00",
+            "text": "comment",
+            "comment_of": 5,
+            "reply_to_msg_id": 5,
+            "reply_to": {"reply_to_msg_id": 5},
+        },
+    ]
+
+    ordered = downloader.prepare_messages_for_txt(messages, "asc")
+    # Both survive, post first then its comment; no RecursionError.
+    assert [m["text"] for m in ordered] == ["post", "comment"]
+
+
+def test_prepare_messages_for_txt_comment_nests_under_post():
+    """Comments thread under their parent post even with distinct ids."""
+    downloader = TelegramChatDownloader()
+    messages = [
+        {"id": 1, "date": "2025-07-01 10:00:00+00:00", "text": "post"},
+        {
+            "id": 1001,
+            "date": "2025-07-01 10:05:00+00:00",
+            "text": "comment",
+            "comment_of": 1,
+            "reply_to_msg_id": 1,
+            "reply_to": {"reply_to_msg_id": 1},
+        },
+    ]
+
+    ordered = downloader.prepare_messages_for_txt(messages, "asc")
+    assert [m["id"] for m in ordered] == [1, 1001]
 
 
 def test_prepare_messages_for_txt_handles_mixed_naive_and_aware_dates():

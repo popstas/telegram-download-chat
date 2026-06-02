@@ -28,14 +28,27 @@ from .arguments import CLIOptions
 
 
 def _dedup_messages(messages: List[Any]) -> List[Any]:
-    """Deduplicate messages by id, preserving original order."""
+    """Deduplicate messages by id, preserving original order.
+
+    Comments fetched from a channel's linked discussion group keep their native
+    discussion id, which lives in a separate id space from channel post ids and
+    can collide with them. Such records carry a ``comment_of`` marker and are
+    keyed by ``(comment_of, id)`` so a comment is never collapsed into a same-id
+    post and re-fetched comments still dedupe against each other on resume.
+    """
     seen: set = set()
     deduped = []
     for m in messages:
-        mid = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
-        if mid is None or mid not in seen:
+        if isinstance(m, dict):
+            mid = m.get("id")
+            comment_of = m.get("comment_of")
+        else:
+            mid = getattr(m, "id", None)
+            comment_of = getattr(m, "comment_of", None)
+        key = (comment_of, mid) if comment_of is not None else mid
+        if mid is None or key not in seen:
             if mid is not None:
-                seen.add(mid)
+                seen.add(key)
             deduped.append(m)
     return deduped
 
@@ -269,8 +282,13 @@ async def fetch_channel_comments(
         )
         return []
 
+    # Only real channel posts get comments; skip any comment records that are
+    # already present (e.g. loaded from messages.json on a resumed run) so we
+    # don't fetch "comments of comments".
     post_ids = [
-        m.get("id") if isinstance(m, dict) else getattr(m, "id", None) for m in messages
+        m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
+        for m in messages
+        if not (isinstance(m, dict) and m.get("comment_of") is not None)
     ]
     post_ids = [pid for pid in post_ids if pid is not None]
     if not post_ids:
@@ -324,8 +342,13 @@ async def process_chat_download(
                 data = json.load(f)
                 if isinstance(data, list):
                     existing_messages = data
+                    # Exclude comment records: their ids come from the linked
+                    # discussion group, a different id space, and would poison
+                    # the post-based resume cursor.
                     ids = [
-                        m.get("id") for m in data if isinstance(m, dict) and "id" in m
+                        m.get("id")
+                        for m in data
+                        if isinstance(m, dict) and "id" in m and "comment_of" not in m
                     ]
                     if ids:
                         since_id = max(ids)
@@ -387,7 +410,9 @@ async def process_chat_download(
             downloader, chat_identifier, messages, args
         )
         if comments:
-            messages = messages + comments
+            # Dedup so a resumed run doesn't accumulate comments already saved
+            # in messages.json.
+            messages = _dedup_messages(messages + comments)
 
     if args.subchat:
         messages = filter_messages_by_subchat(messages, args.subchat)

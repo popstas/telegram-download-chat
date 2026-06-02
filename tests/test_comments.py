@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from telethon.errors import MsgIdInvalidError
+from telethon.errors import FloodWaitError, MsgIdInvalidError
 
 from telegram_download_chat.core.comments import (
     download_post_comments,
@@ -150,6 +150,52 @@ async def test_comments_disabled_post_is_skipped():
     # Post 1 raised MsgIdInvalidError and was skipped; post 2 yielded 2 comments.
     assert len(comments) == 2
     assert all(c["comment_of"] == 2 for c in comments)
+
+
+@pytest.mark.asyncio
+async def test_flood_wait_retries_without_duplicating(monkeypatch):
+    sleeps = []
+
+    async def fake_sleep(secs):
+        sleeps.append(secs)
+
+    monkeypatch.setattr(
+        "telegram_download_chat.core.comments.asyncio.sleep", fake_sleep
+    )
+
+    calls = {"n": 0}
+
+    def factory(entity, reply_to=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            err = FloodWaitError(request=None)
+            err.seconds = 0
+            return _AsyncIter(raises=err)
+        return _AsyncIter([FakeMessage(1), FakeMessage(2), FakeMessage(3)])
+
+    downloader = _make_downloader(factory)
+    comments = await download_post_comments(downloader, object(), [500], silent=True)
+
+    # First attempt floods, the retry re-fetches from scratch: exactly 3, no dups.
+    assert calls["n"] == 2
+    assert len(comments) == 3
+    assert sleeps  # slept once before retry
+
+
+@pytest.mark.asyncio
+async def test_generic_error_skips_post_and_continues():
+    def factory(entity, reply_to=None):
+        if reply_to == 1:
+            return _AsyncIter(raises=RuntimeError("network boom"))
+        return _AsyncIter([FakeMessage(10)])
+
+    downloader = _make_downloader(factory)
+    comments = await download_post_comments(downloader, object(), [1, 2], silent=False)
+
+    # Post 1 errored generically and was skipped; post 2 still fetched.
+    assert len(comments) == 1
+    assert comments[0]["comment_of"] == 2
+    assert downloader.logger.warning.called
 
 
 @pytest.mark.asyncio

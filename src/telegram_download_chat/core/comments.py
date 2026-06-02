@@ -145,17 +145,11 @@ async def download_post_comments(
 
         post_comments: List[Dict[str, Any]] = []
         while True:
-            # Restart per attempt so a mid-iteration flood-wait retry does not
-            # duplicate comments; dedupe within the post by native id.
+            # Restart the list per attempt so a mid-iteration flood-wait retry
+            # re-fetches from scratch instead of duplicating comments.
             post_comments = []
-            seen_ids: set = set()
             try:
                 async for msg in client.iter_messages(channel_entity, reply_to=post_id):
-                    native_id = getattr(msg, "id", None)
-                    if native_id is not None and native_id in seen_ids:
-                        continue
-                    if native_id is not None:
-                        seen_ids.add(native_id)
                     post_comments.append(_normalize_comment(downloader, msg, post_id))
                     if not unlimited and len(post_comments) >= limit:
                         break

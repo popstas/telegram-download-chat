@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from telegram_download_chat.cli.arguments import parse_args
-from telegram_download_chat.cli.commands import fetch_channel_comments
+from telegram_download_chat.cli.commands import _dedup_messages, fetch_channel_comments
 from telegram_download_chat.core.render import RenderMixin
 
 
@@ -166,6 +166,61 @@ async def test_fetch_channel_comments_disabled_when_flag_off():
     comments = await fetch_channel_comments(downloader, "@chan", posts, args)
 
     assert comments == []
+
+
+def test_dedup_keeps_comment_colliding_with_post_id():
+    # A discussion comment id can equal a real channel post id; they must both
+    # survive because the comment is keyed by (comment_of, id).
+    post = {"id": 1001, "message": "post"}
+    comment = {"id": 1001, "comment_of": 5, "message": "comment"}
+    out = _dedup_messages([post, comment])
+    assert len(out) == 2
+
+
+def test_dedup_collapses_refetched_comments():
+    # Re-fetching the same comment on resume must not duplicate it.
+    c1 = {"id": 1001, "comment_of": 5, "message": "c"}
+    c2 = {"id": 1001, "comment_of": 5, "message": "c"}
+    out = _dedup_messages([c1, c2])
+    assert len(out) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_skips_existing_comment_records():
+    """On resume, comment records already in the list are not treated as posts."""
+    seen_reply_to = []
+    entity = SimpleNamespace(id=42, broadcast=True)
+
+    class _Client:
+        async def __call__(self, request):
+            return SimpleNamespace(full_chat=SimpleNamespace(linked_chat_id=999))
+
+        def iter_messages(self, channel_entity, reply_to=None):
+            seen_reply_to.append(reply_to)
+            return _AsyncIter([])
+
+    downloader = SimpleNamespace(
+        client=_Client(),
+        logger=MagicMock(),
+        _stop_requested=False,
+        _progress_sink=None,
+        make_serializable=_make_serializable,
+    )
+
+    async def get_entity(_chat):
+        return entity
+
+    downloader.get_entity = get_entity
+
+    messages = [
+        {"id": 1, "message": "post"},
+        {"id": 1001, "comment_of": 1, "message": "old comment"},
+    ]
+    args = _args(comments=True)
+    await fetch_channel_comments(downloader, "@chan", messages, args)
+
+    # Only the real post (id 1) is queried; the comment record (1001) is skipped.
+    assert seen_reply_to == [1]
 
 
 @pytest.mark.asyncio

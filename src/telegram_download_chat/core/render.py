@@ -411,6 +411,11 @@ class RenderMixin:
             mid = m.get("id")
             if mid is None:
                 continue
+            # A channel comment keeps its native discussion id, which can collide
+            # with a real channel post id. Reply citations only ever target posts,
+            # so never let a comment shadow a post already indexed under that id.
+            if mid in id_to_msg and m.get("comment_of") is not None:
+                continue
             id_to_msg[mid] = m
 
         # Thread/topic headers (and root-citation suppression) only make sense in

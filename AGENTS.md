@@ -8,7 +8,7 @@ Telegram Download Chat is a Python CLI utility that downloads and analyzes Teleg
 
 ### Key Components
 
-- **Core Engine** (`core/` package): Contains `TelegramChatDownloader` plus helper modules (`auth`, `config`, `download`, `entities`, `media`, `messages`, `context`, `render`, `progress`, `update_checker`) built on Telethon
+- **Core Engine** (`core/` package): Contains `TelegramChatDownloader` plus helper modules (`auth`, `config`, `download`, `entities`, `media`, `messages`, `context`, `render`, `progress`, `comments`, `update_checker`) built on Telethon
 - **CLI Interface** (`cli.py`): Command-line interface with argument parsing and async message processing
 - **GUI Interface** (`gui_app.py`): PySide6-based graphical interface with threading for async operations
 - **MCP Server** (`mcp/` package): Model Context Protocol server exposing Telegram chat tools for AI assistants
@@ -129,6 +129,11 @@ python main.py  # Launches GUI by default
 - `--media-placeholders`: Insert media type indicators (e.g. `[photo]`, `[file=name.pdf]`) in TXT output
 - `--media`: Download all media types with organized category directories (images/, videos/, documents/, audio/, stickers/, contacts/, locations/, polls/, etc.) and concurrent downloads (5 simultaneous). Supports photos, videos, documents, audio, stickers, contacts (VCF), geo locations (JSON), polls, dice, and games. Files above ~5 MB use parallel multi-connection MTProto chunking (FastTelethon-style, see `core/fast_download.py`); connection count auto-tunes per Premium status (Premium=4, free=2) and is overridable via `media_parallel_connections` in config. Threshold is overridable via `media_parallel_threshold_mb`. Earlier defaults (8/4 connections, 1 MB threshold) triggered Telegram's per-account throttling and stalled the run. During long throttled runs, Telegram file references can expire before a file is reached; these are automatically refetched (by message id) and the download is retried once via the standard single-stream downloader.
 - `--no-fast-download`: Disable the parallel chunked downloader and fall back to single-stream Telethon for all files.
+
+### Channel Comments
+- `--comments` (broadcast-channel only): resolves the channel's linked discussion supergroup (`GetFullChannelRequest` → `linked_chat_id`) and fetches the per-post comment threads via `iter_messages(channel_entity, reply_to=post_id)` (`core/comments.py`). Each comment is normalized so the existing render logic nests it under its post: `reply_to.reply_to_msg_id` and the top-level `reply_to_msg_id` are set to the channel post id, `comment_of=<post_id>` is added, and the native discussion id is preserved as `discussion_msg_id`. Comments are appended into the same `messages.json` (then deduped). Because comments live in a separate id space, comment records (those carrying `comment_of`) are excluded from the post-based resume cursor and `_dedup_messages` keys them by `(comment_of, id)` to avoid collisions with channel post ids.
+- `--comments-limit N`: caps comments fetched per post (requires `--comments`; omit/`0`/negative = unlimited). The GUI exposes this as a "Comments per post" dropdown (No limit / 10 / 50 / 100 / 500 / 1000) beside the "Download channel post comments" checkbox.
+- A `type: "comments"` structured progress event (posts done/total, comments so far) is emitted per post via `core/progress.py` and surfaced by `gui/worker.py` parallel to the `media` event. Comment fetching is implicitly bounded by the posts' date window, since comments are only fetched for posts actually downloaded.
 
 ### Export Formats
 - `--html`: Render a Telegram Web-style HTML page (uses Jinja2 templates)

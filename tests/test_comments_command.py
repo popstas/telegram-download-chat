@@ -225,8 +225,8 @@ async def test_fetch_skips_existing_comment_records():
 
 @pytest.mark.asyncio
 async def test_combined_list_renders_comment_nested_under_post(tmp_path):
-    """Posts + normalized comments thread through HTML so each comment
-    anchors to its parent post bubble."""
+    """Posts + normalized comments thread through HTML so each comment nests
+    under its parent post without redundantly citing the post (Task 3)."""
     downloader = _make_downloader(
         broadcast=True,
         linked_chat_id=999,
@@ -255,6 +255,9 @@ async def test_combined_list_renders_comment_nested_under_post(tmp_path):
     RenderMixin().render_html(combined, out, chat_title="t")
     html = out.read_text(encoding="utf-8")
 
-    # The comment cites/anchors to the parent post bubble.
+    # The post bubble is anchorable, the comment renders beneath it, but the
+    # parent post is no longer cited as a quote inside the comment (Task 3).
     assert 'id="msg-1"' in html
-    assert 'href="#msg-1"' in html
+    assert "Commenter" in html
+    assert 'href="#msg-1"' not in html
+    assert 'class="rq"' not in html

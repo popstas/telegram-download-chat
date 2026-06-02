@@ -128,6 +128,14 @@ a:hover{text-decoration:underline}
 .rq{background:rgba(0,0,0,0.05);border-left:3px solid #00a884;border-radius:6px;
   padding:5px 8px;margin-bottom:6px;font-size:12.5px;color:#555;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;max-height:64px}
+/* Collapsible channel-post comments */
+.comments{margin:2px 0 8px 40px}
+.comments-sum{cursor:pointer;color:#168acd;font-size:13px;font-weight:600;
+  list-style:none;user-select:none;padding:4px 0}
+.comments-sum::-webkit-details-marker{display:none}
+.comments-sum::before{content:'\\25B8\\00a0'}
+.comments[open]>.comments-sum::before{content:'\\25BE\\00a0'}
+.comments-body{margin-top:4px;display:flex;flex-direction:column;gap:1px}
 /* Media */
 .media-img,.media-stk,.media-vid{display:block;border-radius:10px;margin-bottom:4px}
 .media-img{max-width:100%;max-height:340px;object-fit:contain}
@@ -180,15 +188,7 @@ a:hover{text-decoration:underline}
   {%- endfor %}
 </div>
 {%- endif %}
-<div class="msgs">
-{%- for item in items %}
-{%- if item.type == "date_sep" %}
-<div class="datesep" data-topic="__date__"><span>{{ item.label | e }}</span></div>
-{%- elif item.type == "thread" %}
-<div class="threadsep" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>&mdash; {{ item.name | e }} &mdash;</span></div>
-{%- elif item.type == "service" %}
-<div class="svc" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>{{ item.text | e }}</span></div>
-{%- elif item.type == "group" %}
+{%- macro render_group(item) %}
 <div class="grp{% if item.is_outgoing %} out{% endif %}" data-topic="{{ item.topic if item.topic is not none else 'none' }}">
   {%- if not item.is_outgoing %}
   <div class="av" style="background:{{ item.sender_color }}">{{ item.initials | e }}</div>
@@ -260,6 +260,24 @@ a:hover{text-decoration:underline}
     {%- endfor %}
   </div>
 </div>
+{%- endmacro %}
+<div class="msgs">
+{%- for item in items %}
+{%- if item.type == "date_sep" %}
+<div class="datesep" data-topic="__date__"><span>{{ item.label | e }}</span></div>
+{%- elif item.type == "thread" %}
+<div class="threadsep" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>&mdash; {{ item.name | e }} &mdash;</span></div>
+{%- elif item.type == "service" %}
+<div class="svc" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>{{ item.text | e }}</span></div>
+{%- elif item.type == "group" %}
+{{ render_group(item) }}
+{%- elif item.type == "comments" %}
+<details class="comments" data-topic="none">
+<summary class="comments-sum">{{ item.count }} comment{{ '' if item.count == 1 else 's' }}</summary>
+<div class="comments-body">
+{%- for g in item.groups %}{{ render_group(g) }}{%- endfor %}
+</div>
+</details>
 {%- endif %}
 {%- endfor %}
 </div>
@@ -521,6 +539,12 @@ class RenderMixin:
                 str(sender_id) if sender_id else "Unknown"
             )
 
+            # Channel comments carry ``comment_of`` (their parent post id); it
+            # bounds a sender group so a group never mixes a post with comments
+            # (or comments of two different posts), keeping the collapsible
+            # comment block per-post when folded below.
+            comment_of = msg.get("comment_of")
+
             # ── Topic header (HTML, forum supergroups only) ──────────
             msg_topic, msg_topic_name = _topic_for(msg)
             if is_forum:
@@ -547,6 +571,7 @@ class RenderMixin:
                 current_group is not None
                 and prev_sender_id == sender_id
                 and current_group.get("topic") == msg_topic
+                and current_group.get("comment_of") == comment_of
                 and prev_msg_time is not None
                 and msg_dt is not None
                 and abs((msg_dt - prev_msg_time).total_seconds()) < 120
@@ -562,6 +587,7 @@ class RenderMixin:
                     "initials": _sender_initials(sender_name),
                     "topic": msg_topic,
                     "topic_name": msg_topic_name,
+                    "comment_of": comment_of,
                     "messages": [],
                 }
 
@@ -632,8 +658,20 @@ class RenderMixin:
             parent_is_thread_root = (
                 is_forum and parent_id is not None and parent_id == msg_topic
             )
-            if parent_is_thread_root:
-                # Suppress the citation; the topic header carries the context.
+            # A channel comment is normalized to point at its parent post
+            # (``comment_of``), and the render path already nests it under that
+            # post. Citing the post inside every comment is redundant, so
+            # suppress it — but only for channel comments, and only when the
+            # cited parent is the post itself (a comment quoting another comment
+            # is left untouched).
+            parent_is_comment_post = (
+                comment_of is not None
+                and parent_id is not None
+                and parent_id == comment_of
+            )
+            if parent_is_thread_root or parent_is_comment_post:
+                # Suppress the citation; the topic header / comment nesting
+                # already carries the parent's context.
                 pass
             elif parent_msg is not None and parent_msg is not msg:
                 # Parent is in the export: cite its first line and anchor to it.
@@ -681,12 +719,97 @@ class RenderMixin:
             prev_msg_time = msg_dt
 
         flush()
+
+        # HTML only: fold channel-comment groups into collapsible blocks placed
+        # right after their parent post. PDF (with_threads=False) keeps comments
+        # inline since it cannot collapse them.
+        if with_threads:
+            items = _fold_comment_groups(items)
         return items
 
 
 # ---------------------------------------------------------------------------
 # Module-level pure helpers (no self needed)
 # ---------------------------------------------------------------------------
+
+
+def _fold_comment_groups(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Fold channel-comment groups into collapsible per-post ``comments`` items.
+
+    Each ``group`` item tagged with ``comment_of`` is a block of comments on a
+    channel post. They are removed from the inline flow and re-emitted as a
+    single ``comments`` item (carrying the comment count and the comment groups)
+    placed right after the bubble group that contains the parent post. Comments
+    whose parent post is absent from the export are appended at the end. Date
+    separators left empty by the move are dropped.
+    """
+    comment_groups: Dict[Any, List[Dict[str, Any]]] = {}
+    main_items: List[Dict[str, Any]] = []
+    for it in items:
+        if it.get("type") == "group" and it.get("comment_of") is not None:
+            comment_groups.setdefault(it["comment_of"], []).append(it)
+        else:
+            main_items.append(it)
+
+    if not comment_groups:
+        return items
+
+    def _block(post_id: Any, groups: List[Dict[str, Any]]) -> Dict[str, Any]:
+        count = sum(len(g.get("messages", [])) for g in groups)
+        return {
+            "type": "comments",
+            "post_id": post_id,
+            "count": count,
+            "groups": groups,
+        }
+
+    result: List[Dict[str, Any]] = []
+    placed: set = set()
+    for it in main_items:
+        result.append(it)
+        if it.get("type") != "group":
+            continue
+        for msg in it.get("messages", []):
+            pid = msg.get("id")
+            if pid in comment_groups and pid not in placed:
+                result.append(_block(pid, comment_groups[pid]))
+                placed.add(pid)
+
+    # Parent post not present in the export — keep the comments at the end.
+    for pid, groups in comment_groups.items():
+        if pid not in placed:
+            result.append(_block(pid, groups))
+            placed.add(pid)
+
+    return _drop_empty_date_separators(result)
+
+
+def _drop_empty_date_separators(
+    items: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Remove date separators that no longer precede any visible content.
+
+    Relocating comment groups can orphan a date separator that only headed
+    comments; drop any separator with no group/service/comments/thread item
+    before the next separator.
+    """
+    out: List[Dict[str, Any]] = []
+    n = len(items)
+    content = {"group", "service", "comments", "thread"}
+    for i, it in enumerate(items):
+        if it.get("type") == "date_sep":
+            has_content = False
+            for j in range(i + 1, n):
+                t = items[j].get("type")
+                if t == "date_sep":
+                    break
+                if t in content:
+                    has_content = True
+                    break
+            if not has_content:
+                continue
+        out.append(it)
+    return out
 
 
 def _log(obj: Any) -> logging.Logger:

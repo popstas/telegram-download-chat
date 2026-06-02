@@ -55,9 +55,10 @@ The tasks are largely independent and are sequenced so the `./data` output conve
 
 ### Task 3: Suppress channel-post citation inside comment messages
 
-- [ ] In the render path, do not render the parent channel post as a quoted citation inside comment messages (those carrying `comment_of`); apply only to channel comments
-- [ ] write tests verifying a comment nests under its post without a redundant post citation, while non-comment citations are unaffected
-- [ ] run project tests - must pass before next task
+- [x] In the render path, do not render the parent channel post as a quoted citation inside comment messages (those carrying `comment_of`); apply only to channel comments
+- [x] Make html render comments collapsible. Only for channel comments. Collapsed shows comment count, expanded shows the comment text.
+- [x] write tests verifying a comment nests under its post without a redundant post citation, while non-comment citations are unaffected
+- [x] run project tests - must pass before next task
 
 ### Task 4: Download and render media for comment messages
 

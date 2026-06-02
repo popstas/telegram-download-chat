@@ -18,6 +18,8 @@
 
 - [ ] Document CLI flags present in `--help` but missing from the README: `--split {month,year,topics}`, `--no-fast-download`, `--html`, `--html-media-links`, `--pdf`.
 
+- [ ] Make html render comments collapsible. Only for channel comments. Collapsed shows comment count, expanded shows the comment text.
+
 ## E2E verification (applies to comments/citations/media/reactions tasks)
 
 - Target channel: `@seeallochnaya` (channel-with-comments).

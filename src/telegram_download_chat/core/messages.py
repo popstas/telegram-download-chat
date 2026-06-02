@@ -165,9 +165,18 @@ class MessagesMixin:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt
 
-        id_map: Dict[Any, Dict[str, Any]] = {
-            m.get("id"): m for m in messages if m.get("id") is not None
-        }
+        # A channel comment keeps its native discussion-group id, which lives in
+        # a separate id space and can collide with a real channel post id. Build
+        # the parent index from posts first so a comment never shadows the post
+        # it belongs to (mirrors the id-space guard in core/render.py).
+        id_map: Dict[Any, Dict[str, Any]] = {}
+        for m in messages:
+            mid = m.get("id")
+            if mid is None:
+                continue
+            if mid in id_map and m.get("comment_of") is not None:
+                continue
+            id_map[mid] = m
         children: Dict[Any, List[Dict[str, Any]]] = {}
         roots: List[Dict[str, Any]] = []
 
@@ -184,8 +193,13 @@ class MessagesMixin:
 
         def traverse(msg: Dict[str, Any]) -> List[Dict[str, Any]]:
             child_msgs = []
-            for child in sort_msgs(children.get(msg.get("id"), [])):
-                child_msgs.extend(traverse(child))
+            # Comments are leaves: they are normalized to reply to their parent
+            # post and never parent other messages, so never follow children by a
+            # comment's own id. When that id collides with a post id, doing so
+            # would recurse until RecursionError.
+            if msg.get("comment_of") is None:
+                for child in sort_msgs(children.get(msg.get("id"), [])):
+                    child_msgs.extend(traverse(child))
 
             if sort_order == "desc":
                 return child_msgs + [msg]

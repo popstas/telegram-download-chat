@@ -66,13 +66,41 @@ def _parse_date(value: Any) -> datetime | None:
 
 
 def split_messages_by_date(messages: List[Any], split_by: str) -> Dict[str, List[Any]]:
-    """Split messages by month or year based on message date."""
+    """Split messages by month or year based on message date.
+
+    Channel comments are bucketed by their parent post's date (not their own),
+    so a comment stays in the same file as the post it replies to and renders
+    nested under it even when the comment was written in a later month/year.
+    """
+
+    def _comment_of(msg: Any) -> Any:
+        return (
+            msg.get("comment_of")
+            if isinstance(msg, dict)
+            else getattr(msg, "comment_of", None)
+        )
+
+    def _raw_date(msg: Any) -> Any:
+        return msg.get("date") if isinstance(msg, dict) else getattr(msg, "date", None)
+
+    def _msg_id(msg: Any) -> Any:
+        return msg.get("id") if isinstance(msg, dict) else getattr(msg, "id", None)
+
+    # Map each real channel post id -> its raw date so comments can inherit it.
+    post_dates: Dict[Any, Any] = {}
+    for msg in messages:
+        if _comment_of(msg) is not None:
+            continue
+        mid = _msg_id(msg)
+        if mid is not None:
+            post_dates[mid] = _raw_date(msg)
 
     split_messages: Dict[str, List[Dict[str, Any]]] = {}
     for msg in messages:
-        raw_date = (
-            msg.get("date") if isinstance(msg, dict) else getattr(msg, "date", None)
-        )
+        raw_date = _raw_date(msg)
+        comment_of = _comment_of(msg)
+        if comment_of is not None and comment_of in post_dates:
+            raw_date = post_dates[comment_of]
         parsed_date = _parse_date(raw_date)
         if not parsed_date:
             continue
@@ -388,12 +416,20 @@ async def process_chat_download(
         download_kwargs["until_date"] = args.until
     if args.from_date:
         download_kwargs["from_date"] = args.from_date
+    # Backfill against a finite --limit counts real channel posts only: saved
+    # comments live in a separate id space and must not make the limit look
+    # already satisfied (matching the post-only resume cursor above).
+    existing_post_count = sum(
+        1
+        for m in existing_messages
+        if not (isinstance(m, dict) and m.get("comment_of") is not None)
+    )
     if since_id is not None:
         # If total_limit is set and we haven't reached it yet, skip since_id
         # so the download continues backwards from the oldest existing message
-        if args.limit > 0 and len(existing_messages) < args.limit:
+        if args.limit > 0 and existing_post_count < args.limit:
             downloader.logger.info(
-                f"Need {args.limit - len(existing_messages)} more message(s), "
+                f"Need {args.limit - existing_post_count} more message(s), "
                 f"continuing backwards"
             )
         else:

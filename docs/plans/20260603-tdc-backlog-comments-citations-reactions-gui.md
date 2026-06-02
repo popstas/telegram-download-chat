@@ -47,11 +47,11 @@ The tasks are largely independent and are sequenced so the `./data` output conve
 
 ### Task 2: Fetch cited/replied messages outside the date window
 
-- [ ] When a downloaded message references a `reply_to` message id outside the requested date window, fetch the referenced message by id
-- [ ] Merge fetched referenced messages into the message list and dedup so citations are populated in JSON/TXT/HTML
-- [ ] write tests for the outside-window citation fetch and dedup behavior
-- [ ] run project tests - must pass before next task
-- [ ] e2e: live CLI run against `@seeallochnaya` confirming a previously-empty citation is now populated; copy results to `./data`
+- [x] When a downloaded message references a `reply_to` message id outside the requested date window, fetch the referenced message by id
+- [x] Merge fetched referenced messages into the message list and dedup so citations are populated in JSON/TXT/HTML
+- [x] write tests for the outside-window citation fetch and dedup behavior
+- [x] run project tests - must pass before next task
+- [x] e2e: live CLI run against `@seeallochnaya` confirming a previously-empty citation is now populated; copy results to `./data` (skipped - requires live authenticated Telethon session, not automatable here)
 
 ### Task 3: Suppress channel-post citation inside comment messages
 

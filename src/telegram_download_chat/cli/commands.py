@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from telethon.tl.types import Channel, Chat, User
 
 from telegram_download_chat.core import TelegramChatDownloader
+from telegram_download_chat.core.citations import fetch_cited_messages
 from telegram_download_chat.core.comments import (
     download_post_comments,
     get_linked_discussion,
@@ -333,6 +334,21 @@ async def fetch_channel_comments(
     return comments
 
 
+async def fetch_outside_window_citations(
+    downloader: TelegramChatDownloader,
+    chat_identifier: Any,
+    messages: List[Any],
+) -> List[Any]:
+    """Fetch messages cited by replies that fall outside the date window.
+
+    Returns a flat list of fetched message objects to merge into ``messages`` so
+    that citations are populated in JSON/TXT/HTML. Returns an empty list when no
+    referenced message is missing (e.g. a full, unwindowed download).
+    """
+    entity = await downloader.get_entity(chat_identifier)
+    return await fetch_cited_messages(downloader, entity, messages)
+
+
 async def process_chat_download(
     downloader: TelegramChatDownloader,
     chat_identifier: Any,
@@ -449,6 +465,19 @@ async def process_chat_download(
             # Dedup so a resumed run doesn't accumulate comments already saved
             # in messages.json.
             messages = _dedup_messages(messages + comments)
+
+    # Populate citations whose target falls outside the requested date window:
+    # fetch any replied-to message ids that are referenced but not present.
+    if messages:
+        try:
+            cited = await fetch_outside_window_citations(
+                downloader, chat_identifier, messages
+            )
+        except Exception as exc:  # pragma: no cover - best-effort enrichment
+            downloader.logger.warning(f"Failed to fetch cited messages: {exc}")
+            cited = []
+        if cited:
+            messages = _dedup_messages(messages + cited)
 
     if args.subchat:
         messages = filter_messages_by_subchat(messages, args.subchat)
@@ -993,6 +1022,7 @@ __all__ = [
     "save_messages_with_status",
     "save_txt_with_status",
     "fetch_channel_comments",
+    "fetch_outside_window_citations",
     "process_chat_download",
     "convert",
     "folder",

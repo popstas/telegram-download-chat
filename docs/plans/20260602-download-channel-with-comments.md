@@ -66,12 +66,12 @@ Date windowing already works via the existing `--last-days` / `--min-date` / `--
 
 ### Task 3: Add GUI checkbox and structured comments progress
 
-- [ ] Add a "Download comments" `QCheckBox` in `gui/tabs/download_tab.py` modeled on `media_chk` — checkbox definition, settings load, settings collect, `cmd_args.append("--comments")`, and save/restore
-- [ ] Add a "Comments per post" `QComboBox` next to the checkbox with presets No limit (default) / 10 / 50 / 100 / 500 / 1000; enable it only when the checkbox is checked; append `--comments-limit N` to the command only when a numeric preset is selected; include it in settings load/collect/save/restore
-- [ ] Emit a structured `type: "comments"` progress event per post (posts done/total, comments so far) via `core/progress.py`
-- [ ] Surface the `comments` progress event in `gui/worker.py` parallel to the existing `media` event handling
-- [ ] write tests: parsing/handling of the `comments` progress event; GUI command-build includes `--comments` when checked and `--comments-limit N` only when a numeric preset is selected (and neither when "No limit")
-- [ ] run project tests - must pass before next task
+- [x] Add a "Download comments" `QCheckBox` in `gui/tabs/download_tab.py` modeled on `media_chk` — checkbox definition, settings load, settings collect, `cmd_args.append("--comments")`, and save/restore
+- [x] Add a "Comments per post" `QComboBox` next to the checkbox with presets No limit (default) / 10 / 50 / 100 / 500 / 1000; enable it only when the checkbox is checked; append `--comments-limit N` to the command only when a numeric preset is selected; include it in settings load/collect/save/restore
+- [x] Emit a structured `type: "comments"` progress event per post (posts done/total, comments so far) via `core/progress.py`
+- [x] Surface the `comments` progress event in `gui/worker.py` parallel to the existing `media` event handling
+- [x] write tests: parsing/handling of the `comments` progress event; GUI command-build includes `--comments` when checked and `--comments-limit N` only when a numeric preset is selected (and neither when "No limit")
+- [x] run project tests - must pass before next task
 
 ### Task 4: Verify acceptance criteria
 

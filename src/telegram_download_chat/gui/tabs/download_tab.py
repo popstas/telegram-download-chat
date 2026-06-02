@@ -377,6 +377,24 @@ class DownloadTab(QWidget):
         self.pdf_chk = QCheckBox("PDF document")
         settings_form.addRow("PDF export:", self.pdf_chk)
 
+        # Download comments (channel-only): a checkbox plus a per-post limit
+        # combo on the same row. The combo is enabled only when the checkbox is
+        # checked. "No limit" carries data ``None``; presets carry their int.
+        self.comments_chk = QCheckBox("Download channel post comments")
+        self.comments_limit_combo = QComboBox()
+        self.comments_limit_combo.addItem("No limit", None)
+        for preset in (10, 50, 100, 500, 1000):
+            self.comments_limit_combo.addItem(str(preset), preset)
+        self.comments_limit_combo.setMaximumWidth(120)
+        self.comments_limit_combo.setEnabled(False)
+        self.comments_chk.toggled.connect(self.comments_limit_combo.setEnabled)
+        comments_layout = QHBoxLayout()
+        comments_layout.addWidget(self.comments_chk)
+        comments_layout.addWidget(QLabel("Comments per post:"))
+        comments_layout.addWidget(self.comments_limit_combo)
+        comments_layout.addStretch()
+        settings_form.addRow("Comments:", comments_layout)
+
         # Style checkboxes so the unchecked indicator is gray, matching the
         # text-input (QLineEdit) background instead of a bright white box.
         from ..utils.styles import style_checkboxes
@@ -388,6 +406,7 @@ class DownloadTab(QWidget):
                 self.media_chk,
                 self.html_chk,
                 self.pdf_chk,
+                self.comments_chk,
             ],
             self,
         )
@@ -613,6 +632,12 @@ class DownloadTab(QWidget):
             if "pdf" in settings:
                 self.pdf_chk.setChecked(settings["pdf"])
 
+            if "comments" in settings:
+                self.comments_chk.setChecked(bool(settings["comments"]))
+
+            if "comments_limit" in settings:
+                self._set_comments_limit(settings["comments_limit"])
+
             sort_order = settings.get("sort", "asc")
             index = 0 if sort_order == "asc" else 1
             self.sort_combo.setCurrentIndex(index)
@@ -665,6 +690,8 @@ class DownloadTab(QWidget):
                     "media": self.media_chk.isChecked(),
                     "html": self.html_chk.isChecked(),
                     "pdf": self.pdf_chk.isChecked(),
+                    "comments": self.comments_chk.isChecked(),
+                    "comments_limit": self.comments_limit_combo.currentData(),
                     "sort": self.sort_combo.currentData() or "asc",
                     "split": self.split_combo.currentData() or "",
                 }
@@ -693,6 +720,22 @@ class DownloadTab(QWidget):
             else:
                 # Expanding - show down arrow
                 self.settings_item.setText("Settings ▼")
+
+    def _set_comments_limit(self, value):
+        """Select the comments-limit combo entry matching ``value``.
+
+        ``value`` is ``None`` (No limit) or an int preset. Falls back to the
+        "No limit" entry when the value is missing or not one of the presets.
+        """
+        try:
+            target = None if value in (None, "", 0, "0") else int(value)
+        except (TypeError, ValueError):
+            target = None
+        index = self.comments_limit_combo.findData(target)
+        if index < 0:
+            index = self.comments_limit_combo.findData(None)
+        if index >= 0:
+            self.comments_limit_combo.setCurrentIndex(index)
 
     def _browse_output(self):
         """Open a file dialog to select the output file."""
@@ -775,6 +818,12 @@ class DownloadTab(QWidget):
 
         if self.pdf_chk.isChecked():
             cmd_args.append("--pdf")
+
+        if self.comments_chk.isChecked():
+            cmd_args.append("--comments")
+            limit = self.comments_limit_combo.currentData()
+            if limit is not None:
+                cmd_args.extend(["--comments-limit", str(limit)])
 
         # Update UI for download start
         self._set_download_in_progress(True)
@@ -963,6 +1012,8 @@ class DownloadTab(QWidget):
         settings["media"] = self.media_chk.isChecked()
         settings["html"] = self.html_chk.isChecked()
         settings["pdf"] = self.pdf_chk.isChecked()
+        settings["comments"] = self.comments_chk.isChecked()
+        settings["comments_limit"] = self.comments_limit_combo.currentData()
         settings["sort"] = self.sort_combo.currentData() or "asc"
         settings["split"] = self.split_combo.currentData() or ""
 
@@ -993,6 +1044,8 @@ class DownloadTab(QWidget):
         self.media_chk.setChecked(bool(settings.get("media", False)))
         self.html_chk.setChecked(bool(settings.get("html", False)))
         self.pdf_chk.setChecked(bool(settings.get("pdf", False)))
+        self.comments_chk.setChecked(bool(settings.get("comments", False)))
+        self._set_comments_limit(settings.get("comments_limit"))
 
         sort_order = settings.get("sort", "asc")
         index = 0 if sort_order == "asc" else 1

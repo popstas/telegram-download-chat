@@ -52,6 +52,23 @@ def _reply_to_id(msg: Any) -> Any:
     return getattr(msg, "reply_to_msg_id", None)
 
 
+def _reply_is_cross_peer(msg: Any) -> bool:
+    """True when the reply targets a message in a *different* peer.
+
+    A Telegram quote-reply to another chat/channel carries a non-null
+    ``reply_to_peer_id``; its ``reply_to_msg_id`` lives in that other peer's id
+    space and must not be fetched against the current entity (it would resolve
+    to an unrelated, same-numbered message or to nothing).
+    """
+    if isinstance(msg, dict):
+        reply = msg.get("reply_to")
+        if isinstance(reply, dict):
+            return reply.get("reply_to_peer_id") is not None
+        return False
+    reply = getattr(msg, "reply_to", None)
+    return getattr(reply, "reply_to_peer_id", None) is not None
+
+
 def collect_missing_cited_ids(messages: Sequence[Any]) -> List[int]:
     """Return reply-target ids referenced by non-comment messages but absent.
 
@@ -70,6 +87,8 @@ def collect_missing_cited_ids(messages: Sequence[Any]) -> List[int]:
     missing: set = set()
     for msg in messages:
         if _comment_of(msg) is not None:
+            continue
+        if _reply_is_cross_peer(msg):
             continue
         rid = _reply_to_id(msg)
         if not isinstance(rid, int):

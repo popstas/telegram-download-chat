@@ -67,6 +67,24 @@ def test_collect_missing_cited_ids_skips_comments():
     assert collect_missing_cited_ids(messages) == []
 
 
+def test_collect_missing_cited_ids_skips_cross_peer_replies():
+    # A quote-reply to a message in another channel carries reply_to_peer_id;
+    # its reply_to_msg_id belongs to that other peer's id space and must not be
+    # fetched against the current entity.
+    messages = [
+        {"id": 10, "message": "post"},
+        {
+            "id": 11,
+            "message": "quote-reply to another channel",
+            "reply_to": {
+                "reply_to_msg_id": 5,
+                "reply_to_peer_id": {"_": "PeerChannel", "channel_id": 999},
+            },
+        },
+    ]
+    assert collect_missing_cited_ids(messages) == []
+
+
 def test_collect_missing_cited_ids_dedups_repeated_references():
     messages = [
         {"id": 10, "reply_to_msg_id": 5},

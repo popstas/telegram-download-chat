@@ -171,6 +171,60 @@ async def test_comment_media_download_failure_is_swallowed(tmp_path):
     assert "attachment_path" not in comments[0]
 
 
+@pytest.mark.asyncio
+async def test_post_media_reconciliation_ignores_comment_id_collision(tmp_path):
+    """A comment whose native discussion id collides with a post id must neither
+    shield the failed post from reconciliation nor be touched by it.
+
+    Comment ids and channel-post ids live in separate id spaces and can be equal
+    (both small integers). The post-media reconciliation must namespace comments
+    out, otherwise a same-numbered comment would keep a failed post's dangling
+    attachment_path alive.
+    """
+    import json
+
+    from telegram_download_chat.core import TelegramChatDownloader
+
+    out = tmp_path / "messages.json"
+    attachments = out.parent / "attachments"
+    # The comment's attachment already exists on disk (downloaded earlier).
+    (attachments / "images").mkdir(parents=True)
+    (attachments / "images" / "5_c.jpg").write_bytes(b"x")
+
+    class _Post:
+        def __init__(self, mid):
+            self.id = mid
+            self.media = object()
+
+        def to_dict(self):
+            return {"_": "Message", "id": self.id, "message": "post"}
+
+    comment = {
+        "id": 5,  # collides with the post id below
+        "comment_of": 1,
+        "message": "comment",
+        "attachment_path": "images/5_c.jpg",
+    }
+    post = _Post(5)
+
+    downloader = TelegramChatDownloader()
+    downloader.logger = MagicMock()
+    downloader.get_predicted_attachment_path = MagicMock(return_value="images/5_p.jpg")
+    # The post's media download fails -> absent from the results map.
+    downloader.download_all_media = AsyncMock(return_value={})
+
+    await downloader.save_messages(
+        [post, comment], str(out), save_txt=False, download_media=True
+    )
+
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    by = {(m.get("comment_of"), m["id"]): m for m in saved}
+    # Comment keeps its real (existing) attachment.
+    assert by[(1, 5)]["attachment_path"] == "images/5_c.jpg"
+    # Failed post download is nulled, not shielded by the comment's id.
+    assert by[(None, 5)]["attachment_path"] is None
+
+
 def test_html_renders_comment_media_inline(tmp_path):
     """A comment with an attachment_path renders its image in the HTML export."""
     post = {

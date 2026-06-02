@@ -424,9 +424,15 @@ class MessagesMixin:
                         existing = attachments_dir / msg["attachment_path"]
                         if existing.exists():
                             msg_dict["attachment_path"] = msg["attachment_path"]
-                            mid = str(msg.get("id", ""))
-                            if mid:
-                                preserved_ids.add(mid)
+                            # Only post ids feed the post-media reconciliation.
+                            # A comment keeps its native discussion id, which can
+                            # numerically collide with a post id; namespacing it
+                            # out here keeps a failed post from being shielded by
+                            # a same-numbered comment (see reconciliation below).
+                            if msg.get("comment_of") is None:
+                                mid = str(msg.get("id", ""))
+                                if mid:
+                                    preserved_ids.add(mid)
                         else:
                             msg_dict["attachment_path"] = None
                     else:
@@ -474,14 +480,21 @@ class MessagesMixin:
             # Reconcile predicted paths with actual download results:
             # - null out attachment_path for messages whose downloads failed
             # - update attachment_path when Telethon used a different filename
+            # Comment dicts carry their own attachment_path (downloaded during
+            # the comment pass) and live in a separate id space, so they are
+            # excluded from the post-media reconciliation entirely.
             ids_with_predicted_path = {
                 str(m.get("id", ""))
                 for m in serializable_messages
-                if m.get("attachment_path") is not None and m.get("id")
+                if m.get("attachment_path") is not None
+                and m.get("id")
+                and m.get("comment_of") is None
             }
             if ids_with_predicted_path:
                 changed = False
                 for m in serializable_messages:
+                    if m.get("comment_of") is not None:
+                        continue
                     mid = str(m.get("id", ""))
                     if mid in preserved_ids:
                         continue

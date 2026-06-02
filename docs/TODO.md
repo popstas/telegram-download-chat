@@ -19,3 +19,5 @@
 - [ ] Add the application version number to the GUI window title.
 
 - [ ] Add a minimal Windows installer — portable version only for now. Support incremental updates if possible (most of the distribution is the Python runtime, so only the changed app files should need updating).
+
+- [ ] Make the GUI progress bars more visual: change the color from red to green and/or draw a progress line.

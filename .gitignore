@@ -40,7 +40,9 @@ ENV/
 *.txt
 !requirements*.txt
 !test*.json
-data/
+# e2e output dir (keep the dir tracked, ignore its contents)
+/data/*
+!/data/.gitkeep
 *.log
 
 # Config files (uncomment to ignore)

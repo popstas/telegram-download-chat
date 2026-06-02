@@ -51,6 +51,9 @@ pytest tests/test_telegram_download_chat.py::TestClass::test_method
 TG_E2E=1 pytest -m e2e   # override the group via TG_E2E_GROUP
 ```
 
+After export/render changes, save live e2e results to the repo's `./data` directory
+(gitignored; the dir is kept via `data/.gitkeep`) rather than a path outside the repo.
+
 ### Code Quality
 ```bash
 # Format code

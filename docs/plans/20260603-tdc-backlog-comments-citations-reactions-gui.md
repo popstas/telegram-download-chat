@@ -40,10 +40,10 @@ The tasks are largely independent and are sequenced so the `./data` output conve
 
 ### Task 1: Add ./data e2e output directory convention
 
-- [ ] Create a `./data` directory at the repo root (e.g. add a tracked `.gitkeep` so the dir exists)
-- [ ] Add `/data/` to `.gitignore` so e2e output is not committed
-- [ ] Update `CLAUDE.md` so the e2e workflow saves results to `./data` instead of `~/tmp/e2e-tdc`
-- [ ] run project tests - must pass before next task
+- [x] Create a `./data` directory at the repo root (e.g. add a tracked `.gitkeep` so the dir exists)
+- [x] Add `/data/` to `.gitignore` so e2e output is not committed
+- [x] Update `CLAUDE.md` so the e2e workflow saves results to `./data` instead of `~/tmp/e2e-tdc`
+- [x] run project tests - must pass before next task
 
 ### Task 2: Fetch cited/replied messages outside the date window
 

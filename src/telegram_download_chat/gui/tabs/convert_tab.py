@@ -140,9 +140,12 @@ class ConvertTab(QWidget):
 
         layout.addWidget(output_group, 1)
 
-        # Progress bar
+        # Progress bar (shared green styling, see gui.utils.styles)
+        from ..utils.styles import style_progress_bar
+
         self.progress = QProgressBar()
         self.progress.setVisible(False)
+        style_progress_bar(self.progress)
         layout.addWidget(self.progress)
 
         # Buttons

@@ -93,9 +93,9 @@ The tasks are largely independent and are sequenced so the `./data` output conve
 
 ### Task 8: More visual GUI progress bars
 
-- [ ] Change the GUI progress bar color from red to green and/or draw a progress line for clearer progress indication
-- [ ] write tests/manual-check notes for the progress bar styling change where testable
-- [ ] run project tests - must pass before next task
+- [x] Change the GUI progress bar color from red to green and/or draw a progress line for clearer progress indication
+- [x] write tests/manual-check notes for the progress bar styling change where testable
+- [x] run project tests - must pass before next task
 
 ### Task 9: Minimal Windows installer (portable-only)
 

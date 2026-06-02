@@ -87,6 +87,24 @@ telegram-download-chat channel_username --comments
 # Cap comments fetched per post (here: 50 per post)
 telegram-download-chat channel_username --comments --comments-limit 50
 
+# Split output into separate files by month or year
+telegram-download-chat username --split month
+
+# Split a forum into one subdirectory per topic
+telegram-download-chat group_username --split topics
+
+# Export a Telegram-style HTML page (alongside JSON/TXT)
+telegram-download-chat username --html
+
+# Export HTML with clickable media file-path captions
+telegram-download-chat username --media --html --html-media-links
+
+# Export a PDF document (alongside JSON/TXT)
+telegram-download-chat username --pdf
+
+# Disable parallel multi-connection media downloads (use single-stream)
+telegram-download-chat username --media --no-fast-download
+
 # Show current configuration
 telegram-download-chat --show-config
 
@@ -128,12 +146,19 @@ options:
   -c, --config CONFIG   Path to config file
   --debug               Enable debug logging
   --sort {asc,desc}     Sort messages by date (default: asc)
+  --split {month,year,topics}
+                        Split output: by month, by year, or by forum topic
+                        (one <chat>/<topic_slug>/ subdirectory per topic)
   --show-config         Show config file location and exit
   --results-json        Output results summary as JSON to stdout
   --keywords KEYWORDS  Only save messages containing these keywords (comma-separated)
   --preset PRESET     Use preset from config
   --media               Download media attachments to a separate folder
+  --no-fast-download    Disable parallel multi-connection media downloads (use single-stream Telethon downloader)
   --media-placeholders  Insert media type indicators (e.g. [photo], [file=name.pdf]) in TXT output
+  --html                Export chat as a Telegram-style HTML file (alongside JSON/TXT)
+  --html-media-links    Show clickable file path captions under each media element in HTML export
+  --pdf                 Export chat as a PDF document (alongside JSON/TXT)
   --comments            Download post comments from a channel's linked discussion group (channel-only; no-op on other entities and channels without comments)
   --comments-limit N    Max comments to fetch per post (requires --comments; omit for unlimited)
   --overwrite           Replace existing output files instead of resuming

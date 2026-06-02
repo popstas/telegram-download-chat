@@ -105,8 +105,8 @@ The tasks are largely independent and are sequenced so the `./data` output conve
 
 ### Task 10: Document missing CLI flags in README
 
-- [ ] Document the flags present in `--help` but missing from the README: `--split {month,year,topics}`, `--no-fast-download`, `--html`, `--html-media-links`, `--pdf`
-- [ ] run project tests - must pass before next task
+- [x] Document the flags present in `--help` but missing from the README: `--split {month,year,topics}`, `--no-fast-download`, `--html`, `--html-media-links`, `--pdf`
+- [x] run project tests - must pass before next task
 
 ### Task 11: Verify acceptance criteria
 

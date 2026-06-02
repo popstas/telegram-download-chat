@@ -9,3 +9,7 @@
   - [ ] Progress: emit a structured `type: "comments"` event per post (posts done/total, comments so far) via `core/progress.py`; GUI worker surfaces it (parallel to the `media` event handling in `gui/worker.py`).
   - [ ] Tests: unit — parent-id normalization (comment fetched under post P has `reply_to_msg_id == P`, `comment_of == P`, native id preserved as `discussion_msg_id`); no-linked-group path skips cleanly; comments-disabled post skipped. Integration — combined list threads correctly through existing TXT/HTML ordering (comment nested under its post). Then `pytest`, `black`, `isort`.
   - [ ] e2e: run against a real channel-with-comments (`@seeallochnaya`) with `--comments` (+ `--html`), verify comments appear nested under posts in JSON and rendered output; copy results to `~/tmp/e2e-tdc`.
+
+- [ ] Create directory `./data`, add it to `.gitignore`, and update `CLAUDE.md` so e2e results are saved to `./data` (instead of `~/tmp/e2e-tdc`).
+
+- [ ] Download replied/cited messages that fall outside the requested window. Example: downloading the last 7 days — message 1 (2026-05-01) was replied to by message 2 (2026-06-01). Current behavior: when message 2 is downloaded, the cited message 1 is empty because it's outside the date range. Expected: also fetch the referenced message 1 (by its id) so the citation is populated.

@@ -99,9 +99,9 @@ The tasks are largely independent and are sequenced so the `./data` output conve
 
 ### Task 9: Minimal Windows installer (portable-only)
 
-- [ ] Add a minimal Windows installer producing the portable distribution
-- [ ] Support incremental updates if feasible (so only changed app files update, not the bundled Python runtime); document the limitation if not feasible now
-- [ ] run project tests - must pass before next task
+- [x] Add a minimal Windows installer producing the portable distribution
+- [x] Support incremental updates if feasible (so only changed app files update, not the bundled Python runtime); document the limitation if not feasible now
+- [x] run project tests - must pass before next task
 
 ### Task 10: Document missing CLI flags in README
 

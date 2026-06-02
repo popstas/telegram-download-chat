@@ -183,6 +183,36 @@ Windows build is available in the [releases](https://github.com/popstas/telegram
    telegram-download-chat gui
    ```
 
+### Portable Windows build
+
+A portable, no-installer Windows distribution can be produced with
+`build_windows_portable.ps1`. Unlike the single-file build (`build_windows.ps1`),
+this uses PyInstaller's one-directory mode and packages the result into a
+versioned zip:
+
+```powershell
+.\build_windows_portable.ps1
+```
+
+Outputs:
+
+- `dist\telegram-download-chat\` — the portable folder; run
+  `telegram-download-chat.exe` from anywhere, no installation or registry
+  changes.
+- `dist\telegram-download-chat-portable-<version>.zip` — the distributable zip.
+- `dist\telegram-download-chat\manifest.json` — a per-file SHA-256 manifest
+  (also packaged via `scripts/package_portable.py`).
+
+**Incremental updates:** the manifest enables file-level incremental updates — an
+updater can compare an installed version's manifest against a new one
+(`package_portable.diff_manifests`) and copy only the changed/added files,
+skipping unchanged runtime DLLs and data files. *Limitation:* PyInstaller bundles
+the application's own Python code together with the interpreter inside
+`_internal` (the compiled `PYZ` archive), so a release that changes only our
+`.py` files still rewrites that archive and it will always appear in the update
+set. Cleanly separating the bundled Python runtime from the app code is out of
+scope for this minimal portable build.
+
 ### Web Interface
 
 A lightweight web interface built with Streamlit is also available.

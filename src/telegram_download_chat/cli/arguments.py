@@ -40,6 +40,8 @@ class CLIOptions:
     export_pdf: bool = False
     media_placeholders: bool = False
     no_fast_download: bool = False
+    comments: bool = False
+    comments_limit: Optional[int] = None
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -194,6 +196,24 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--media-placeholders",
         action="store_true",
         help="Insert media type indicators (e.g. [photo], [file=name.pdf]) in TXT output",
+    )
+    parser.add_argument(
+        "--comments",
+        action="store_true",
+        help=(
+            "Download post comments from a channel's linked discussion group "
+            "(channel-only; no-op on other entities and channels without comments)"
+        ),
+    )
+    parser.add_argument(
+        "--comments-limit",
+        dest="comments_limit",
+        type=int,
+        default=None,
+        help=(
+            "Max comments to fetch per post (requires --comments; "
+            "omit for unlimited)"
+        ),
     )
 
     args = parser.parse_args(argv)

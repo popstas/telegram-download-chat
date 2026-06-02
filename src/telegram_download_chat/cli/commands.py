@@ -12,6 +12,10 @@ from typing import Any, Dict, List, Optional
 from telethon.tl.types import Channel, Chat, User
 
 from telegram_download_chat.core import TelegramChatDownloader
+from telegram_download_chat.core.comments import (
+    download_post_comments,
+    get_linked_discussion,
+)
 from telegram_download_chat.core.topics import (
     GENERAL_KEY,
     fetch_forum_topics,
@@ -236,6 +240,53 @@ async def save_txt_with_status(
     )
 
 
+async def fetch_channel_comments(
+    downloader: TelegramChatDownloader,
+    chat_identifier: Any,
+    messages: List[Any],
+    args: CLIOptions,
+) -> List[Any]:
+    """Fetch comments for downloaded channel posts when ``--comments`` is set.
+
+    Returns a flat list of normalized comment dicts to append to ``messages``.
+    Returns an empty list (with an info log) when the entity is not a broadcast
+    channel or the channel has no linked discussion group.
+    """
+    if not getattr(args, "comments", False):
+        return []
+
+    entity = await downloader.get_entity(chat_identifier)
+    if not getattr(entity, "broadcast", False):
+        downloader.logger.info(
+            "--comments only applies to broadcast channels; skipping comments"
+        )
+        return []
+
+    linked = await get_linked_discussion(downloader, entity)
+    if not linked:
+        downloader.logger.info(
+            "Channel has no linked discussion group; skipping comments"
+        )
+        return []
+
+    post_ids = [
+        m.get("id") if isinstance(m, dict) else getattr(m, "id", None) for m in messages
+    ]
+    post_ids = [pid for pid in post_ids if pid is not None]
+    if not post_ids:
+        return []
+
+    downloader.logger.info(f"Fetching comments for {len(post_ids)} post(s)...")
+    comments = await download_post_comments(
+        downloader,
+        entity,
+        post_ids,
+        limit=args.comments_limit,
+    )
+    downloader.logger.info(f"Fetched {len(comments)} comment(s)")
+    return comments
+
+
 async def process_chat_download(
     downloader: TelegramChatDownloader,
     chat_identifier: Any,
@@ -330,6 +381,13 @@ async def process_chat_download(
 
     if existing_messages:
         messages = _dedup_messages(existing_messages + messages)
+
+    if args.comments and messages:
+        comments = await fetch_channel_comments(
+            downloader, chat_identifier, messages, args
+        )
+        if comments:
+            messages = messages + comments
 
     if args.subchat:
         messages = filter_messages_by_subchat(messages, args.subchat)
@@ -873,6 +931,7 @@ __all__ = [
     "analyze_keywords",
     "save_messages_with_status",
     "save_txt_with_status",
+    "fetch_channel_comments",
     "process_chat_download",
     "convert",
     "folder",

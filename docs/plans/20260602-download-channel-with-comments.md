@@ -57,12 +57,12 @@ Date windowing already works via the existing `--last-days` / `--min-date` / `--
 
 ### Task 2: Wire --comments into the download flow and CLI
 
-- [ ] Add `--comments` to `cli/arguments.py` and `comments: bool = False` to `CLIOptions`; help text notes channel-only
-- [ ] Add `--comments-limit N` (int, default `None`) to `cli/arguments.py` and `comments_limit: Optional[int] = None` to `CLIOptions`; help text notes it requires `--comments` and that omitting it means unlimited
-- [ ] In `process_chat_download` (`cli/commands.py`), when `args.comments` and the resolved entity is a `broadcast` channel with a linked group, fetch comments (passing `limit=args.comments_limit`) for the downloaded post ids and append them to the message list before save/dedup/render
-- [ ] On non-broadcast entities or channels with no linked group, log an info message and skip comments while still saving posts
-- [ ] write tests: integration — the combined list (posts + normalized comments) threads correctly through the existing TXT/HTML ordering so each comment nests under its post; `--comments-limit` is forwarded into `download_post_comments` and caps per-post comments; no-linked-group path saves posts only
-- [ ] run project tests - must pass before next task
+- [x] Add `--comments` to `cli/arguments.py` and `comments: bool = False` to `CLIOptions`; help text notes channel-only
+- [x] Add `--comments-limit N` (int, default `None`) to `cli/arguments.py` and `comments_limit: Optional[int] = None` to `CLIOptions`; help text notes it requires `--comments` and that omitting it means unlimited
+- [x] In `process_chat_download` (`cli/commands.py`), when `args.comments` and the resolved entity is a `broadcast` channel with a linked group, fetch comments (passing `limit=args.comments_limit`) for the downloaded post ids and append them to the message list before save/dedup/render
+- [x] On non-broadcast entities or channels with no linked group, log an info message and skip comments while still saving posts
+- [x] write tests: integration — the combined list (posts + normalized comments) threads correctly through the existing TXT/HTML ordering so each comment nests under its post; `--comments-limit` is forwarded into `download_post_comments` and caps per-post comments; no-linked-group path saves posts only
+- [x] run project tests - must pass before next task
 
 ### Task 3: Add GUI checkbox and structured comments progress
 

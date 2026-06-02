@@ -14,8 +14,12 @@ from telethon.tl.types import Channel, Chat, User
 from telegram_download_chat.core import TelegramChatDownloader
 from telegram_download_chat.core.citations import fetch_cited_messages
 from telegram_download_chat.core.comments import (
+    clear_comments_checkpoint,
     download_post_comments,
+    get_comments_checkpoint_path,
     get_linked_discussion,
+    load_comments_checkpoint,
+    save_comments_checkpoint,
 )
 from telegram_download_chat.core.topics import (
     GENERAL_KEY,
@@ -288,6 +292,7 @@ async def fetch_channel_comments(
     messages: List[Any],
     args: CLIOptions,
     attachments_dir: Optional[Path] = None,
+    checkpoint_path: Optional[Path] = None,
 ) -> List[Any]:
     """Fetch comments for downloaded channel posts when ``--comments`` is set.
 
@@ -298,6 +303,12 @@ async def fetch_channel_comments(
     When ``--media`` is active, ``attachments_dir`` points at the chat's
     ``attachments/`` directory so comment attachments are downloaded there and
     each comment dict gets an ``attachment_path`` for JSON/HTML output.
+
+    When ``checkpoint_path`` is set, posts whose comments were already fetched in
+    a prior interrupted run (recorded in that sidecar file) are skipped, and each
+    post is checkpointed as it completes. The checkpoint is cleared once the fetch
+    finishes without a stop request, so a later incremental run re-scans all posts
+    for new comments — mirroring the partial-download file lifecycle.
     """
     if not getattr(args, "comments", False):
         return []
@@ -328,6 +339,33 @@ async def fetch_channel_comments(
     if not post_ids:
         return []
 
+    # Skip posts already scanned in a prior interrupted run.
+    done_posts: set = (
+        load_comments_checkpoint(checkpoint_path) if checkpoint_path else set()
+    )
+    on_post_done = None
+    if done_posts:
+        skipped = len(done_posts & set(post_ids))
+        if skipped:
+            downloader.logger.info(
+                f"Resuming comments: skipping {skipped} post(s) already fetched"
+            )
+        post_ids = [pid for pid in post_ids if pid not in done_posts]
+
+    if checkpoint_path is not None:
+
+        def on_post_done(post_id: int) -> None:  # noqa: F811 - conditional def
+            done_posts.add(post_id)
+            save_comments_checkpoint(checkpoint_path, done_posts)
+
+    if not post_ids:
+        # Everything was already fetched; the checkpoint has served its purpose.
+        if checkpoint_path is not None and not getattr(
+            downloader, "_stop_requested", False
+        ):
+            clear_comments_checkpoint(checkpoint_path)
+        return []
+
     downloader.logger.info(f"Fetching comments for {len(post_ids)} post(s)...")
     comments = await download_post_comments(
         downloader,
@@ -336,8 +374,17 @@ async def fetch_channel_comments(
         limit=args.comments_limit,
         download_media=bool(getattr(args, "media", False)),
         attachments_dir=attachments_dir,
+        on_post_done=on_post_done,
     )
     downloader.logger.info(f"Fetched {len(comments)} comment(s)")
+
+    # Completed without a stop request -> clear the checkpoint so a future
+    # incremental run re-scans all posts for newly added comments.
+    if checkpoint_path is not None and not getattr(
+        downloader, "_stop_requested", False
+    ):
+        clear_comments_checkpoint(checkpoint_path)
+
     return comments
 
 
@@ -419,6 +466,8 @@ async def process_chat_download(
         part_path = downloader.get_temp_file_path(output_path)
         if part_path.exists():
             part_path.unlink()
+        # Fresh start: drop any stale comments-resume checkpoint too.
+        clear_comments_checkpoint(get_comments_checkpoint_path(output_path))
 
     download_kwargs = {
         "chat_id": chat_identifier,
@@ -477,6 +526,7 @@ async def process_chat_download(
             messages,
             args,
             attachments_dir=comments_attachments_dir,
+            checkpoint_path=get_comments_checkpoint_path(Path(output_file)),
         )
         if comments:
             # Dedup so a resumed run doesn't accumulate comments already saved

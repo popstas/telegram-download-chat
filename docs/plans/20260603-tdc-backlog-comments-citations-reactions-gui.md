@@ -70,11 +70,11 @@ The tasks are largely independent and are sequenced so the `./data` output conve
 
 ### Task 5: Make comment fetching resumable across restarts
 
-- [ ] Checkpoint which posts have already had their comments fetched so restarting an interrupted `--comments` job does not re-scan every post
-- [ ] Ensure the resume logic coexists with the existing post-based resume cursor and comment dedup (`comment_of`-keyed)
-- [ ] write tests verifying a restarted run skips posts whose comments were already fetched
-- [ ] run project tests - must pass before next task
-- [ ] e2e: interrupt and restart a `--comments` run against `@seeallochnaya`, confirm previously-scanned posts are skipped; copy results to `./data`
+- [x] Checkpoint which posts have already had their comments fetched so restarting an interrupted `--comments` job does not re-scan every post
+- [x] Ensure the resume logic coexists with the existing post-based resume cursor and comment dedup (`comment_of`-keyed)
+- [x] write tests verifying a restarted run skips posts whose comments were already fetched
+- [x] run project tests - must pass before next task
+- [x] e2e: interrupt and restart a `--comments` run against `@seeallochnaya`, confirm previously-scanned posts are skipped; copy results to `./data` (skipped - requires live authenticated Telethon session, not automatable here)
 
 ### Task 6: Collect and render message reactions
 

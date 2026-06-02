@@ -15,12 +15,71 @@ discussion message id is preserved as ``discussion_msg_id``.
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set
 
 from telethon.errors import FloodWaitError, MsgIdInvalidError
 
 from .progress import emit_progress
+
+
+def get_comments_checkpoint_path(output_file: Any) -> Path:
+    """Return the sidecar checkpoint path for an output file.
+
+    Mirrors the partial-download file convention: a checkpoint lives next to the
+    chat's ``messages.json`` and records which post ids have already had their
+    comments fetched, so an interrupted ``--comments`` run resumes instead of
+    re-scanning every post.
+    """
+    return Path(output_file).with_suffix(".comments-progress.json")
+
+
+def load_comments_checkpoint(path: Any) -> Set[int]:
+    """Load the set of post ids whose comments were already fetched.
+
+    Returns an empty set when the checkpoint is missing or unreadable so callers
+    fall back to scanning every post (the dedup logic keeps that correct, just
+    slower).
+    """
+    p = Path(path)
+    if not p.exists():
+        return set()
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return set()
+    done: Set[int] = set()
+    if isinstance(data, list):
+        for pid in data:
+            try:
+                done.add(int(pid))
+            except (TypeError, ValueError):
+                continue
+    return done
+
+
+def save_comments_checkpoint(path: Any, done_post_ids: Iterable[int]) -> None:
+    """Persist the set of fetched-post ids to the checkpoint file (best-effort)."""
+    p = Path(path)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(sorted(int(pid) for pid in done_post_ids), f)
+    except OSError:
+        # Checkpointing is an optimization; a write failure must not abort the run.
+        pass
+
+
+def clear_comments_checkpoint(path: Any) -> None:
+    """Remove the checkpoint file if present (best-effort)."""
+    p = Path(path)
+    try:
+        if p.exists():
+            p.unlink()
+    except OSError:
+        pass
 
 
 async def get_linked_discussion(downloader: Any, entity: Any) -> Optional[int]:
@@ -99,6 +158,7 @@ async def download_post_comments(
     limit: Optional[int] = None,
     download_media: bool = False,
     attachments_dir: Optional[Any] = None,
+    on_post_done: Optional[Callable[[int], None]] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch comment threads for the given channel ``post_ids``.
 
@@ -124,6 +184,11 @@ async def download_post_comments(
         attachments_dir: Target attachments directory for comment media; must
             match the chat's ``attachments/`` dir so ``save_messages`` finds the
             downloaded files.
+        on_post_done: Optional callback invoked with each post id once that
+            post's comment thread has been fully scanned (including posts with
+            no comments / comments disabled). Used to checkpoint resume progress.
+            Not called for posts skipped due to a transient fetch failure, so a
+            restart retries them.
 
     Returns:
         A flat list of normalized comment dicts across all posts.
@@ -162,6 +227,10 @@ async def download_post_comments(
 
         post_comments: List[Dict[str, Any]] = []
         post_raw_media: List[Any] = []
+        # Whether the post's thread was actually scanned (success or legitimately
+        # empty). A transient failure leaves this False so the post is retried on
+        # the next run rather than checkpointed as done.
+        scanned = False
         while True:
             # Restart the list per attempt so a mid-iteration flood-wait retry
             # re-fetches from scratch instead of duplicating comments.
@@ -174,6 +243,7 @@ async def download_post_comments(
                         post_raw_media.append(msg)
                     if not unlimited and len(post_comments) >= limit:
                         break
+                scanned = True
                 break
             except FloodWaitError as exc:
                 wait = exc.seconds + 1
@@ -190,6 +260,7 @@ async def download_post_comments(
                         f"Post {post_id} has no comments (or comments disabled), skipping"
                     )
                 post_comments = []
+                scanned = True
                 break
             except (
                 Exception
@@ -199,11 +270,15 @@ async def download_post_comments(
                         f"Failed to fetch comments for post {post_id}: {exc}"
                     )
                 post_comments = []
+                scanned = False
                 break
 
         comments.extend(post_comments)
         if want_media and post_raw_media:
             raw_media_messages.extend(post_raw_media)
+
+        if scanned and on_post_done is not None:
+            on_post_done(post_id)
 
         emit_progress(
             {
@@ -266,4 +341,8 @@ async def _download_comment_media(
 __all__ = [
     "download_post_comments",
     "get_linked_discussion",
+    "get_comments_checkpoint_path",
+    "load_comments_checkpoint",
+    "save_comments_checkpoint",
+    "clear_comments_checkpoint",
 ]

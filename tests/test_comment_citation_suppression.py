@@ -78,9 +78,50 @@ def test_comment_quoting_another_comment_is_still_cited(tmp_path):
         chat_title="t",
     )
     html = out.read_text(encoding="utf-8")
-    # The intra-comment reply is preserved (cites the quoted comment).
+    # The intra-comment reply is preserved (cites the quoted comment). The link
+    # resolves to the comment's namespaced anchor (cmt-<post>-<discussion id>),
+    # not a bare msg-<id> that could collide with a same-numbered channel post.
     assert "first comment" in html
-    assert 'href="#msg-1001"' in html
+    assert 'id="cmt-1-1001"' in html
+    assert 'href="#cmt-1-1001"' in html
+    assert 'href="#msg-1001"' not in html
+
+
+def test_post_citation_not_shadowed_by_same_id_comment(tmp_path):
+    """A reply to a post anchors to the post even when a comment under another
+    post shares the post's numeric id (comments live in a separate id space).
+
+    Without namespaced comment anchors, both would emit ``id="msg-100"`` and the
+    ``#msg-100`` reply link could jump to the comment instead of the post.
+    """
+    renderer = _renderer()
+    out = tmp_path / "out.html"
+    renderer.render_html(
+        [
+            _post(100, 0, "target post"),
+            _post(200, 10, "other post"),
+            # Comment under post 200 whose discussion id collides with post 100.
+            _comment(100, 15, 2, "colliding comment", comment_of=200),
+            # A later post replies to post 100.
+            {
+                "id": 300,
+                "date": "2026-01-01T10:20:00+00:00",
+                "from_id": {"channel_id": 500},
+                "user_display_name": "Channel",
+                "message": "reply to target",
+                "reply_to": {"reply_to_msg_id": 100},
+            },
+        ],
+        out,
+        chat_title="t",
+    )
+    html = out.read_text(encoding="utf-8")
+    # The post keeps the bare msg-100 anchor, emitted exactly once...
+    assert html.count('id="msg-100"') == 1
+    # ...while the colliding comment is namespaced, so msg-100 is not duplicated.
+    assert 'id="cmt-200-100"' in html
+    # The reply resolves to the post's anchor.
+    assert 'href="#msg-100"' in html
 
 
 def test_non_comment_reply_citation_unaffected(tmp_path):

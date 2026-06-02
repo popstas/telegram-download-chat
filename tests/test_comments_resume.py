@@ -11,7 +11,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from telegram_download_chat.cli.arguments import parse_args
-from telegram_download_chat.cli.commands import fetch_channel_comments
+from telegram_download_chat.cli.commands import (
+    _persist_comments_checkpoint,
+    fetch_channel_comments,
+)
 from telegram_download_chat.core.comments import (
     clear_comments_checkpoint,
     download_post_comments,
@@ -187,7 +190,8 @@ async def test_checkpoint_cleared_on_completion(tmp_path):
         downloader, "@chan", posts, args, checkpoint_path=checkpoint
     )
 
-    # A fully-completed fetch leaves no checkpoint behind.
+    # Persistence is deferred to the post-save hook; a clean finish clears it.
+    _persist_comments_checkpoint(downloader)
     assert not checkpoint.exists()
 
 
@@ -216,26 +220,33 @@ async def test_checkpoint_kept_when_stopped(tmp_path):
         downloader, "@chan", posts, args, checkpoint_path=checkpoint
     )
 
-    # Post 2 was never queried (stopped); the checkpoint persists with post 1.
+    # Post 2 was never queried (stopped). The checkpoint is not written until
+    # the post-save hook runs, after which it persists with post 1.
     assert downloader._seen_reply_to == [1]
+    assert not checkpoint.exists()
+    _persist_comments_checkpoint(downloader)
     assert checkpoint.exists()
     assert load_comments_checkpoint(checkpoint) == {1}
 
 
 @pytest.mark.asyncio
-async def test_progressive_checkpoint_written_per_post(tmp_path):
+async def test_checkpoint_not_written_during_fetch(tmp_path):
+    """The checkpoint must not hit disk mid-fetch.
+
+    Writing it before the comments are durably saved would let it get ahead of
+    the saved output: a hard kill in between would then make a resume skip posts
+    whose comments were never saved, losing them. The in-memory state still
+    tracks every scanned post so the post-save hook can persist them.
+    """
     checkpoint = get_comments_checkpoint_path(tmp_path / "messages.json")
     downloader = _make_downloader({1: [_FakeComment(1001)], 2: [_FakeComment(1002)]})
 
-    # Capture the on-disk checkpoint at the moment post 2 starts scanning: it
-    # must already contain post 1, which proves the checkpoint is persisted
-    # after each post rather than once at the end of the run.
-    checkpoint_at_post2 = {}
+    state_at_post2 = {}
     orig_iter = downloader.client.iter_messages
 
     def iter_messages(channel_entity, reply_to=None):
         if reply_to == 2:
-            checkpoint_at_post2["state"] = load_comments_checkpoint(checkpoint)
+            state_at_post2["exists"] = checkpoint.exists()
         return orig_iter(channel_entity, reply_to=reply_to)
 
     downloader.client.iter_messages = iter_messages
@@ -247,8 +258,11 @@ async def test_progressive_checkpoint_written_per_post(tmp_path):
         downloader, "@chan", posts, args, checkpoint_path=checkpoint
     )
 
-    # Post 1 was checkpointed before post 2 was queried (progressive write).
-    assert checkpoint_at_post2.get("state") == {1}
+    # No on-disk checkpoint existed while post 2 was being scanned.
+    assert state_at_post2.get("exists") is False
     assert downloader._seen_reply_to == [1, 2]
-    # A clean completion still clears the checkpoint at the end.
+    # The in-memory state tracks both scanned posts, ready for the post-save hook.
+    assert downloader._comments_checkpoint_state["done"] == {1, 2}
+    # A clean completion clears it.
+    _persist_comments_checkpoint(downloader)
     assert not checkpoint.exists()

@@ -209,12 +209,12 @@ a:hover{text-decoration:underline}
     <div class="sname" style="color:{{ item.sender_color }}">{{ item.sender_name | e }}</div>
     {%- endif %}
     {%- for msg in item.messages %}
-    <div class="bbl"{% if msg.id is not none %} id="msg-{{ msg.id }}"{% endif %}>
+    <div class="bbl"{% if msg.anchor %} id="{{ msg.anchor }}"{% endif %}>
       {%- if msg.fwd_from_name %}
       <div class="fwd">&#8627; Forwarded from {{ msg.fwd_from_name | e }}</div>
       {%- endif %}
       {%- if msg.reply_text %}
-      <div class="rq">{% if msg.reply_to_id is not none %}<a href="#msg-{{ msg.reply_to_id }}">{{ msg.reply_text | e }}</a>{% else %}{{ msg.reply_text | e }}{% endif %}</div>
+      <div class="rq">{% if msg.reply_anchor %}<a href="#{{ msg.reply_anchor }}">{{ msg.reply_text | e }}</a>{% else %}{{ msg.reply_text | e }}{% endif %}</div>
       {%- endif %}
       {%- if msg.attachment_path %}
         {%- set src = (media_prefix + msg.attachment_path) | urlencode_path %}
@@ -663,7 +663,7 @@ class RenderMixin:
                         pass
 
             reply_text: Optional[str] = None
-            reply_to_id: Optional[Any] = None
+            reply_anchor: Optional[str] = None
             parent_id = _reply_parent_id(msg)
             parent_msg = id_to_msg.get(parent_id) if parent_id is not None else None
             # Don't cite a parent that is the message's own topic root: the
@@ -698,7 +698,16 @@ class RenderMixin:
                     if qt:
                         cited = str(qt)[:150]
                 reply_text = cited or f"Message #{parent_id}"
-                reply_to_id = parent_id
+                # Anchor to the parent's *actual* bubble id. Resolving it from
+                # the indexed parent (rather than emitting a bare ``msg-<id>``)
+                # keeps the link correct across the comment/post id-space split:
+                # the index prefers a post over a same-numbered comment, so a
+                # ``msg-<post_id>`` citation always lands on the post, never on a
+                # collision in the discussion id space. (Channel comments cite
+                # only their parent post — ``_normalize_comment`` rewrites every
+                # comment's reply target to the post id — and that citation is
+                # suppressed above, so a comment never resolves here.)
+                reply_anchor = _anchor_for(parent_msg)
             else:
                 # Parent not in export: fall back to the stored quote text.
                 reply_to = msg.get("reply_to")
@@ -715,12 +724,13 @@ class RenderMixin:
             current_group["messages"].append(
                 {  # type: ignore[index]
                     "id": msg.get("id"),
+                    "anchor": _anchor_for(msg),
                     "text": msg.get("message") or "",
                     "entities": msg.get("entities") or [],
                     "time": _fmt_time(date_str),
                     "edited": bool(msg.get("edit_date")),
                     "reply_text": reply_text,
-                    "reply_to_id": reply_to_id,
+                    "reply_anchor": reply_anchor,
                     "fwd_from_name": fwd_name,
                     "attachment_path": att_path,
                     "attachment_filename": att_filename,
@@ -949,6 +959,25 @@ def _xml_escape(text: str) -> str:
 _ALLOWED_URL_SCHEMES = {"http", "https", "mailto", "tg"}
 
 _SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*):")
+
+
+def _anchor_for(msg: Dict[str, Any]) -> Optional[str]:
+    """Return the HTML anchor id for a message bubble (``None`` if it has no id).
+
+    A channel comment keeps its native discussion id, which lives in a separate
+    id space and can collide numerically with a real channel post id. Emitting
+    ``msg-<id>`` for both would create duplicate HTML ids, so a ``#msg-<post_id>``
+    reply link could jump to a same-numbered comment instead of the post.
+    Namespacing comment anchors by their parent post keeps ``msg-<post_id>``
+    unambiguous while still giving comments a stable, resolvable anchor.
+    """
+    mid = msg.get("id")
+    if mid is None:
+        return None
+    comment_of = msg.get("comment_of")
+    if comment_of is not None:
+        return f"cmt-{comment_of}-{mid}"
+    return f"msg-{mid}"
 
 
 def _reply_parent_id(msg: Dict[str, Any]) -> Optional[Any]:

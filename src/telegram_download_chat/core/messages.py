@@ -394,6 +394,14 @@ class MessagesMixin:
         for msg in messages:
             try:
                 msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
+                # Preserve the outside-window-citation marker: Telethon's
+                # to_dict() drops attributes not in the TL schema, so re-stamp
+                # it here so the saved JSON (and a later resume) can tell a
+                # backfilled citation from a downloaded chat post.
+                if not isinstance(msg, dict) and getattr(
+                    msg, "cited_outside_window", False
+                ):
+                    msg_dict["cited_outside_window"] = True
                 sender_id = self._get_sender_id(msg_dict)
                 msg_dict["user_display_name"] = (
                     await self._get_user_display_name(sender_id)

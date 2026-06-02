@@ -40,9 +40,25 @@ def _dedup_messages(messages: List[Any]) -> List[Any]:
     can collide with them. Such records carry a ``comment_of`` marker and are
     keyed by ``(comment_of, id)`` so a comment is never collapsed into a same-id
     post and re-fetched comments still dedupe against each other on resume.
+
+    For non-comment ids, an unmarked real post always wins over an
+    outside-window citation backfill (``cited_outside_window``) of the same id:
+    when a later history walk downloads a post that an earlier run only had as a
+    citation, the real record replaces the marker in place (rather than being
+    shadowed by the first copy). Otherwise the stale marker would persist,
+    permanently excluding that id from the ``--limit`` resume counter and making
+    a widened run think one more real post is always missing.
     """
-    seen: set = set()
-    deduped = []
+
+    def _is_citation(m: Any) -> bool:
+        return bool(
+            m.get("cited_outside_window")
+            if isinstance(m, dict)
+            else getattr(m, "cited_outside_window", False)
+        )
+
+    seen: Dict[Any, int] = {}
+    deduped: List[Any] = []
     for m in messages:
         if isinstance(m, dict):
             mid = m.get("id")
@@ -50,11 +66,16 @@ def _dedup_messages(messages: List[Any]) -> List[Any]:
         else:
             mid = getattr(m, "id", None)
             comment_of = getattr(m, "comment_of", None)
-        key = (comment_of, mid) if comment_of is not None else mid
-        if mid is None or key not in seen:
-            if mid is not None:
-                seen.add(key)
+        if mid is None:
             deduped.append(m)
+            continue
+        key = (comment_of, mid) if comment_of is not None else mid
+        if key not in seen:
+            seen[key] = len(deduped)
+            deduped.append(m)
+        elif _is_citation(deduped[seen[key]]) and not _is_citation(m):
+            # Replace a previously kept citation marker with the real post.
+            deduped[seen[key]] = m
     return deduped
 
 
@@ -305,10 +326,13 @@ async def fetch_channel_comments(
     each comment dict gets an ``attachment_path`` for JSON/HTML output.
 
     When ``checkpoint_path`` is set, posts whose comments were already fetched in
-    a prior interrupted run (recorded in that sidecar file) are skipped, and each
-    post is checkpointed as it completes. The checkpoint is cleared once the fetch
-    finishes without a stop request, so a later incremental run re-scans all posts
-    for new comments — mirroring the partial-download file lifecycle.
+    a prior interrupted run (recorded in that sidecar file) are skipped. Scanned
+    posts are tracked in memory and stashed on ``downloader`` as
+    ``_comments_checkpoint_state``; the actual on-disk write/clear is deferred to
+    ``_persist_comments_checkpoint`` after the comments are durably saved, so the
+    checkpoint can never get ahead of the saved output (a stop keeps the scanned
+    set; a clean finish clears it so a later incremental run re-scans for new
+    comments — mirroring the partial-download file lifecycle).
     """
     if not getattr(args, "comments", False):
         return []
@@ -327,13 +351,19 @@ async def fetch_channel_comments(
         )
         return []
 
-    # Only real channel posts get comments; skip any comment records that are
-    # already present (e.g. loaded from messages.json on a resumed run) so we
-    # don't fetch "comments of comments".
+    # Only real, in-window channel posts get comments. Skip comment records
+    # (``comment_of``) so we don't fetch "comments of comments", and skip
+    # outside-window citation backfills (``cited_outside_window``): those are
+    # fetched by id to populate a quote, not walked as part of the download, so
+    # fetching their comment threads would push comment coverage past the posts
+    # actually downloaded — matching the post-based resume cursor/count.
     post_ids = [
         m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
         for m in messages
-        if not (isinstance(m, dict) and m.get("comment_of") is not None)
+        if not (
+            isinstance(m, dict)
+            and (m.get("comment_of") is not None or m.get("cited_outside_window"))
+        )
     ]
     post_ids = [pid for pid in post_ids if pid is not None]
     if not post_ids:
@@ -353,17 +383,25 @@ async def fetch_channel_comments(
         post_ids = [pid for pid in post_ids if pid not in done_posts]
 
     if checkpoint_path is not None:
-
+        # Accumulate scanned posts in memory only. The checkpoint is written to
+        # disk by the caller *after* the comments are durably saved (see
+        # ``_persist_comments_checkpoint``). Writing it here — before the
+        # comments/media are persisted at the end of the run — would let the
+        # checkpoint get ahead of the saved output: a hard kill in between would
+        # then make a resume skip posts whose comments/media were never written,
+        # losing them permanently. Deferring the write keeps the checkpoint and
+        # the saved output in lockstep.
         def on_post_done(post_id: int) -> None:  # noqa: F811 - conditional def
             done_posts.add(post_id)
-            save_comments_checkpoint(checkpoint_path, done_posts)
+
+        downloader._comments_checkpoint_state = {
+            "path": checkpoint_path,
+            "done": done_posts,
+        }
 
     if not post_ids:
-        # Everything was already fetched; the checkpoint has served its purpose.
-        if checkpoint_path is not None and not getattr(
-            downloader, "_stop_requested", False
-        ):
-            clear_comments_checkpoint(checkpoint_path)
+        # Everything was already fetched; nothing new to fetch or save. The
+        # caller clears the checkpoint after re-saving the existing output.
         return []
 
     downloader.logger.info(f"Fetching comments for {len(post_ids)} post(s)...")
@@ -378,14 +416,28 @@ async def fetch_channel_comments(
     )
     downloader.logger.info(f"Fetched {len(comments)} comment(s)")
 
-    # Completed without a stop request -> clear the checkpoint so a future
-    # incremental run re-scans all posts for newly added comments.
-    if checkpoint_path is not None and not getattr(
-        downloader, "_stop_requested", False
-    ):
-        clear_comments_checkpoint(checkpoint_path)
-
     return comments
+
+
+def _persist_comments_checkpoint(downloader: TelegramChatDownloader) -> None:
+    """Persist or clear the comments-resume checkpoint after a durable save.
+
+    Invoked only once the chat's ``messages.json`` has been written, so the
+    checkpoint can never get ahead of the saved comments. An interrupted run
+    keeps the scanned-post set (so the next run skips those posts); a clean
+    finish clears it (so a later incremental run re-scans every post for newly
+    added comments). A no-op when no comment fetch ran this chat.
+    """
+    state = getattr(downloader, "_comments_checkpoint_state", None)
+    if not state:
+        return
+    path = state.get("path")
+    if path is not None:
+        if getattr(downloader, "_stop_requested", False):
+            save_comments_checkpoint(path, state.get("done", set()))
+        else:
+            clear_comments_checkpoint(path)
+    downloader._comments_checkpoint_state = None
 
 
 async def fetch_outside_window_citations(
@@ -442,11 +494,16 @@ async def process_chat_download(
                     existing_messages = data
                     # Exclude comment records: their ids come from the linked
                     # discussion group, a different id space, and would poison
-                    # the post-based resume cursor.
+                    # the post-based resume cursor. Also exclude outside-window
+                    # citation backfills, which are fetched by id rather than
+                    # walked, so they must not move the cursor either.
                     ids = [
                         m.get("id")
                         for m in data
-                        if isinstance(m, dict) and "id" in m and "comment_of" not in m
+                        if isinstance(m, dict)
+                        and "id" in m
+                        and "comment_of" not in m
+                        and not m.get("cited_outside_window")
                     ]
                     if ids:
                         since_id = max(ids)
@@ -489,12 +546,16 @@ async def process_chat_download(
     if args.from_date:
         download_kwargs["from_date"] = args.from_date
     # Backfill against a finite --limit counts real channel posts only: saved
-    # comments live in a separate id space and must not make the limit look
-    # already satisfied (matching the post-only resume cursor above).
+    # comments live in a separate id space, and outside-window citation
+    # backfills are fetched by id (not walked), so neither must make the limit
+    # look already satisfied (matching the post-only resume cursor above).
     existing_post_count = sum(
         1
         for m in existing_messages
-        if not (isinstance(m, dict) and m.get("comment_of") is not None)
+        if not (
+            isinstance(m, dict)
+            and (m.get("comment_of") is not None or m.get("cited_outside_window"))
+        )
     )
     if since_id is not None:
         # If total_limit is set and we haven't reached it yet, skip since_id
@@ -513,6 +574,9 @@ async def process_chat_download(
     if existing_messages:
         messages = _dedup_messages(existing_messages + messages)
 
+    # Reset any checkpoint intent left over from a previous chat (folder mode
+    # reuses the downloader); fetch_channel_comments sets it when it runs.
+    downloader._comments_checkpoint_state = None
     if args.comments and messages:
         # Under --media, download comment attachments into the same chat-level
         # attachments/ dir the post media uses (split-by-date files share one
@@ -544,6 +608,21 @@ async def process_chat_download(
             downloader.logger.warning(f"Failed to fetch cited messages: {exc}")
             cited = []
         if cited:
+            # Mark backfilled citations so the --limit resume counter and the
+            # post-based since_id cursor don't treat them as downloaded chat
+            # posts. They are fetched by id (replies to in-window messages) and
+            # would otherwise inflate ``existing_post_count`` past ``--limit`` on
+            # a resumed run, stopping real backfill. Telethon's ``to_dict()``
+            # drops unknown attributes, so the marker is also re-applied in
+            # ``save_messages`` to survive serialization into messages.json.
+            for c in cited:
+                if isinstance(c, dict):
+                    c["cited_outside_window"] = True
+                else:
+                    try:
+                        c.cited_outside_window = True
+                    except (AttributeError, TypeError):
+                        pass
             messages = _dedup_messages(messages + cited)
 
     if args.subchat:
@@ -727,6 +806,10 @@ async def process_chat_download(
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")
         return {"chat_id": chat_identifier, "error": str(e)}
+
+    # The comments are now durably saved above, so it is safe to advance the
+    # comments-resume checkpoint (or clear it on a clean finish).
+    _persist_comments_checkpoint(downloader)
 
     entity = await downloader.get_entity(chat_identifier)
     chat_type = "unknown"

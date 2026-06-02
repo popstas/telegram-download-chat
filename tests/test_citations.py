@@ -112,6 +112,40 @@ async def test_fetch_cited_messages_noop_when_nothing_missing():
 
 
 @pytest.mark.asyncio
+async def test_cited_marker_survives_serialization(tmp_path):
+    """An outside-window citation stamped on a Telethon-like object keeps its
+    ``cited_outside_window`` marker in the saved JSON.
+
+    Telethon's ``to_dict()`` drops attributes outside the TL schema, so
+    ``save_messages`` must re-stamp the marker. Without it, a resumed ``--limit``
+    run could not tell a backfilled citation from a downloaded chat post and
+    would over-count toward the limit, stopping real backfill.
+    """
+    import json
+    from unittest.mock import MagicMock
+
+    from telegram_download_chat.core import TelegramChatDownloader
+
+    class _Cited:
+        def __init__(self, mid):
+            self.id = mid
+            self.cited_outside_window = True
+
+        def to_dict(self):
+            # Mirrors Telethon: the custom attribute is NOT included here.
+            return {"_": "Message", "id": self.id, "message": f"cited {self.id}"}
+
+    out = tmp_path / "messages.json"
+    downloader = TelegramChatDownloader()
+    downloader.logger = MagicMock()
+    await downloader.save_messages([_Cited(7)], str(out), save_txt=False)
+
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved[0]["id"] == 7
+    assert saved[0]["cited_outside_window"] is True
+
+
+@pytest.mark.asyncio
 async def test_fetch_cited_messages_chunks_large_id_sets(monkeypatch):
     import telegram_download_chat.core.citations as citations
 

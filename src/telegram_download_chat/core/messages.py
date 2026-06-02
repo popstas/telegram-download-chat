@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..paths import get_relative_to_downloads_dir
+from .reactions import normalize_reactions
 
 
 class MessagesMixin:
@@ -399,6 +400,14 @@ class MessagesMixin:
                     if sender_id
                     else "Unknown"
                 )
+                # Replace the verbose raw Telethon reactions with a stable
+                # normalized shape (idempotent for already-normalized dicts on
+                # resume). Drop the key entirely when there are no reactions.
+                normalized_reactions = normalize_reactions(msg_dict.get("reactions"))
+                if normalized_reactions:
+                    msg_dict["reactions"] = normalized_reactions
+                elif "reactions" in msg_dict:
+                    del msg_dict["reactions"]
                 if download_media:
                     # For dict messages (e.g. from resume), preserve existing
                     # attachment_path rather than recalculating from media

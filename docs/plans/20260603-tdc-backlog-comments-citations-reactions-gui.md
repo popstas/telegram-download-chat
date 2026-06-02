@@ -78,12 +78,12 @@ The tasks are largely independent and are sequenced so the `./data` output conve
 
 ### Task 6: Collect and render message reactions
 
-- [ ] Inspect Telethon's reactions structures and define a stable normalized reactions shape to store in the saved JSON
-- [ ] Capture reactions (standard emoji + custom-emoji + counts, and who reacted where available) for posts, comments, and regular chat messages
-- [ ] Render reaction pills (emoji + count) under each message in HTML, reproducing the Telegram client UI
-- [ ] write tests for reactions normalization and HTML pill rendering
-- [ ] run project tests - must pass before next task
-- [ ] e2e: live CLI run against a channel/post with reactions, verify reactions in JSON and pills in HTML; copy results to `./data`
+- [x] Inspect Telethon's reactions structures and define a stable normalized reactions shape to store in the saved JSON
+- [x] Capture reactions (standard emoji + custom-emoji + counts, and who reacted where available) for posts, comments, and regular chat messages
+- [x] Render reaction pills (emoji + count) under each message in HTML, reproducing the Telegram client UI
+- [x] write tests for reactions normalization and HTML pill rendering
+- [x] run project tests - must pass before next task
+- [x] e2e: live CLI run against a channel/post with reactions, verify reactions in JSON and pills in HTML; copy results to `./data` (skipped - requires live authenticated Telethon session, not automatable here)
 
 ### Task 7: Add application version to the GUI window title
 

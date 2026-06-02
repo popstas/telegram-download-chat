@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
+from .reactions import normalize_reactions
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -158,6 +160,13 @@ a:hover{text-decoration:underline}
 .poll-total{font-size:11px;color:#888;margin-top:3px}
 /* Text */
 .txt{white-space:pre-wrap;font-size:14px;color:#111}
+/* Reactions */
+.reactions{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.reaction{display:inline-flex;align-items:center;gap:3px;background:rgba(0,0,0,0.05);
+  border-radius:13px;padding:2px 8px;font-size:12px;color:#3a4a5a;line-height:1.4}
+.reaction.chosen{background:#cfeffd;color:#168acd}
+.reaction-emoji{font-size:13px}
+.reaction-count{font-weight:600}
 /* Meta */
 .meta{display:flex;justify-content:flex-end;align-items:center;
   gap:5px;font-size:11px;color:#8a8a8a;margin-top:4px;user-select:none}
@@ -250,6 +259,13 @@ a:hover{text-decoration:underline}
       {%- endif %}
       {%- if msg.text %}
       <div class="txt">{{ msg.text | fmt_entities(msg.entities) }}</div>
+      {%- endif %}
+      {%- if msg.reactions %}
+      <div class="reactions">
+        {%- for r in msg.reactions %}
+        <span class="reaction{% if r.chosen %} chosen{% endif %}"{% if r.title %} title="{{ r.title | e }}"{% endif %}><span class="reaction-emoji">{{ r.label | e }}</span><span class="reaction-count">{{ r.count }}</span></span>
+        {%- endfor %}
+      </div>
       {%- endif %}
       <div class="meta">
         {%- if msg.edited %}<span class="edited">edited</span>{%- endif %}
@@ -712,6 +728,7 @@ class RenderMixin:
                     "poll_data": poll_data,
                     "location_lat": loc_lat,
                     "location_lng": loc_lng,
+                    "reactions": _render_reactions(msg.get("reactions")),
                 }
             )
 
@@ -810,6 +827,43 @@ def _drop_empty_date_separators(
                 continue
         out.append(it)
     return out
+
+
+def _render_reactions(reactions: Any) -> List[Dict[str, Any]]:
+    """Build reaction-pill render data from a message's ``reactions`` field.
+
+    Normalizes defensively (the field is usually already normalized by
+    ``save_messages``, but ``render_html`` may be invoked on raw JSON via the
+    convert command). Standard emoji render as themselves; custom emoji have no
+    available glyph, so they render a star placeholder carrying the document id
+    as a tooltip.
+    """
+    norm = normalize_reactions(reactions)
+    if not norm:
+        return []
+    pills: List[Dict[str, Any]] = []
+    for r in norm:
+        count = r.get("count", 0)
+        chosen = bool(r.get("chosen"))
+        if "emoji" in r:
+            pills.append(
+                {
+                    "label": r["emoji"],
+                    "count": count,
+                    "chosen": chosen,
+                    "title": "",
+                }
+            )
+        elif "custom_emoji_id" in r:
+            pills.append(
+                {
+                    "label": "⭐",  # ⭐ placeholder for premium custom emoji
+                    "count": count,
+                    "chosen": chosen,
+                    "title": f"custom emoji {r['custom_emoji_id']}",
+                }
+            )
+    return pills
 
 
 def _log(obj: Any) -> logging.Logger:

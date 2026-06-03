@@ -265,9 +265,11 @@ and run:
 ```
 
 This runs `build_windows_embed.ps1` first, then compiles `installer.iss` into
-`dist\telegram-download-chat-setup-<version>.exe`. The installer is **per-user**
+`dist\telegram-download-chat-v<version>-setup.exe`. The installer is **per-user**
 (installs under `%LOCALAPPDATA%\Programs`, no admin) on purpose, so the in-app
-"Update now" can swap `app\` in place without elevation.
+"Update now" can swap `app\` in place without elevation. Releases publish this
+`telegram-download-chat-v<version>-setup.exe` alongside `app-<version>.zip` (the
+in-app update asset).
 
 ### Web Interface
 

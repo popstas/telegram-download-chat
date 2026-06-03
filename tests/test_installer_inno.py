@@ -20,6 +20,10 @@ def _installer_ps() -> str:
     return (_ROOT / "build_windows_installer.ps1").read_text(encoding="utf-8")
 
 
+def _build_yml() -> str:
+    return (_ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
+
+
 def test_iss_installs_per_user_writable_for_self_update():
     text = _iss()
     assert "[Setup]" in text
@@ -37,7 +41,7 @@ def test_iss_bundles_two_part_tree_and_versioned_output():
     assert "recursesubdirs" in text
     # Output name carries the version passed via /dMyAppVersion.
     assert "{#MyAppVersion}" in text
-    assert "OutputBaseFilename=telegram-download-chat-setup-{#MyAppVersion}" in text
+    assert "OutputBaseFilename=telegram-download-chat-v{#MyAppVersion}-setup" in text
 
 
 def test_iss_shortcut_launches_gui_with_working_dir_at_root():
@@ -57,3 +61,15 @@ def test_installer_ps_runs_embed_build_then_iscc():
     assert "/dMyAppVersion=" in text
     # Version is taken from the embed build's app\version.txt.
     assert "version.txt" in text
+
+
+def test_release_workflow_builds_and_publishes_installer():
+    text = _build_yml()
+    # Inno Setup must be available on the runner.
+    assert "innosetup" in text.lower()
+    # The installer build script is invoked.
+    assert "build_windows_installer.ps1" in text
+    # The setup.exe (versioned) and the in-app update zip are released assets.
+    assert "telegram-download-chat-v" in text and "-setup.exe" in text
+    assert "app-" in text and ".zip" in text
+

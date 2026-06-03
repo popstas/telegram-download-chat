@@ -37,4 +37,4 @@ if (-not $iscc) {
 Write-Host "Compiling installer for version $version with $iscc..."
 & $iscc "/dMyAppVersion=$version" (Join-Path $PSScriptRoot "installer.iss")
 
-Write-Host "Installer: dist\telegram-download-chat-setup-$version.exe" -ForegroundColor Green
+Write-Host "Installer: dist\telegram-download-chat-v$version-setup.exe" -ForegroundColor Green

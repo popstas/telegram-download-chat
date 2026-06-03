@@ -1,0 +1,35 @@
+"""Guard the app icon against the "broken icon" regression.
+
+A single 256x256 (PNG-compressed) ICO renders blank/broken in Windows contexts
+that need small icons (Start Menu, taskbar, shortcuts). The shipped icon must
+carry the standard small sizes so Inno Setup shortcuts and the setup.exe look
+correct.
+"""
+
+import struct
+from pathlib import Path
+
+ICON = Path(__file__).resolve().parents[1] / "assets" / "icon.ico"
+
+
+def _ico_sizes(path: Path):
+    b = path.read_bytes()
+    assert b[:4] == b"\x00\x00\x01\x00", "not a valid ICO file"
+    count = struct.unpack("<H", b[4:6])[0]
+    sizes = set()
+    off = 6
+    for _ in range(count):
+        w = b[off] or 256
+        h = b[off + 1] or 256
+        sizes.add((w, h))
+        off += 16
+    return sizes
+
+
+def test_icon_has_standard_small_sizes():
+    sizes = _ico_sizes(ICON)
+    # Small sizes Windows actually uses for shortcuts/taskbar must be present.
+    for required in [(16, 16), (32, 32), (48, 48)]:
+        assert required in sizes, f"icon.ico missing {required}; has {sorted(sizes)}"
+    # And keep a high-res frame.
+    assert (256, 256) in sizes

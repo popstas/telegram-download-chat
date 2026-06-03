@@ -286,6 +286,13 @@ def test_comment_filters_dedupes_threshold_one_percentile():
     assert thresholds.count(1) == 1
 
 
+def test_comment_filters_includes_top20_when_threshold_above_one():
+    # When the top-20% threshold exceeds 1 it appears as its own button.
+    totals = [0, 0, 0, 0, 0, 2, 3, 4, 8, 20]
+    labels = [b["label"] for b in _comment_filters(totals)]
+    assert any(lbl.startswith("Top 20%") for lbl in labels)
+
+
 def _post_msg(mid, text):
     return {
         "id": mid,
@@ -333,6 +340,25 @@ def test_html_comment_filter_bar_present(tmp_path):
     # Comment bubbles carry their total reaction count for client-side filtering.
     assert 'data-reactions="5"' in html
     assert 'data-reactions="1"' in html
+
+
+def test_html_comment_filter_has_pin_toggle(tmp_path):
+    out = tmp_path / "out.html"
+    RenderMixin().render_html(
+        [
+            _post_msg(1, "post"),
+            _comment_msg(1001, 2, "a", 1, [{"emoji": "👍", "count": 5}]),
+        ],
+        out,
+        chat_title="t",
+    )
+    html = out.read_text(encoding="utf-8")
+    # A pin toggle button is rendered on the bar...
+    assert 'class="cfilter-pin"' in html
+    # ...the bar starts pinned (no "unpinned" modifier in the initial markup)...
+    assert 'class="cfilter unpinned"' not in html
+    # ...and the unpinned CSS state is defined.
+    assert ".cfilter.unpinned" in html
 
 
 def test_html_no_comment_filter_bar_without_comments(tmp_path):

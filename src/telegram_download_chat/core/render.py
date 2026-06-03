@@ -146,10 +146,14 @@ a:hover{text-decoration:underline}
 .cfilter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;
   padding:8px 16px;background:#fff;border-bottom:1px solid #e6ecf0;
   position:sticky;top:0;z-index:5}
+.cfilter.unpinned{position:static}
 .cfilter-lbl{font-size:13px;font-weight:600;color:#707579}
 .cfilter-btn{cursor:pointer;font-size:12px;border:1px solid #d5dde3;
   background:#f1f3f5;color:#168acd;border-radius:13px;padding:3px 10px}
 .cfilter-btn.active{background:#168acd;color:#fff;border-color:#168acd}
+.cfilter-pin{margin-left:auto;cursor:pointer;font-size:13px;line-height:1;
+  border:1px solid #d5dde3;background:#f1f3f5;border-radius:13px;padding:3px 8px}
+.cfilter-pin.off{opacity:.45}
 /* Media */
 .media-img,.media-stk,.media-vid{display:block;border-radius:10px;margin-bottom:4px}
 .media-img{max-width:100%;max-height:340px;object-fit:contain}
@@ -225,6 +229,7 @@ a:hover{text-decoration:underline}
   {%- for f in comment_filters %}
   <button class="cfilter-btn" data-threshold="{{ f.threshold }}">{{ f.label }} ({{ f.count }})</button>
   {%- endfor %}
+  <button class="cfilter-pin" title="Unpin filter bar" aria-pressed="true">📌</button>
 </div>
 {%- endif %}
 {%- macro render_group(item) %}
@@ -395,6 +400,16 @@ a:hover{text-decoration:underline}
       var th = parseInt(this.getAttribute('data-threshold')||'0',10);
       apply(th);
       for(var m=0;m<btns.length;m++){ btns[m].classList.toggle('active', btns[m]===this); }
+    });
+  }
+  // Pin/unpin: toggle whether the filter bar sticks to the top while scrolling.
+  var pin = bar.querySelector('.cfilter-pin');
+  if(pin){
+    pin.addEventListener('click', function(){
+      var pinned = !bar.classList.toggle('unpinned');
+      pin.classList.toggle('off', !pinned);
+      pin.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+      pin.title = pinned ? 'Unpin filter bar' : 'Pin filter bar';
     });
   }
 })();

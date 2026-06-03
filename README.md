@@ -216,35 +216,40 @@ Windows build is available in the [releases](https://github.com/popstas/telegram
    telegram-download-chat gui
    ```
 
-### Portable Windows build
+### Portable Windows build (two-part, tiny updates)
 
-A portable, no-installer Windows distribution can be produced with
-`build_windows_portable.ps1`. Unlike the single-file build (`build_windows.ps1`),
-this uses PyInstaller's one-directory mode and packages the result into a
-versioned zip:
+A portable, no-installer Windows distribution is produced with
+`build_windows_embed.ps1`. It splits the distribution into two parts so updates
+are tiny:
 
 ```powershell
-.\build_windows_portable.ps1
+.\build_windows_embed.ps1
 ```
 
 Outputs:
 
-- `dist\telegram-download-chat\` — the portable folder; run
-  `telegram-download-chat.exe` from anywhere, no installation or registry
-  changes.
-- `dist\telegram-download-chat-portable-<version>.zip` — the distributable zip.
-- `dist\telegram-download-chat\manifest.json` — a per-file SHA-256 manifest
-  (also packaged via `scripts/package_portable.py`).
+- `dist\telegram-download-chat-base-<version>.zip` — the **first install**. Extract
+  anywhere and run `telegram-download-chat.cmd` (CLI) or the
+  `telegram-download-chat-gui.vbs` shortcut (GUI). No installer/registry changes.
+  It contains:
+  - `runtime\` — the **base**: the official Windows *embeddable* CPython plus all
+    third-party packages (PySide6/Qt, telethon, …) and the launchers. Installed
+    once; only re-downloaded when Python or a dependency is bumped.
+  - `app\` — our source package only.
+- `dist\app-<version>.zip` — the **update** (~150 KB). Each release ships just
+  this; the base is reused.
 
-**Incremental updates:** the manifest enables file-level incremental updates — an
-updater can compare an installed version's manifest against a new one
-(`package_portable.diff_manifests`) and copy only the changed/added files,
-skipping unchanged runtime DLLs and data files. *Limitation:* PyInstaller bundles
-the application's own Python code together with the interpreter inside
-`_internal` (the compiled `PYZ` archive), so a release that changes only our
-`.py` files still rewrites that archive and it will always appear in the update
-set. Cleanly separating the bundled Python runtime from the app code is out of
-scope for this minimal portable build.
+**Updating:** download `app-<version>.zip` and apply it (atomic swap of `app\`):
+
+```powershell
+runtime\python\python.exe scripts\package_embed.py apply app-<version>.zip <install-dir>
+```
+
+Because our code and the dependencies live in separate parts, a normal release
+update is a ~150 KB download instead of re-shipping the ~100 MB runtime. The base
+changes only on a Python or dependency bump (then re-install the base zip). Note
+the embeddable Python minor version is pinned by the base, so any dependency's
+native `.pyd` is ABI-locked to it.
 
 ### Web Interface
 

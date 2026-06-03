@@ -168,6 +168,12 @@ python main.py  # Launches GUI by default
 - Platform-specific build scripts
 - GUI auto-launches when no CLI args provided
 
+### Two-part Windows build (embeddable Python, tiny updates)
+- `build_windows_embed.ps1` produces a two-part portable distribution so per-release updates are ~150 KB instead of re-shipping the runtime:
+  - **Base** (`runtime/`): the official Windows *embeddable* CPython + all third-party packages (`pip install --target runtime/site-packages`) + launchers (`telegram-download-chat.cmd` CLI, `telegram-download-chat-gui.vbs` GUI). A `pythonXY._pth` points the interpreter at `..\site-packages` and `..\..\app`. Installed once; re-shipped only on a Python/dependency bump (the Python minor version is pinned, so deps' `.pyd` are ABI-locked to it).
+  - **App** (`app/`): only our `telegram_download_chat` source, replaced wholesale on each release.
+- `scripts/package_embed.py` is the cross-platform half (unit-tested in `tests/test_package_embed.py`): `build_app_zip` makes `app-<version>.zip` (source + generated `_version.py` + `version.txt`, no bytecode); `apply_app_update` installs it via an atomic `app/` swap (verify optional sha256 → extract to temp → validate payload → rename-swap with rollback). CLI: `package_embed.py build-app …` / `apply …`. There is **no** manifest/per-file-diff (the old `package_portable.py` onedir scheme was removed) — the app part is small enough to replace wholesale.
+
 ### MCP Server
 - Exposes `telegram_get_messages` and `telegram_connection_status` tools
 - Uses task queue for serialized API calls

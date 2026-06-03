@@ -28,7 +28,7 @@
 
 ## Windows build
 
-- [ ] Replace the onedir+manifest portable build with a two-part embeddable-Python distribution (Variant A): an immutable `runtime/` base (embeddable CPython + all third-party packages + launchers) installed once, and a tiny `app/` part (our source only) replaced wholesale on each release via `app-<version>.zip`. Drop `package_portable.py` / `diff_manifests`; add `scripts/package_embed.py` (`build_app_zip`, `apply_app_update`) and `build_windows_embed.ps1`. See `docs/superpowers/specs/2026-06-04-windows-two-part-embed-build-design.md`.
+- [x] Replace the onedir+manifest portable build with a two-part embeddable-Python distribution (Variant A): an immutable `runtime/` base (embeddable CPython + all third-party packages + launchers) installed once, and a tiny `app/` part (our source only) replaced wholesale on each release via `app-<version>.zip`. Drop `package_portable.py` / `diff_manifests`; add `scripts/package_embed.py` (`build_app_zip`, `apply_app_update`) and `build_windows_embed.ps1`. See `docs/superpowers/specs/2026-06-04-windows-two-part-embed-build-design.md`.
 
 ## E2E verification (applies to comments/citations/media/reactions tasks)
 

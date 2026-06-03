@@ -20,6 +20,12 @@
 
 - [x] Make html render comments collapsible. Only for channel comments. Collapsed shows comment count, expanded shows the comment text.
 
+## Reactions follow-ups
+
+- [ ] Add optional text reactions: render each message's reactions as an inline text suffix in `messages.txt`, behind a `--reactions` flag (off by default).
+- [ ] Add HTML render filter for channel comments by minimum reactions — percentile buttons (All / Top 50% / 20% / 10% / 5%), each showing the computed reaction threshold and matching comment count (e.g. "Top 20%: 3+ (12)"); client-side, hides comments below the threshold.
+- [ ] Add optional channel comments filter by min reactions: `--comments-min-reactions N` drops comments whose total reaction count is below N before they are saved (and before their media is downloaded).
+
 ## E2E verification (applies to comments/citations/media/reactions tasks)
 
 - Target channel: `@seeallochnaya` (channel-with-comments).

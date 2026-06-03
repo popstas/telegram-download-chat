@@ -223,8 +223,34 @@ async def async_main() -> int:
         _downloader_ctx = None
 
 
+def _reconfigure_utf8(stream) -> None:
+    """Reconfigure a single text stream to UTF-8 in place, if it supports it."""
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is None:
+        return
+    try:
+        reconfigure(encoding="utf-8", errors="replace")
+    except (ValueError, OSError):  # pragma: no cover - detached/odd streams
+        pass
+
+
+def configure_console_utf8() -> None:
+    """Force UTF-8 on the process's stdout/stderr.
+
+    On Windows the default stdio encoding follows the locale codepage (e.g.
+    cp1251), so log lines containing Cyrillic chat names are written as
+    single-byte mojibake that the GUI — which reads the subprocess pipe as
+    UTF-8 — renders as replacement characters. Reconfiguring in place keeps the
+    existing stream objects valid (so the logging handler already bound to
+    ``sys.stderr`` picks up the new encoding) while guaranteeing UTF-8 output.
+    """
+    _reconfigure_utf8(sys.stdout)
+    _reconfigure_utf8(sys.stderr)
+
+
 def main() -> int:
     """Synchronous entry point for the CLI."""
+    configure_console_utf8()
     setup_signal_handlers()
     if (len(sys.argv) >= 2 and sys.argv[1] == "gui") or len(sys.argv) == 1:
         if gui_main is not None:

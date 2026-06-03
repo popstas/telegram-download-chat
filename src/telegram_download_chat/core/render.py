@@ -44,6 +44,8 @@ ACTION_LABELS: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 HTML_TEMPLATE = """\
+{%- macro spoiler_open(on) -%}{% if on %}<label class="spoiler-wrap"><input type="checkbox">{% endif %}{%- endmacro -%}
+{%- macro spoiler_close(on) -%}{% if on %}<span class="spoiler-badge">Spoiler</span></label>{% endif %}{%- endmacro -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -152,6 +154,15 @@ a:hover{text-decoration:underline}
 .media-ref{display:block;margin-top:-2px;margin-bottom:4px;font-size:11px;color:#8b8b8b;word-break:break-all}
 .media-ref a{color:inherit;text-decoration:none}
 .media-ref a:hover{text-decoration:underline}
+/* Click-to-reveal spoiler media (blurred until the hidden checkbox is toggled) */
+.spoiler-wrap{position:relative;display:inline-block;cursor:pointer;line-height:0}
+.spoiler-wrap>input{position:absolute;width:0;height:0;opacity:0}
+.spoiler-media{filter:blur(16px);transition:filter .25s ease}
+.spoiler-wrap>input:checked~.spoiler-media{filter:none}
+.spoiler-badge{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:rgba(0,0,0,0.55);color:#fff;font-size:12px;font-weight:500;line-height:1;
+  padding:5px 12px;border-radius:14px;pointer-events:none;white-space:nowrap}
+.spoiler-wrap>input:checked~.spoiler-badge{display:none}
 .poll-wrap{margin-bottom:4px}
 .poll-q{font-weight:600;margin-bottom:5px;font-size:13.5px}
 .poll-opt{display:flex;justify-content:space-between;align-items:center;
@@ -219,13 +230,13 @@ a:hover{text-decoration:underline}
       {%- if msg.attachment_path %}
         {%- set src = (media_prefix + msg.attachment_path) | urlencode_path %}
         {%- if msg.media_category == "stickers" %}
-        <img class="media-stk" src="{{ src }}" alt="sticker" loading="lazy">
+        {{ spoiler_open(msg.media_spoiler) }}<img class="media-stk{% if msg.media_spoiler %} spoiler-media{% endif %}" src="{{ src }}" alt="sticker" loading="lazy">{{ spoiler_close(msg.media_spoiler) }}
         {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- elif msg.media_category == "images" %}
-        <img class="media-img" src="{{ src }}" alt="" loading="lazy">
+        {{ spoiler_open(msg.media_spoiler) }}<img class="media-img{% if msg.media_spoiler %} spoiler-media{% endif %}" src="{{ src }}" alt="" loading="lazy">{{ spoiler_close(msg.media_spoiler) }}
         {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- elif msg.media_category == "videos" %}
-        <video class="media-vid" controls preload="none" src="{{ src }}"></video>
+        {{ spoiler_open(msg.media_spoiler) }}<video class="media-vid{% if msg.media_spoiler %} spoiler-media{% endif %}" controls preload="none" src="{{ src }}"></video>{{ spoiler_close(msg.media_spoiler) }}
         {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- elif msg.media_category == "audio" %}
         <audio class="media-aud" controls preload="none" src="{{ src }}"></audio>
@@ -735,6 +746,7 @@ class RenderMixin:
                     "attachment_path": att_path,
                     "attachment_filename": att_filename,
                     "media_category": att_cat,
+                    "media_spoiler": bool((msg.get("media") or {}).get("spoiler")),
                     "poll_data": poll_data,
                     "location_lat": loc_lat,
                     "location_lng": loc_lng,

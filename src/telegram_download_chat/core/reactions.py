@@ -21,7 +21,52 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-__all__ = ["normalize_reactions", "reaction_key"]
+__all__ = [
+    "normalize_reactions",
+    "reaction_key",
+    "total_reaction_count",
+    "format_reactions_text",
+]
+
+
+def total_reaction_count(reactions: Any) -> int:
+    """Return the summed count across all of a message's reactions.
+
+    Accepts a raw Telethon ``MessageReactions`` dict or an already-normalized
+    list (see :func:`normalize_reactions`). ``👍5 + ❤️2`` yields ``7``; custom
+    emoji counts are included. Returns ``0`` when there are no reactions. This
+    is the metric used by ``--comments-min-reactions`` and the HTML comment
+    filter.
+    """
+    norm = normalize_reactions(reactions)
+    if not norm:
+        return 0
+    total = 0
+    for r in norm:
+        count = r.get("count")
+        if isinstance(count, (int, float)):
+            total += int(count)
+    return total
+
+
+def format_reactions_text(reactions: Any) -> str:
+    """Render reactions as a compact text run, e.g. ``"👍5 ❤️2 ⭐3"``.
+
+    Standard emoji render as their glyph; custom emoji render as the ``⭐``
+    placeholder (mirroring the HTML pill). Returns ``""`` when there are no
+    reactions. Used for the optional inline reactions suffix in ``messages.txt``.
+    """
+    norm = normalize_reactions(reactions)
+    if not norm:
+        return ""
+    parts: List[str] = []
+    for r in norm:
+        count = r.get("count", 0)
+        if "emoji" in r:
+            parts.append(f"{r['emoji']}{count}")
+        elif "custom_emoji_id" in r:
+            parts.append(f"⭐{count}")
+    return " ".join(parts)
 
 
 def reaction_key(item: Dict[str, Any]) -> Any:

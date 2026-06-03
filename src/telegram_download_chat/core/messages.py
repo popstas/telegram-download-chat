@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..paths import get_relative_to_downloads_dir
-from .reactions import normalize_reactions
+from .reactions import format_reactions_text, normalize_reactions
 
 
 class MessagesMixin:
@@ -288,6 +288,7 @@ class MessagesMixin:
         txt_path: Path,
         sort_order: str = "asc",
         media_placeholders: bool = False,
+        reactions: bool = False,
     ) -> int:
         saved = 0
         txt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -329,6 +330,14 @@ class MessagesMixin:
                             text = f"{text}\n{placeholder}"
                         else:
                             text = placeholder
+
+                if reactions:
+                    reactions_suffix = format_reactions_text(msg.get("reactions"))
+                    if reactions_suffix:
+                        if text:
+                            text = f"{text} [{reactions_suffix}]"
+                        else:
+                            text = f"[{reactions_suffix}]"
 
                 recipient_name = ""
                 recipient_id = self._get_recipient_id(msg)
@@ -389,6 +398,7 @@ class MessagesMixin:
         chat_title: Optional[str] = None,
         media_placeholders: bool = False,
         html_media_links: bool = False,
+        reactions: bool = False,
     ) -> None:
         output_path = Path(output_file)
 
@@ -471,6 +481,7 @@ class MessagesMixin:
                 txt_path,
                 sort_order,
                 media_placeholders=media_placeholders,
+                reactions=reactions,
             )
             txt_path_relative = get_relative_to_downloads_dir(txt_path)
             self.logger.info(f"Saved {saved} messages to {txt_path_relative}")

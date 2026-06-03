@@ -15,15 +15,33 @@ from telegram_download_chat.core.comments import (
 class FakeMessage:
     """Minimal stand-in for a Telethon message with to_dict()."""
 
-    def __init__(self, msg_id: int, reply_to=None):
+    def __init__(self, msg_id: int, reply_to=None, reactions=None):
         self.id = msg_id
         self._reply_to = reply_to
+        self._reactions = reactions
 
     def to_dict(self):
         data = {"_": "Message", "id": self.id, "message": f"comment {self.id}"}
         if self._reply_to is not None:
             data["reply_to"] = self._reply_to
+        if self._reactions is not None:
+            data["reactions"] = self._reactions
         return data
+
+
+def _reactions(*pairs):
+    """Build a raw ``MessageReactions`` dict from (emoji, count) pairs."""
+    return {
+        "_": "MessageReactions",
+        "results": [
+            {
+                "_": "ReactionCount",
+                "reaction": {"_": "ReactionEmoji", "emoticon": emoji},
+                "count": count,
+            }
+            for emoji, count in pairs
+        ],
+    }
 
 
 class _AsyncIter:
@@ -121,6 +139,41 @@ async def test_limit_caps_per_post():
 
     # Two posts, capped at 10 each.
     assert len(comments) == 20
+
+
+@pytest.mark.asyncio
+async def test_min_reactions_filters_low_reaction_comments():
+    def factory(entity, reply_to=None):
+        return _AsyncIter(
+            [
+                FakeMessage(1, reactions=_reactions(("👍", 5))),  # total 5 -> keep
+                FakeMessage(2, reactions=_reactions(("👍", 1), ("❤️", 1))),  # 2 -> keep
+                FakeMessage(3, reactions=_reactions(("👍", 1))),  # total 1 -> drop
+                FakeMessage(4),  # no reactions -> drop
+            ]
+        )
+
+    downloader = _make_downloader(factory)
+    comments = await download_post_comments(
+        downloader, object(), [10], silent=True, min_reactions=2
+    )
+
+    assert {c["id"] for c in comments} == {1, 2}
+
+
+@pytest.mark.asyncio
+async def test_min_reactions_zero_keeps_all():
+    def factory(entity, reply_to=None):
+        return _AsyncIter(
+            [FakeMessage(1, reactions=_reactions(("👍", 1))), FakeMessage(2)]
+        )
+
+    downloader = _make_downloader(factory)
+    comments = await download_post_comments(
+        downloader, object(), [10], silent=True, min_reactions=0
+    )
+
+    assert len(comments) == 2
 
 
 @pytest.mark.asyncio

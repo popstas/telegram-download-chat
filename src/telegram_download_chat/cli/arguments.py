@@ -42,6 +42,8 @@ class CLIOptions:
     no_fast_download: bool = False
     comments: bool = False
     comments_limit: Optional[int] = None
+    comments_min_reactions: int = 0
+    reactions: bool = False
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -213,6 +215,26 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         help=(
             "Max comments to fetch per post (requires --comments; "
             "omit for unlimited)"
+        ),
+    )
+    parser.add_argument(
+        "--comments-min-reactions",
+        dest="comments_min_reactions",
+        type=int,
+        default=0,
+        help=(
+            "Drop channel comments whose total reaction count is below N before "
+            "they are saved (requires --comments; 0 = keep all). Applied after "
+            "--comments-limit, so the limit caps how many are fetched and this "
+            "trims the low-reaction ones"
+        ),
+    )
+    parser.add_argument(
+        "--reactions",
+        action="store_true",
+        help=(
+            "Append each message's reactions as an inline text suffix "
+            "(e.g. [👍5 ❤️2]) in the TXT output"
         ),
     )
 

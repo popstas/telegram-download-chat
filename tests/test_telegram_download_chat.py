@@ -482,6 +482,86 @@ class TestSaveMessagesAsTxtMediaPlaceholders:
         assert "Just text" in content
 
 
+class TestSaveMessagesAsTxtReactions:
+    """Tests for the optional inline reactions suffix (--reactions)."""
+
+    @pytest.fixture
+    def mixin(self):
+        m = MessagesMixin()
+        m._fetched_usernames_count = 0
+        m._fetched_chatnames_count = 0
+        m._get_sender_id = lambda msg: msg.get("from_id")
+        m._get_recipient_id = lambda msg: None
+        m._get_user_display_name = AsyncMock(return_value="Alice")
+        m._save_config = MagicMock()
+        return m
+
+    @pytest.mark.asyncio
+    async def test_reactions_suffix_after_text(self, mixin, tmp_path):
+        messages = [
+            {
+                "date": "2024-01-15T12:30:00+00:00",
+                "from_id": 123,
+                "text": "Nice post",
+                "reactions": [
+                    {"emoji": "👍", "count": 5},
+                    {"emoji": "❤️", "count": 2},
+                ],
+            }
+        ]
+        txt_path = tmp_path / "out.txt"
+        await mixin.save_messages_as_txt(messages, txt_path, reactions=True)
+        content = txt_path.read_text()
+        assert "Nice post [👍5 ❤️2]" in content
+
+    @pytest.mark.asyncio
+    async def test_reactions_off_by_default(self, mixin, tmp_path):
+        messages = [
+            {
+                "date": "2024-01-15T12:30:00+00:00",
+                "from_id": 123,
+                "text": "Nice post",
+                "reactions": [{"emoji": "👍", "count": 5}],
+            }
+        ]
+        txt_path = tmp_path / "out.txt"
+        await mixin.save_messages_as_txt(messages, txt_path)
+        content = txt_path.read_text()
+        assert "Nice post" in content
+        assert "👍" not in content
+
+    @pytest.mark.asyncio
+    async def test_reactions_only_message(self, mixin, tmp_path):
+        messages = [
+            {
+                "date": "2024-01-15T12:30:00+00:00",
+                "from_id": 123,
+                "text": "",
+                "reactions": [{"emoji": "👍", "count": 3}],
+            }
+        ]
+        txt_path = tmp_path / "out.txt"
+        await mixin.save_messages_as_txt(messages, txt_path, reactions=True)
+        content = txt_path.read_text()
+        lines = content.strip().split("\n")
+        assert lines[-1] == "[👍3]"
+
+    @pytest.mark.asyncio
+    async def test_reactions_on_but_none_present(self, mixin, tmp_path):
+        messages = [
+            {
+                "date": "2024-01-15T12:30:00+00:00",
+                "from_id": 123,
+                "text": "Plain",
+            }
+        ]
+        txt_path = tmp_path / "out.txt"
+        await mixin.save_messages_as_txt(messages, txt_path, reactions=True)
+        content = txt_path.read_text()
+        assert "Plain" in content
+        assert "[" not in content
+
+
 class TestFilterMessagesBySubchat:
     """Tests for filter_messages_by_subchat function."""
 

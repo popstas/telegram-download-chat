@@ -273,6 +273,7 @@ async def save_messages_with_status(
     chat_title: Optional[str] = None,
     media_placeholders: bool = False,
     html_media_links: bool = False,
+    reactions: bool = False,
 ) -> None:
     """Save messages to JSON displaying a status message if slow."""
     return await _run_with_status(
@@ -286,6 +287,7 @@ async def save_messages_with_status(
             chat_title=chat_title,
             media_placeholders=media_placeholders,
             html_media_links=html_media_links,
+            reactions=reactions,
         ),
         downloader.logger,
     )
@@ -297,11 +299,16 @@ async def save_txt_with_status(
     txt_file: Path,
     sort_order: str = "asc",
     media_placeholders: bool = False,
+    reactions: bool = False,
 ) -> int:
     """Save messages to a text file with progress output."""
     return await _run_with_status(
         downloader.save_messages_as_txt(
-            messages, txt_file, sort_order, media_placeholders=media_placeholders
+            messages,
+            txt_file,
+            sort_order,
+            media_placeholders=media_placeholders,
+            reactions=reactions,
         ),
         downloader.logger,
     )
@@ -410,6 +417,7 @@ async def fetch_channel_comments(
         entity,
         post_ids,
         limit=args.comments_limit,
+        min_reactions=getattr(args, "comments_min_reactions", 0) or 0,
         download_media=bool(getattr(args, "media", False)),
         attachments_dir=attachments_dir,
         on_post_done=on_post_done,
@@ -732,6 +740,7 @@ async def process_chat_download(
                     chat_title=f"{full_chat_title} / {title}",
                     media_placeholders=args.media_placeholders,
                     html_media_links=args.html_media_links,
+                    reactions=args.reactions,
                 )
                 downloader.logger.info(f"Saved {len(msgs)} messages to {split_file}")
             downloader.logger.info(
@@ -765,6 +774,7 @@ async def process_chat_download(
                     chat_title=full_chat_title,
                     media_placeholders=args.media_placeholders,
                     html_media_links=args.html_media_links,
+                    reactions=args.reactions,
                 )
             else:
                 output_path = Path(output_file)
@@ -783,6 +793,7 @@ async def process_chat_download(
                         chat_title=full_chat_title,
                         media_placeholders=args.media_placeholders,
                         html_media_links=args.html_media_links,
+                        reactions=args.reactions,
                     )
                     downloader.logger.info(
                         f"Saved {len(msgs)} messages to {split_file}"
@@ -802,6 +813,7 @@ async def process_chat_download(
                 chat_title=full_chat_title,
                 media_placeholders=args.media_placeholders,
                 html_media_links=args.html_media_links,
+                reactions=args.reactions,
             )
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")
@@ -977,6 +989,7 @@ async def convert(
                 txt_path,
                 args.sort,
                 media_placeholders=args.media_placeholders,
+                reactions=args.reactions,
             )
             saved_relative = get_relative_to_downloads_dir(txt_path)
             downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
@@ -991,6 +1004,7 @@ async def convert(
                     split_file,
                     args.sort,
                     media_placeholders=args.media_placeholders,
+                    reactions=args.reactions,
                 )
                 saved_relative = get_relative_to_downloads_dir(split_file)
                 downloader.logger.info(f"Saved {saved} messages to {saved_relative}")
@@ -1004,6 +1018,7 @@ async def convert(
             txt_path,
             args.sort,
             media_placeholders=args.media_placeholders,
+            reactions=args.reactions,
         )
         saved_relative = get_relative_to_downloads_dir(txt_path)
         downloader.logger.info(f"Saved {saved} messages to {saved_relative}")

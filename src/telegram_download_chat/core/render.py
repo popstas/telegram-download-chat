@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 from datetime import datetime, timezone
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from .reactions import normalize_reactions
+from .reactions import normalize_reactions, total_reaction_count
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -140,6 +141,15 @@ a:hover{text-decoration:underline}
 .comments-sum::before{content:'\\25B8\\00a0'}
 .comments[open]>.comments-sum::before{content:'\\25BE\\00a0'}
 .comments-body{margin-top:4px;display:flex;flex-direction:column;gap:1px}
+.bbl.cfilter-hidden,.grp.cfilter-hidden{display:none}
+/* Comment reaction filter bar */
+.cfilter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;
+  padding:8px 16px;background:#fff;border-bottom:1px solid #e6ecf0;
+  position:sticky;top:0;z-index:5}
+.cfilter-lbl{font-size:13px;font-weight:600;color:#707579}
+.cfilter-btn{cursor:pointer;font-size:12px;border:1px solid #d5dde3;
+  background:#f1f3f5;color:#168acd;border-radius:13px;padding:3px 10px}
+.cfilter-btn.active{background:#168acd;color:#fff;border-color:#168acd}
 /* Media */
 .media-img,.media-stk,.media-vid{display:block;border-radius:10px;margin-bottom:4px}
 .media-img{max-width:100%;max-height:340px;object-fit:contain}
@@ -208,6 +218,15 @@ a:hover{text-decoration:underline}
   {%- endfor %}
 </div>
 {%- endif %}
+{%- if comment_filters %}
+<div class="cfilter">
+  <span class="cfilter-lbl">Comments:</span>
+  <button class="cfilter-btn active" data-threshold="0">All ({{ comment_total_count }})</button>
+  {%- for f in comment_filters %}
+  <button class="cfilter-btn" data-threshold="{{ f.threshold }}">Top {{ f.percentile }}%: {{ f.threshold }}+ ({{ f.count }})</button>
+  {%- endfor %}
+</div>
+{%- endif %}
 {%- macro render_group(item) %}
 <div class="grp{% if item.is_outgoing %} out{% endif %}" data-topic="{{ item.topic if item.topic is not none else 'none' }}">
   {%- if not item.is_outgoing %}
@@ -220,7 +239,7 @@ a:hover{text-decoration:underline}
     <div class="sname" style="color:{{ item.sender_color }}">{{ item.sender_name | e }}</div>
     {%- endif %}
     {%- for msg in item.messages %}
-    <div class="bbl"{% if msg.anchor %} id="{{ msg.anchor }}"{% endif %}>
+    <div class="bbl"{% if msg.anchor %} id="{{ msg.anchor }}"{% endif %} data-reactions="{{ msg.reactions_total | default(0) }}">
       {%- if msg.fwd_from_name %}
       <div class="fwd">&#8627; Forwarded from {{ msg.fwd_from_name | e }}</div>
       {%- endif %}
@@ -299,8 +318,8 @@ a:hover{text-decoration:underline}
 {%- elif item.type == "group" %}
 {{ render_group(item) }}
 {%- elif item.type == "comments" %}
-<details class="comments" data-topic="none">
-<summary class="comments-sum">{{ item.count }} comment{{ '' if item.count == 1 else 's' }}</summary>
+<details class="comments" data-topic="none" data-total="{{ item.count }}">
+<summary class="comments-sum"><span class="comments-cnt">{{ item.count }} comment{{ '' if item.count == 1 else 's' }}</span></summary>
 <div class="comments-body">
 {%- for g in item.groups %}{{ render_group(g) }}{%- endfor %}
 </div>
@@ -339,6 +358,44 @@ a:hover{text-decoration:underline}
   }
   for(var k=0;k<tabs.length;k++){
     tabs[k].addEventListener('click', function(){ apply(this.getAttribute('data-topic')); });
+  }
+})();
+</script>
+{%- endif %}
+{%- if comment_filters %}
+<script>
+(function(){
+  var bar = document.querySelector('.cfilter');
+  if(!bar) return;
+  var btns = bar.querySelectorAll('.cfilter-btn');
+  var blocks = document.querySelectorAll('.comments');
+  function apply(threshold){
+    for(var b=0;b<blocks.length;b++){
+      var det = blocks[b];
+      var bbls = det.querySelectorAll('.bbl');
+      var visible = 0, j, n;
+      for(j=0;j<bbls.length;j++){
+        n = parseInt(bbls[j].getAttribute('data-reactions')||'0',10);
+        if(n>=threshold){ bbls[j].classList.remove('cfilter-hidden'); visible++; }
+        else { bbls[j].classList.add('cfilter-hidden'); }
+      }
+      // Hide comment sender-groups whose bubbles are all filtered out.
+      var grps = det.querySelectorAll('.grp');
+      for(j=0;j<grps.length;j++){
+        var vis = grps[j].querySelectorAll('.bbl:not(.cfilter-hidden)').length;
+        grps[j].classList.toggle('cfilter-hidden', vis===0);
+      }
+      // Reflect the visible count in the collapsible summary.
+      var cnt = det.querySelector('.comments-cnt');
+      if(cnt) cnt.textContent = visible + ' comment' + (visible===1?'':'s');
+    }
+  }
+  for(var k=0;k<btns.length;k++){
+    btns[k].addEventListener('click', function(){
+      var th = parseInt(this.getAttribute('data-threshold')||'0',10);
+      apply(th);
+      for(var m=0;m<btns.length;m++){ btns[m].classList.toggle('active', btns[m]===this); }
+    });
   }
 })();
 </script>
@@ -392,6 +449,19 @@ class RenderMixin:
             if tid is not None and tid not in seen_topics:
                 seen_topics.add(tid)
                 topics.append({"id": tid, "name": item.get("topic_name") or str(tid)})
+        # Reaction totals of channel comments (items of type "comments"), used to
+        # build the "top N%" client-side comment filter. Empty when there are no
+        # comments, which suppresses the filter bar.
+        comment_totals: List[int] = []
+        for item in items:
+            if item.get("type") != "comments":
+                continue
+            for group in item.get("groups", []):
+                for msg in group.get("messages", []):
+                    comment_totals.append(int(msg.get("reactions_total") or 0))
+        comment_filters = _comment_reaction_percentiles(comment_totals)
+        comment_total_count = len(comment_totals)
+
         env = Environment(loader=BaseLoader(), autoescape=True)
         env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
         env.filters["fmt_entities"] = lambda text, entities: Markup(
@@ -405,6 +475,8 @@ class RenderMixin:
             topics=topics,
             media_prefix=media_prefix,
             media_links=media_links,
+            comment_filters=comment_filters,
+            comment_total_count=comment_total_count,
         )
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(html, encoding="utf-8")
@@ -751,6 +823,7 @@ class RenderMixin:
                     "location_lat": loc_lat,
                     "location_lng": loc_lng,
                     "reactions": _render_reactions(msg.get("reactions")),
+                    "reactions_total": total_reaction_count(msg.get("reactions")),
                 }
             )
 
@@ -886,6 +959,34 @@ def _render_reactions(reactions: Any) -> List[Dict[str, Any]]:
                 }
             )
     return pills
+
+
+def _comment_reaction_percentiles(
+    totals: List[int], percentiles: tuple = (50, 20, 10, 5)
+) -> List[Dict[str, Any]]:
+    """Compute reaction-count thresholds for "top N%" comment filters.
+
+    Given every comment's total reaction count, returns one entry per requested
+    percentile::
+
+        {"percentile": 20, "threshold": 3, "count": 12}
+
+    meaning "the top 20% of comments by reactions start at 3 reactions, and 12
+    comments have at least that many". ``threshold`` is the smallest total among
+    the top ``p%`` of comments; ``count`` is how many comments reach it (which
+    can exceed the bucket size when values tie). Returns ``[]`` for no comments.
+    """
+    n = len(totals)
+    if n == 0:
+        return []
+    ordered = sorted(totals, reverse=True)
+    out: List[Dict[str, Any]] = []
+    for p in percentiles:
+        k = max(1, math.ceil(n * p / 100))
+        threshold = ordered[k - 1]
+        count = sum(1 for t in totals if t >= threshold)
+        out.append({"percentile": p, "threshold": threshold, "count": count})
+    return out
 
 
 def _log(obj: Any) -> logging.Logger:

@@ -87,6 +87,12 @@ telegram-download-chat channel_username --comments
 # Cap comments fetched per post (here: 50 per post)
 telegram-download-chat channel_username --comments --comments-limit 50
 
+# Keep only comments with at least 2 total reactions
+telegram-download-chat channel_username --comments --comments-min-reactions 2
+
+# Include each message's reactions inline in the TXT output
+telegram-download-chat username --reactions
+
 # Split output into separate files by month or year
 telegram-download-chat username --split month
 
@@ -156,11 +162,13 @@ options:
   --media               Download media attachments to a separate folder
   --no-fast-download    Disable parallel multi-connection media downloads (use single-stream Telethon downloader)
   --media-placeholders  Insert media type indicators (e.g. [photo], [file=name.pdf]) in TXT output
+  --reactions           Append each message's reactions as an inline text suffix (e.g. [👍5 ❤️2]) in the TXT output
   --html                Export chat as a Telegram-style HTML file (alongside JSON/TXT)
   --html-media-links    Show clickable file path captions under each media element in HTML export
   --pdf                 Export chat as a PDF document (alongside JSON/TXT)
   --comments            Download post comments from a channel's linked discussion group (channel-only; no-op on other entities and channels without comments)
   --comments-limit N    Max comments to fetch per post (requires --comments; omit for unlimited)
+  --comments-min-reactions N  Drop comments with fewer than N total reactions before saving (requires --comments; 0 = keep all; applied after --comments-limit)
   --overwrite           Replace existing output files instead of resuming
   --proxy-url URL       Proxy URL for Telegram connection (socks5://host:1080, http://host:8080)
   -v, --version         Show program's version number and exit
@@ -476,6 +484,7 @@ A human-readable version of the chat with:
 - Message content with basic formatting
 - Reply indicators
 - Optional media type indicators with `--media-placeholders` (e.g. `[photo]`, `[video]`, `[file=report.pdf]`)
+- Optional inline reactions with `--reactions` (e.g. `Nice post [👍5 ❤️2]`; custom/premium emoji show as `⭐`)
 
 ### Media Attachments (`[chat_name]/attachments/`)
 When using the `--media` flag, media files are downloaded alongside the message files, organized by media type:
@@ -510,6 +519,7 @@ Generated when the `--html` / `--pdf` flags are used (alongside the usual JSON/T
 - Turns reply quotes into clickable links that jump to the cited message (when that message is part of the export).
 - Renders reaction pills (emoji + count) under each message, mirroring the Telegram client; the reaction you chose is highlighted, and custom/premium emoji show a star placeholder with the document id in a tooltip.
 - Renders channel-post comments as a collapsible block per post (collapsed shows "N comments").
+- Shows a "top N%" comment filter bar (when the page has comments): buttons for All / Top 50% / 20% / 10% / 5%, each labeled with the computed reaction threshold and matching comment count (e.g. `Top 20%: 3+ (12)`). Clicking hides comments below that reaction count live in the browser; nothing is removed from the export.
 
 When a downloaded reply cites a message whose date falls outside the requested `--min-date`/`--max-date` window (or a finite `--limit`), that referenced message is automatically fetched by id so the quoted citation is populated in JSON/TXT/HTML.
 

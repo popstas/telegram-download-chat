@@ -5,8 +5,16 @@ stable list shape stored in the saved JSON, then rendered as pills (emoji +
 count) under each message in the HTML export.
 """
 
-from telegram_download_chat.core.reactions import normalize_reactions
-from telegram_download_chat.core.render import HTML_TEMPLATE, RenderMixin
+from telegram_download_chat.core.reactions import (
+    format_reactions_text,
+    normalize_reactions,
+    total_reaction_count,
+)
+from telegram_download_chat.core.render import (
+    HTML_TEMPLATE,
+    RenderMixin,
+    _comment_reaction_percentiles,
+)
 
 
 def _msg_reactions(results, recent=None):
@@ -95,6 +103,49 @@ def test_normalize_idempotent_on_list():
 def test_normalize_drops_garbage_list_entries():
     mixed = [{"emoji": "👍", "count": 5}, {"bogus": True}, "nope"]
     assert normalize_reactions(mixed) == [{"emoji": "👍", "count": 5}]
+
+
+# ── total_reaction_count ───────────────────────────────────────────────────
+
+
+def test_total_reaction_count_none_and_empty():
+    assert total_reaction_count(None) == 0
+    assert total_reaction_count([]) == 0
+    assert total_reaction_count(_msg_reactions([])) == 0
+
+
+def test_total_reaction_count_sums_all_counts():
+    raw = _msg_reactions([_emoji_count("👍", 5), _emoji_count("❤️", 2)])
+    assert total_reaction_count(raw) == 7
+
+
+def test_total_reaction_count_includes_custom_emoji():
+    raw = _msg_reactions([_emoji_count("👍", 5), _custom_count(123, 3)])
+    assert total_reaction_count(raw) == 8
+
+
+def test_total_reaction_count_on_normalized_list():
+    norm = [{"emoji": "👍", "count": 5}, {"custom_emoji_id": 7, "count": 1}]
+    assert total_reaction_count(norm) == 6
+
+
+# ── format_reactions_text ──────────────────────────────────────────────────
+
+
+def test_format_reactions_text_none_empty():
+    assert format_reactions_text(None) == ""
+    assert format_reactions_text([]) == ""
+    assert format_reactions_text(_msg_reactions([])) == ""
+
+
+def test_format_reactions_text_emoji():
+    raw = _msg_reactions([_emoji_count("👍", 5), _emoji_count("❤️", 2)])
+    assert format_reactions_text(raw) == "👍5 ❤️2"
+
+
+def test_format_reactions_text_custom_emoji_placeholder():
+    raw = _msg_reactions([_emoji_count("👍", 5), _custom_count(123, 3)])
+    assert format_reactions_text(raw) == "👍5 ⭐3"
 
 
 # ── HTML rendering ─────────────────────────────────────────────────────────
@@ -189,6 +240,76 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
+
+# ── Comment percentile filter (Task 2) ──────────────────────────────────────
+
+
+def test_comment_reaction_percentiles_empty():
+    assert _comment_reaction_percentiles([]) == []
+
+
+def test_comment_reaction_percentiles_distribution():
+    totals = [0, 0, 1, 2, 3, 5, 8, 10, 12, 20]
+    assert _comment_reaction_percentiles(totals) == [
+        {"percentile": 50, "threshold": 5, "count": 5},
+        {"percentile": 20, "threshold": 12, "count": 2},
+        {"percentile": 10, "threshold": 20, "count": 1},
+        {"percentile": 5, "threshold": 20, "count": 1},
+    ]
+
+
+def _post_msg(mid, text):
+    return {
+        "id": mid,
+        "date": "2026-01-01T10:00:00+00:00",
+        "from_id": {"channel_id": 500},
+        "user_display_name": "Channel",
+        "message": text,
+    }
+
+
+def _comment_msg(mid, sender, text, comment_of, reactions=None):
+    d = {
+        "id": mid,
+        "date": f"2026-01-01T10:{mid % 60:02d}:00+00:00",
+        "from_id": {"user_id": sender},
+        "user_display_name": f"U{sender}",
+        "message": text,
+        "comment_of": comment_of,
+        "discussion_msg_id": mid,
+        "reply_to": {"reply_to_msg_id": comment_of},
+        "reply_to_msg_id": comment_of,
+    }
+    if reactions is not None:
+        d["reactions"] = reactions
+    return d
+
+
+def test_html_comment_filter_bar_present(tmp_path):
+    out = tmp_path / "out.html"
+    RenderMixin().render_html(
+        [
+            _post_msg(1, "post"),
+            _comment_msg(1001, 2, "a", 1, [{"emoji": "👍", "count": 5}]),
+            _comment_msg(1002, 3, "b", 1, [{"emoji": "👍", "count": 1}]),
+        ],
+        out,
+        chat_title="t",
+    )
+    html = out.read_text(encoding="utf-8")
+    # Filter bar with percentile buttons carrying thresholds.
+    assert 'class="cfilter"' in html
+    assert "data-threshold=" in html
+    # Comment bubbles carry their total reaction count for client-side filtering.
+    assert 'data-reactions="5"' in html
+    assert 'data-reactions="1"' in html
+
+
+def test_html_no_comment_filter_bar_without_comments(tmp_path):
+    out = tmp_path / "out.html"
+    RenderMixin().render_html([_post_msg(1, "post only")], out, chat_title="t")
+    html = out.read_text(encoding="utf-8")
+    assert 'class="cfilter"' not in html
 
 
 @pytest.mark.asyncio

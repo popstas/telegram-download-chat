@@ -32,12 +32,29 @@ class _AsyncIter:
 class _FakeComment:
     """Telethon-message stand-in; ``media`` truthy marks a downloadable file."""
 
-    def __init__(self, msg_id, media=None):
+    def __init__(self, msg_id, media=None, reactions=None):
         self.id = msg_id
         self.media = media
+        self._reactions = reactions
 
     def to_dict(self):
-        return {"_": "Message", "id": self.id, "message": f"comment {self.id}"}
+        data = {"_": "Message", "id": self.id, "message": f"comment {self.id}"}
+        if self._reactions is not None:
+            data["reactions"] = self._reactions
+        return data
+
+
+def _reactions(count):
+    return {
+        "_": "MessageReactions",
+        "results": [
+            {
+                "_": "ReactionCount",
+                "reaction": {"_": "ReactionEmoji", "emoticon": "👍"},
+                "count": count,
+            }
+        ],
+    }
 
 
 def _make_serializable(obj):
@@ -94,6 +111,37 @@ async def test_comment_media_downloaded_and_stamped(tmp_path):
     by_id = {c["id"]: c for c in comments}
     assert by_id[1001]["attachment_path"] == "images/1001_pic.jpg"
     assert "attachment_path" not in by_id[1002]
+
+
+@pytest.mark.asyncio
+async def test_min_reactions_excludes_dropped_comment_media(tmp_path):
+    """A media comment below min_reactions is dropped before its media downloads."""
+    downloader = _make_downloader(
+        comments_by_post={
+            5: [
+                _FakeComment(1001, media=object(), reactions=_reactions(5)),  # keep
+                _FakeComment(1002, media=object(), reactions=_reactions(1)),  # drop
+            ]
+        },
+        download_results={"1001": "images/1001_pic.jpg"},
+    )
+    attachments = tmp_path / "attachments"
+
+    comments = await download_post_comments(
+        downloader,
+        object(),
+        [5],
+        silent=True,
+        min_reactions=3,
+        download_media=True,
+        attachments_dir=attachments,
+    )
+
+    assert {c["id"] for c in comments} == {1001}
+    # Only the kept comment's raw media is handed to download_all_media.
+    downloader.download_all_media.assert_awaited_once()
+    raw_arg, _ = downloader.download_all_media.await_args.args
+    assert [m.id for m in raw_arg] == [1001]
 
 
 @pytest.mark.asyncio

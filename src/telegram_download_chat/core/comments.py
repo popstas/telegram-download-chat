@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set
 from telethon.errors import FloodWaitError, MsgIdInvalidError
 
 from .progress import emit_progress
+from .reactions import total_reaction_count
 
 
 def get_comments_checkpoint_path(output_file: Any) -> Path:
@@ -156,6 +157,7 @@ async def download_post_comments(
     silent: bool = False,
     stop_check: Optional[Callable[[], bool]] = None,
     limit: Optional[int] = None,
+    min_reactions: int = 0,
     download_media: bool = False,
     attachments_dir: Optional[Any] = None,
     on_post_done: Optional[Callable[[int], None]] = None,
@@ -176,6 +178,11 @@ async def download_post_comments(
             between posts. ``downloader._stop_requested`` is also honored.
         limit: Max comments per post. A positive int caps each post;
             ``None`` / ``0`` means unlimited.
+        min_reactions: Drop comments whose total reaction count
+            (:func:`total_reaction_count`) is below this value. ``0`` keeps all.
+            Applied after ``limit`` (which caps how many are fetched) and before
+            comment media is downloaded, so dropped comments never trigger a
+            media fetch.
         download_media: When True (and ``attachments_dir`` is set), download
             the attachments of comments that carry media, reusing
             ``downloader.download_all_media``. Each downloaded comment's
@@ -272,6 +279,24 @@ async def download_post_comments(
                 post_comments = []
                 scanned = False
                 break
+
+        # Quality gate: drop low-reaction comments after the (limit-capped)
+        # fetch and before any media download, so dropped comments never trigger
+        # a media fetch. Their raw media messages are excluded by id too.
+        if min_reactions > 0 and post_comments:
+            kept_disc_ids = set()
+            filtered: List[Dict[str, Any]] = []
+            for comment in post_comments:
+                if total_reaction_count(comment.get("reactions")) >= min_reactions:
+                    filtered.append(comment)
+                    disc_id = comment.get("discussion_msg_id")
+                    if disc_id is not None:
+                        kept_disc_ids.add(disc_id)
+            post_comments = filtered
+            if post_raw_media:
+                post_raw_media = [
+                    m for m in post_raw_media if getattr(m, "id", None) in kept_disc_ids
+                ]
 
         comments.extend(post_comments)
         if want_media and post_raw_media:

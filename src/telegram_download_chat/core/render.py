@@ -5,12 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
+
+from .reactions import normalize_reactions, total_reaction_count
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -42,6 +45,8 @@ ACTION_LABELS: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 HTML_TEMPLATE = """\
+{%- macro spoiler_open(on) -%}{% if on %}<label class="spoiler-wrap"><input type="checkbox">{% endif %}{%- endmacro -%}
+{%- macro spoiler_close(on) -%}{% if on %}<span class="spoiler-badge">Spoiler</span></label>{% endif %}{%- endmacro -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -128,6 +133,27 @@ a:hover{text-decoration:underline}
 .rq{background:rgba(0,0,0,0.05);border-left:3px solid #00a884;border-radius:6px;
   padding:5px 8px;margin-bottom:6px;font-size:12.5px;color:#555;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;max-height:64px}
+/* Collapsible channel-post comments */
+.comments{margin:2px 0 8px 40px}
+.comments-sum{cursor:pointer;color:#168acd;font-size:13px;font-weight:600;
+  list-style:none;user-select:none;padding:4px 0}
+.comments-sum::-webkit-details-marker{display:none}
+.comments-sum::before{content:'\\25B8\\00a0'}
+.comments[open]>.comments-sum::before{content:'\\25BE\\00a0'}
+.comments-body{margin-top:4px;display:flex;flex-direction:column;gap:1px}
+.bbl.cfilter-hidden,.grp.cfilter-hidden{display:none}
+/* Comment reaction filter bar */
+.cfilter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;
+  padding:8px 16px;background:#fff;border-bottom:1px solid #e6ecf0;
+  position:sticky;top:0;z-index:5}
+.cfilter.unpinned{position:static}
+.cfilter-lbl{font-size:13px;font-weight:600;color:#707579}
+.cfilter-btn{cursor:pointer;font-size:12px;border:1px solid #d5dde3;
+  background:#f1f3f5;color:#168acd;border-radius:13px;padding:3px 10px}
+.cfilter-btn.active{background:#168acd;color:#fff;border-color:#168acd}
+.cfilter-pin{margin-left:auto;cursor:pointer;font-size:13px;line-height:1;
+  border:1px solid #d5dde3;background:#f1f3f5;border-radius:13px;padding:3px 8px}
+.cfilter-pin.off{opacity:.45}
 /* Media */
 .media-img,.media-stk,.media-vid{display:block;border-radius:10px;margin-bottom:4px}
 .media-img{max-width:100%;max-height:340px;object-fit:contain}
@@ -142,6 +168,15 @@ a:hover{text-decoration:underline}
 .media-ref{display:block;margin-top:-2px;margin-bottom:4px;font-size:11px;color:#8b8b8b;word-break:break-all}
 .media-ref a{color:inherit;text-decoration:none}
 .media-ref a:hover{text-decoration:underline}
+/* Click-to-reveal spoiler media (blurred until the hidden checkbox is toggled) */
+.spoiler-wrap{position:relative;display:inline-block;cursor:pointer;line-height:0}
+.spoiler-wrap>input{position:absolute;width:0;height:0;opacity:0}
+.spoiler-media{filter:blur(16px);transition:filter .25s ease}
+.spoiler-wrap>input:checked~.spoiler-media{filter:none}
+.spoiler-badge{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:rgba(0,0,0,0.55);color:#fff;font-size:12px;font-weight:500;line-height:1;
+  padding:5px 12px;border-radius:14px;pointer-events:none;white-space:nowrap}
+.spoiler-wrap>input:checked~.spoiler-badge{display:none}
 .poll-wrap{margin-bottom:4px}
 .poll-q{font-weight:600;margin-bottom:5px;font-size:13.5px}
 .poll-opt{display:flex;justify-content:space-between;align-items:center;
@@ -150,6 +185,13 @@ a:hover{text-decoration:underline}
 .poll-total{font-size:11px;color:#888;margin-top:3px}
 /* Text */
 .txt{white-space:pre-wrap;font-size:14px;color:#111}
+/* Reactions */
+.reactions{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.reaction{display:inline-flex;align-items:center;gap:3px;background:rgba(0,0,0,0.05);
+  border-radius:13px;padding:2px 8px;font-size:12px;color:#3a4a5a;line-height:1.4}
+.reaction.chosen{background:#cfeffd;color:#168acd}
+.reaction-emoji{font-size:13px}
+.reaction-count{font-weight:600}
 /* Meta */
 .meta{display:flex;justify-content:flex-end;align-items:center;
   gap:5px;font-size:11px;color:#8a8a8a;margin-top:4px;user-select:none}
@@ -180,15 +222,17 @@ a:hover{text-decoration:underline}
   {%- endfor %}
 </div>
 {%- endif %}
-<div class="msgs">
-{%- for item in items %}
-{%- if item.type == "date_sep" %}
-<div class="datesep" data-topic="__date__"><span>{{ item.label | e }}</span></div>
-{%- elif item.type == "thread" %}
-<div class="threadsep" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>&mdash; {{ item.name | e }} &mdash;</span></div>
-{%- elif item.type == "service" %}
-<div class="svc" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>{{ item.text | e }}</span></div>
-{%- elif item.type == "group" %}
+{%- if comment_filters %}
+<div class="cfilter">
+  <span class="cfilter-lbl">Comments:</span>
+  <button class="cfilter-btn active" data-threshold="0">All ({{ comment_total_count }})</button>
+  {%- for f in comment_filters %}
+  <button class="cfilter-btn" data-threshold="{{ f.threshold }}">{{ f.label }} ({{ f.count }})</button>
+  {%- endfor %}
+  <button class="cfilter-pin" title="Unpin filter bar" aria-pressed="true">📌</button>
+</div>
+{%- endif %}
+{%- macro render_group(item) %}
 <div class="grp{% if item.is_outgoing %} out{% endif %}" data-topic="{{ item.topic if item.topic is not none else 'none' }}">
   {%- if not item.is_outgoing %}
   <div class="av" style="background:{{ item.sender_color }}">{{ item.initials | e }}</div>
@@ -200,23 +244,23 @@ a:hover{text-decoration:underline}
     <div class="sname" style="color:{{ item.sender_color }}">{{ item.sender_name | e }}</div>
     {%- endif %}
     {%- for msg in item.messages %}
-    <div class="bbl"{% if msg.id is not none %} id="msg-{{ msg.id }}"{% endif %}>
+    <div class="bbl"{% if msg.anchor %} id="{{ msg.anchor }}"{% endif %} data-reactions="{{ msg.reactions_total | default(0) }}">
       {%- if msg.fwd_from_name %}
       <div class="fwd">&#8627; Forwarded from {{ msg.fwd_from_name | e }}</div>
       {%- endif %}
       {%- if msg.reply_text %}
-      <div class="rq">{% if msg.reply_to_id is not none %}<a href="#msg-{{ msg.reply_to_id }}">{{ msg.reply_text | e }}</a>{% else %}{{ msg.reply_text | e }}{% endif %}</div>
+      <div class="rq">{% if msg.reply_anchor %}<a href="#{{ msg.reply_anchor }}">{{ msg.reply_text | e }}</a>{% else %}{{ msg.reply_text | e }}{% endif %}</div>
       {%- endif %}
       {%- if msg.attachment_path %}
         {%- set src = (media_prefix + msg.attachment_path) | urlencode_path %}
         {%- if msg.media_category == "stickers" %}
-        <img class="media-stk" src="{{ src }}" alt="sticker" loading="lazy">
+        {{ spoiler_open(msg.media_spoiler) }}<img class="media-stk{% if msg.media_spoiler %} spoiler-media{% endif %}" src="{{ src }}" alt="sticker" loading="lazy">{{ spoiler_close(msg.media_spoiler) }}
         {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- elif msg.media_category == "images" %}
-        <img class="media-img" src="{{ src }}" alt="" loading="lazy">
+        {{ spoiler_open(msg.media_spoiler) }}<img class="media-img{% if msg.media_spoiler %} spoiler-media{% endif %}" src="{{ src }}" alt="" loading="lazy">{{ spoiler_close(msg.media_spoiler) }}
         {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- elif msg.media_category == "videos" %}
-        <video class="media-vid" controls preload="none" src="{{ src }}"></video>
+        {{ spoiler_open(msg.media_spoiler) }}<video class="media-vid{% if msg.media_spoiler %} spoiler-media{% endif %}" controls preload="none" src="{{ src }}"></video>{{ spoiler_close(msg.media_spoiler) }}
         {%- if media_links %}<span class="media-ref"><a href="{{ src }}" target="_blank" rel="noopener">{{ msg.attachment_path | e }}</a></span>{% endif %}
         {%- elif msg.media_category == "audio" %}
         <audio class="media-aud" controls preload="none" src="{{ src }}"></audio>
@@ -251,6 +295,13 @@ a:hover{text-decoration:underline}
       {%- if msg.text %}
       <div class="txt">{{ msg.text | fmt_entities(msg.entities) }}</div>
       {%- endif %}
+      {%- if msg.reactions %}
+      <div class="reactions">
+        {%- for r in msg.reactions %}
+        <span class="reaction{% if r.chosen %} chosen{% endif %}"{% if r.title %} title="{{ r.title | e }}"{% endif %}><span class="reaction-emoji">{{ r.label | e }}</span><span class="reaction-count">{{ r.count }}</span></span>
+        {%- endfor %}
+      </div>
+      {%- endif %}
       <div class="meta">
         {%- if msg.edited %}<span class="edited">edited</span>{%- endif %}
         <span>{{ msg.time }}</span>
@@ -260,6 +311,24 @@ a:hover{text-decoration:underline}
     {%- endfor %}
   </div>
 </div>
+{%- endmacro %}
+<div class="msgs">
+{%- for item in items %}
+{%- if item.type == "date_sep" %}
+<div class="datesep" data-topic="__date__"><span>{{ item.label | e }}</span></div>
+{%- elif item.type == "thread" %}
+<div class="threadsep" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>&mdash; {{ item.name | e }} &mdash;</span></div>
+{%- elif item.type == "service" %}
+<div class="svc" data-topic="{{ item.topic if item.topic is not none else 'none' }}"><span>{{ item.text | e }}</span></div>
+{%- elif item.type == "group" %}
+{{ render_group(item) }}
+{%- elif item.type == "comments" %}
+<details class="comments" data-topic="none" data-total="{{ item.count }}">
+<summary class="comments-sum"><span class="comments-cnt">{{ item.count }} comment{{ '' if item.count == 1 else 's' }}</span></summary>
+<div class="comments-body">
+{%- for g in item.groups %}{{ render_group(g) }}{%- endfor %}
+</div>
+</details>
 {%- endif %}
 {%- endfor %}
 </div>
@@ -294,6 +363,54 @@ a:hover{text-decoration:underline}
   }
   for(var k=0;k<tabs.length;k++){
     tabs[k].addEventListener('click', function(){ apply(this.getAttribute('data-topic')); });
+  }
+})();
+</script>
+{%- endif %}
+{%- if comment_filters %}
+<script>
+(function(){
+  var bar = document.querySelector('.cfilter');
+  if(!bar) return;
+  var btns = bar.querySelectorAll('.cfilter-btn');
+  var blocks = document.querySelectorAll('.comments');
+  function apply(threshold){
+    for(var b=0;b<blocks.length;b++){
+      var det = blocks[b];
+      var bbls = det.querySelectorAll('.bbl');
+      var visible = 0, j, n;
+      for(j=0;j<bbls.length;j++){
+        n = parseInt(bbls[j].getAttribute('data-reactions')||'0',10);
+        if(n>=threshold){ bbls[j].classList.remove('cfilter-hidden'); visible++; }
+        else { bbls[j].classList.add('cfilter-hidden'); }
+      }
+      // Hide comment sender-groups whose bubbles are all filtered out.
+      var grps = det.querySelectorAll('.grp');
+      for(j=0;j<grps.length;j++){
+        var vis = grps[j].querySelectorAll('.bbl:not(.cfilter-hidden)').length;
+        grps[j].classList.toggle('cfilter-hidden', vis===0);
+      }
+      // Reflect the visible count in the collapsible summary.
+      var cnt = det.querySelector('.comments-cnt');
+      if(cnt) cnt.textContent = visible + ' comment' + (visible===1?'':'s');
+    }
+  }
+  for(var k=0;k<btns.length;k++){
+    btns[k].addEventListener('click', function(){
+      var th = parseInt(this.getAttribute('data-threshold')||'0',10);
+      apply(th);
+      for(var m=0;m<btns.length;m++){ btns[m].classList.toggle('active', btns[m]===this); }
+    });
+  }
+  // Pin/unpin: toggle whether the filter bar sticks to the top while scrolling.
+  var pin = bar.querySelector('.cfilter-pin');
+  if(pin){
+    pin.addEventListener('click', function(){
+      var pinned = !bar.classList.toggle('unpinned');
+      pin.classList.toggle('off', !pinned);
+      pin.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+      pin.title = pinned ? 'Unpin filter bar' : 'Pin filter bar';
+    });
   }
 })();
 </script>
@@ -347,6 +464,19 @@ class RenderMixin:
             if tid is not None and tid not in seen_topics:
                 seen_topics.add(tid)
                 topics.append({"id": tid, "name": item.get("topic_name") or str(tid)})
+        # Reaction totals of channel comments (items of type "comments"), used to
+        # build the "top N%" client-side comment filter. Empty when there are no
+        # comments, which suppresses the filter bar.
+        comment_totals: List[int] = []
+        for item in items:
+            if item.get("type") != "comments":
+                continue
+            for group in item.get("groups", []):
+                for msg in group.get("messages", []):
+                    comment_totals.append(int(msg.get("reactions_total") or 0))
+        comment_filters = _comment_filters(comment_totals)
+        comment_total_count = len(comment_totals)
+
         env = Environment(loader=BaseLoader(), autoescape=True)
         env.filters["urlencode_path"] = lambda s: quote(str(s), safe="/")
         env.filters["fmt_entities"] = lambda text, entities: Markup(
@@ -360,6 +490,8 @@ class RenderMixin:
             topics=topics,
             media_prefix=media_prefix,
             media_links=media_links,
+            comment_filters=comment_filters,
+            comment_total_count=comment_total_count,
         )
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(html, encoding="utf-8")
@@ -521,6 +653,12 @@ class RenderMixin:
                 str(sender_id) if sender_id else "Unknown"
             )
 
+            # Channel comments carry ``comment_of`` (their parent post id); it
+            # bounds a sender group so a group never mixes a post with comments
+            # (or comments of two different posts), keeping the collapsible
+            # comment block per-post when folded below.
+            comment_of = msg.get("comment_of")
+
             # ── Topic header (HTML, forum supergroups only) ──────────
             msg_topic, msg_topic_name = _topic_for(msg)
             if is_forum:
@@ -547,6 +685,7 @@ class RenderMixin:
                 current_group is not None
                 and prev_sender_id == sender_id
                 and current_group.get("topic") == msg_topic
+                and current_group.get("comment_of") == comment_of
                 and prev_msg_time is not None
                 and msg_dt is not None
                 and abs((msg_dt - prev_msg_time).total_seconds()) < 120
@@ -562,6 +701,7 @@ class RenderMixin:
                     "initials": _sender_initials(sender_name),
                     "topic": msg_topic,
                     "topic_name": msg_topic_name,
+                    "comment_of": comment_of,
                     "messages": [],
                 }
 
@@ -621,7 +761,7 @@ class RenderMixin:
                         pass
 
             reply_text: Optional[str] = None
-            reply_to_id: Optional[Any] = None
+            reply_anchor: Optional[str] = None
             parent_id = _reply_parent_id(msg)
             parent_msg = id_to_msg.get(parent_id) if parent_id is not None else None
             # Don't cite a parent that is the message's own topic root: the
@@ -632,8 +772,20 @@ class RenderMixin:
             parent_is_thread_root = (
                 is_forum and parent_id is not None and parent_id == msg_topic
             )
-            if parent_is_thread_root:
-                # Suppress the citation; the topic header carries the context.
+            # A channel comment is normalized to point at its parent post
+            # (``comment_of``), and the render path already nests it under that
+            # post. Citing the post inside every comment is redundant, so
+            # suppress it — but only for channel comments, and only when the
+            # cited parent is the post itself (a comment quoting another comment
+            # is left untouched).
+            parent_is_comment_post = (
+                comment_of is not None
+                and parent_id is not None
+                and parent_id == comment_of
+            )
+            if parent_is_thread_root or parent_is_comment_post:
+                # Suppress the citation; the topic header / comment nesting
+                # already carries the parent's context.
                 pass
             elif parent_msg is not None and parent_msg is not msg:
                 # Parent is in the export: cite its first line and anchor to it.
@@ -644,7 +796,16 @@ class RenderMixin:
                     if qt:
                         cited = str(qt)[:150]
                 reply_text = cited or f"Message #{parent_id}"
-                reply_to_id = parent_id
+                # Anchor to the parent's *actual* bubble id. Resolving it from
+                # the indexed parent (rather than emitting a bare ``msg-<id>``)
+                # keeps the link correct across the comment/post id-space split:
+                # the index prefers a post over a same-numbered comment, so a
+                # ``msg-<post_id>`` citation always lands on the post, never on a
+                # collision in the discussion id space. (Channel comments cite
+                # only their parent post — ``_normalize_comment`` rewrites every
+                # comment's reply target to the post id — and that citation is
+                # suppressed above, so a comment never resolves here.)
+                reply_anchor = _anchor_for(parent_msg)
             else:
                 # Parent not in export: fall back to the stored quote text.
                 reply_to = msg.get("reply_to")
@@ -661,19 +822,23 @@ class RenderMixin:
             current_group["messages"].append(
                 {  # type: ignore[index]
                     "id": msg.get("id"),
+                    "anchor": _anchor_for(msg),
                     "text": msg.get("message") or "",
                     "entities": msg.get("entities") or [],
                     "time": _fmt_time(date_str),
                     "edited": bool(msg.get("edit_date")),
                     "reply_text": reply_text,
-                    "reply_to_id": reply_to_id,
+                    "reply_anchor": reply_anchor,
                     "fwd_from_name": fwd_name,
                     "attachment_path": att_path,
                     "attachment_filename": att_filename,
                     "media_category": att_cat,
+                    "media_spoiler": bool((msg.get("media") or {}).get("spoiler")),
                     "poll_data": poll_data,
                     "location_lat": loc_lat,
                     "location_lng": loc_lng,
+                    "reactions": _render_reactions(msg.get("reactions")),
+                    "reactions_total": total_reaction_count(msg.get("reactions")),
                 }
             )
 
@@ -681,12 +846,196 @@ class RenderMixin:
             prev_msg_time = msg_dt
 
         flush()
+
+        # HTML only: fold channel-comment groups into collapsible blocks placed
+        # right after their parent post. PDF (with_threads=False) keeps comments
+        # inline since it cannot collapse them.
+        if with_threads:
+            items = _fold_comment_groups(items)
         return items
 
 
 # ---------------------------------------------------------------------------
 # Module-level pure helpers (no self needed)
 # ---------------------------------------------------------------------------
+
+
+def _fold_comment_groups(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Fold channel-comment groups into collapsible per-post ``comments`` items.
+
+    Each ``group`` item tagged with ``comment_of`` is a block of comments on a
+    channel post. They are removed from the inline flow and re-emitted as a
+    single ``comments`` item (carrying the comment count and the comment groups)
+    placed right after the bubble group that contains the parent post. Comments
+    whose parent post is absent from the export are appended at the end. Date
+    separators left empty by the move are dropped.
+    """
+    comment_groups: Dict[Any, List[Dict[str, Any]]] = {}
+    main_items: List[Dict[str, Any]] = []
+    for it in items:
+        if it.get("type") == "group" and it.get("comment_of") is not None:
+            comment_groups.setdefault(it["comment_of"], []).append(it)
+        else:
+            main_items.append(it)
+
+    if not comment_groups:
+        return items
+
+    def _block(post_id: Any, groups: List[Dict[str, Any]]) -> Dict[str, Any]:
+        count = sum(len(g.get("messages", [])) for g in groups)
+        return {
+            "type": "comments",
+            "post_id": post_id,
+            "count": count,
+            "groups": groups,
+        }
+
+    result: List[Dict[str, Any]] = []
+    placed: set = set()
+    for it in main_items:
+        result.append(it)
+        if it.get("type") != "group":
+            continue
+        for msg in it.get("messages", []):
+            pid = msg.get("id")
+            if pid in comment_groups and pid not in placed:
+                result.append(_block(pid, comment_groups[pid]))
+                placed.add(pid)
+
+    # Parent post not present in the export — keep the comments at the end.
+    for pid, groups in comment_groups.items():
+        if pid not in placed:
+            result.append(_block(pid, groups))
+            placed.add(pid)
+
+    return _drop_empty_date_separators(result)
+
+
+def _drop_empty_date_separators(
+    items: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Remove date separators that no longer precede any visible content.
+
+    Relocating comment groups can orphan a date separator that only headed
+    comments; drop any separator with no group/service/comments/thread item
+    before the next separator.
+    """
+    out: List[Dict[str, Any]] = []
+    n = len(items)
+    content = {"group", "service", "comments", "thread"}
+    for i, it in enumerate(items):
+        if it.get("type") == "date_sep":
+            has_content = False
+            for j in range(i + 1, n):
+                t = items[j].get("type")
+                if t == "date_sep":
+                    break
+                if t in content:
+                    has_content = True
+                    break
+            if not has_content:
+                continue
+        out.append(it)
+    return out
+
+
+def _render_reactions(reactions: Any) -> List[Dict[str, Any]]:
+    """Build reaction-pill render data from a message's ``reactions`` field.
+
+    Normalizes defensively (the field is usually already normalized by
+    ``save_messages``, but ``render_html`` may be invoked on raw JSON via the
+    convert command). Standard emoji render as themselves; custom emoji have no
+    available glyph, so they render a star placeholder carrying the document id
+    as a tooltip.
+    """
+    norm = normalize_reactions(reactions)
+    if not norm:
+        return []
+    pills: List[Dict[str, Any]] = []
+    for r in norm:
+        count = r.get("count", 0)
+        chosen = bool(r.get("chosen"))
+        if "emoji" in r:
+            pills.append(
+                {
+                    "label": r["emoji"],
+                    "count": count,
+                    "chosen": chosen,
+                    "title": "",
+                }
+            )
+        elif "custom_emoji_id" in r:
+            pills.append(
+                {
+                    "label": "⭐",  # ⭐ placeholder for premium custom emoji
+                    "count": count,
+                    "chosen": chosen,
+                    "title": f"custom emoji {r['custom_emoji_id']}",
+                }
+            )
+    return pills
+
+
+def _comment_reaction_percentiles(
+    totals: List[int], percentiles: tuple = (50, 20, 10, 5)
+) -> List[Dict[str, Any]]:
+    """Compute reaction-count thresholds for "top N%" comment filters.
+
+    Given every comment's total reaction count, returns one entry per requested
+    percentile::
+
+        {"percentile": 20, "threshold": 3, "count": 12}
+
+    meaning "the top 20% of comments by reactions start at 3 reactions, and 12
+    comments have at least that many". ``threshold`` is the smallest total among
+    the top ``p%`` of comments; ``count`` is how many comments reach it (which
+    can exceed the bucket size when values tie). Returns ``[]`` for no comments.
+    """
+    n = len(totals)
+    if n == 0:
+        return []
+    ordered = sorted(totals, reverse=True)
+    out: List[Dict[str, Any]] = []
+    for p in percentiles:
+        k = max(1, math.ceil(n * p / 100))
+        threshold = ordered[k - 1]
+        count = sum(1 for t in totals if t >= threshold)
+        out.append({"percentile": p, "threshold": threshold, "count": count})
+    return out
+
+
+def _comment_filters(totals: List[int]) -> List[Dict[str, Any]]:
+    """Build the comment reaction-filter buttons (excluding the always-on "All").
+
+    Always offers a fixed ``1+`` floor button, then the "top N%" percentile
+    buttons from :func:`_comment_reaction_percentiles` — but drops any whose
+    threshold is ``0`` (a "0+" filter is identical to "All") and dedupes buttons
+    that resolve to a threshold already shown. Returns ``[]`` for no comments.
+
+    Each button is ``{"label": str, "threshold": int, "count": int}``.
+    """
+    if not totals:
+        return []
+    buttons: List[Dict[str, Any]] = []
+    seen: set = set()
+    # Always offer a "1+ reactions" floor.
+    buttons.append(
+        {"label": "1+", "threshold": 1, "count": sum(1 for t in totals if t >= 1)}
+    )
+    seen.add(1)
+    for entry in _comment_reaction_percentiles(totals):
+        threshold = entry["threshold"]
+        if threshold == 0 or threshold in seen:
+            continue
+        seen.add(threshold)
+        buttons.append(
+            {
+                "label": f"Top {entry['percentile']}%: {threshold}+",
+                "threshold": threshold,
+                "count": entry["count"],
+            }
+        )
+    return buttons
 
 
 def _log(obj: Any) -> logging.Logger:
@@ -772,6 +1121,25 @@ def _xml_escape(text: str) -> str:
 _ALLOWED_URL_SCHEMES = {"http", "https", "mailto", "tg"}
 
 _SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.\-]*):")
+
+
+def _anchor_for(msg: Dict[str, Any]) -> Optional[str]:
+    """Return the HTML anchor id for a message bubble (``None`` if it has no id).
+
+    A channel comment keeps its native discussion id, which lives in a separate
+    id space and can collide numerically with a real channel post id. Emitting
+    ``msg-<id>`` for both would create duplicate HTML ids, so a ``#msg-<post_id>``
+    reply link could jump to a same-numbered comment instead of the post.
+    Namespacing comment anchors by their parent post keeps ``msg-<post_id>``
+    unambiguous while still giving comments a stable, resolvable anchor.
+    """
+    mid = msg.get("id")
+    if mid is None:
+        return None
+    comment_of = msg.get("comment_of")
+    if comment_of is not None:
+        return f"cmt-{comment_of}-{mid}"
+    return f"msg-{mid}"
 
 
 def _reply_parent_id(msg: Dict[str, Any]) -> Optional[Any]:

@@ -50,8 +50,10 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._load_settings()
 
-        # Set window title
-        self.setWindowTitle("Telegram Download Chat")
+        # Set window title (include the application version)
+        from telegram_download_chat import __version__
+
+        self.setWindowTitle(f"Telegram Download Chat v{__version__}")
 
         # Set window icon if available
         try:

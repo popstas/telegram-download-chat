@@ -87,6 +87,30 @@ telegram-download-chat channel_username --comments
 # Cap comments fetched per post (here: 50 per post)
 telegram-download-chat channel_username --comments --comments-limit 50
 
+# Keep only comments with at least 2 total reactions
+telegram-download-chat channel_username --comments --comments-min-reactions 2
+
+# Include each message's reactions inline in the TXT output
+telegram-download-chat username --reactions
+
+# Split output into separate files by month or year
+telegram-download-chat username --split month
+
+# Split a forum into one subdirectory per topic
+telegram-download-chat group_username --split topics
+
+# Export a Telegram-style HTML page (alongside JSON/TXT)
+telegram-download-chat username --html
+
+# Export HTML with clickable media file-path captions
+telegram-download-chat username --media --html --html-media-links
+
+# Export a PDF document (alongside JSON/TXT)
+telegram-download-chat username --pdf
+
+# Disable parallel multi-connection media downloads (use single-stream)
+telegram-download-chat username --media --no-fast-download
+
 # Show current configuration
 telegram-download-chat --show-config
 
@@ -128,14 +152,23 @@ options:
   -c, --config CONFIG   Path to config file
   --debug               Enable debug logging
   --sort {asc,desc}     Sort messages by date (default: asc)
+  --split {month,year,topics}
+                        Split output: by month, by year, or by forum topic
+                        (one <chat>/<topic_slug>/ subdirectory per topic)
   --show-config         Show config file location and exit
   --results-json        Output results summary as JSON to stdout
   --keywords KEYWORDS  Only save messages containing these keywords (comma-separated)
   --preset PRESET     Use preset from config
   --media               Download media attachments to a separate folder
+  --no-fast-download    Disable parallel multi-connection media downloads (use single-stream Telethon downloader)
   --media-placeholders  Insert media type indicators (e.g. [photo], [file=name.pdf]) in TXT output
+  --reactions           Append each message's reactions as an inline text suffix (e.g. [👍5 ❤️2]) in the TXT output
+  --html                Export chat as a Telegram-style HTML file (alongside JSON/TXT)
+  --html-media-links    Show clickable file path captions under each media element in HTML export
+  --pdf                 Export chat as a PDF document (alongside JSON/TXT)
   --comments            Download post comments from a channel's linked discussion group (channel-only; no-op on other entities and channels without comments)
   --comments-limit N    Max comments to fetch per post (requires --comments; omit for unlimited)
+  --comments-min-reactions N  Drop comments with fewer than N total reactions before saving (requires --comments; 0 = keep all; applied after --comments-limit)
   --overwrite           Replace existing output files instead of resuming
   --proxy-url URL       Proxy URL for Telegram connection (socks5://host:1080, http://host:8080)
   -v, --version         Show program's version number and exit
@@ -182,6 +215,61 @@ Windows build is available in the [releases](https://github.com/popstas/telegram
    ```bash
    telegram-download-chat gui
    ```
+
+### Portable Windows build (two-part, tiny updates)
+
+A portable, no-installer Windows distribution is produced with
+`build_windows_embed.ps1`. It splits the distribution into two parts so updates
+are tiny:
+
+```powershell
+.\build_windows_embed.ps1
+```
+
+Outputs:
+
+- `dist\telegram-download-chat-base-<version>.zip` — the **first install**. Extract
+  anywhere and run `telegram-download-chat.cmd` (CLI) or the
+  `telegram-download-chat-gui.vbs` shortcut (GUI). No installer/registry changes.
+  It contains:
+  - `runtime\` — the **base**: the official Windows *embeddable* CPython plus all
+    third-party packages (PySide6/Qt, telethon, …) and the launchers. Installed
+    once; only re-downloaded when Python or a dependency is bumped.
+  - `app\` — our source package only.
+- `dist\app-<version>.zip` — the **update** (~150 KB). Each release ships just
+  this; the base is reused.
+
+**Updating:** in the GUI, open **Settings → Software Update → Check updates**; when
+an update is available the button becomes **Update now**, which downloads
+`app-<version>.zip` and swaps `app\` in place, then offers to restart. To update
+from the command line instead (atomic swap of `app\`):
+
+```powershell
+runtime\python\python.exe -m telegram_download_chat.core.app_updater apply app-<version>.zip <install-dir>
+```
+
+Because our code and the dependencies live in separate parts, a normal release
+update is a ~150 KB download instead of re-shipping the ~100 MB runtime. The base
+changes only on a Python or dependency bump (then re-install the base zip). Note
+the embeddable Python minor version is pinned by the base, so any dependency's
+native `.pyd` is ABI-locked to it.
+
+#### Optional setup.exe (Inno Setup)
+
+To wrap the portable tree into a classic `setup.exe` with Start Menu / desktop
+shortcuts and an uninstaller, install [Inno Setup 6](https://jrsoftware.org/isdl.php)
+and run:
+
+```powershell
+.\build_windows_installer.ps1
+```
+
+This runs `build_windows_embed.ps1` first, then compiles `installer.iss` into
+`dist\telegram-download-chat-v<version>-setup.exe`. The installer is **per-user**
+(installs under `%LOCALAPPDATA%\Programs`, no admin) on purpose, so the in-app
+"Update now" can swap `app\` in place without elevation. Releases publish this
+`telegram-download-chat-v<version>-setup.exe` alongside `app-<version>.zip` (the
+in-app update asset).
 
 ### Web Interface
 
@@ -301,6 +389,8 @@ The tool will process the archive and generate both JSON and TXT files with the 
 If the download is interrupted, you can simply run the same command again to resume from where it left off. The tool automatically saves progress to a temporary file.
 You can also resume later using `--since-id` with the last downloaded message ID or let the tool read it from the existing JSON file. Use `--overwrite` to replace existing output files instead of resuming.
 
+Interrupted `--comments` runs resume per-post via a `[chat_name]/messages.comments-progress.json` checkpoint, so a restart skips posts whose comments were already fetched. The checkpoint is cleared on clean completion and when `--overwrite` is used.
+
 ### User Mapping
 Display names for users and bots are collected automatically. You can override them in the `users_map` section:
 
@@ -377,8 +467,11 @@ Tips:
 - For broadcast channels, the **Download channel post comments** checkbox (with a
   **Comments per post** limit dropdown: No limit / 10 / 50 / 100 / 500 / 1000)
   fetches the comment threads from the channel's linked discussion group. Comments
-  are merged into the same `messages.json` and render nested under their parent
-  post in the TXT/HTML/PDF exports.
+  are merged into the same `messages.json`; in the HTML export they render in a
+  collapsible per-post block (collapsed shows the comment count), and in TXT/PDF
+  they nest under their parent post. Under `--media`, comment attachments are
+  downloaded into the chat's `attachments/` folder and rendered inline in HTML
+  like post media.
 
 This help is also shown inside the app: click **ⓘ How to fill this?** under the
 field to expand the full list. An **ⓘ** icon with a hover tooltip next to the
@@ -416,6 +509,7 @@ A human-readable version of the chat with:
 - Message content with basic formatting
 - Reply indicators
 - Optional media type indicators with `--media-placeholders` (e.g. `[photo]`, `[video]`, `[file=report.pdf]`)
+- Optional inline reactions with `--reactions` (e.g. `Nice post [👍5 ❤️2]`; custom/premium emoji show as `⭐`)
 
 ### Media Attachments (`[chat_name]/attachments/`)
 When using the `--media` flag, media files are downloaded alongside the message files, organized by media type:
@@ -448,6 +542,11 @@ Generated when the `--html` / `--pdf` flags are used (alongside the usual JSON/T
 
 - Groups messages into reply threads separated by a thread header.
 - Turns reply quotes into clickable links that jump to the cited message (when that message is part of the export).
+- Renders reaction pills (emoji + count) under each message, mirroring the Telegram client; the reaction you chose is highlighted, and custom/premium emoji show a star placeholder with the document id in a tooltip.
+- Renders channel-post comments as a collapsible block per post (collapsed shows "N comments").
+- Shows a "top N%" comment filter bar (when the page has comments): buttons for All / Top 50% / 20% / 10% / 5%, each labeled with the computed reaction threshold and matching comment count (e.g. `Top 20%: 3+ (12)`). Clicking hides comments below that reaction count live in the browser; nothing is removed from the export.
+
+When a downloaded reply cites a message whose date falls outside the requested `--min-date`/`--max-date` window (or a finite `--limit`), that referenced message is automatically fetched by id so the quoted citation is populated in JSON/TXT/HTML.
 
 The TXT and JSON output is unchanged by these flags.
 

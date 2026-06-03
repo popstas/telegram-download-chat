@@ -73,3 +73,57 @@ def style_checkboxes(
     sheet = checkbox_stylesheet(widget)
     for checkbox in checkboxes:
         checkbox.setStyleSheet(sheet)
+
+
+# The green used for the filled portion of progress bars. A single source of
+# truth so every progress bar in the GUI reads the same; the default (Fusion)
+# progress chunk can render as a flat red/highlight color depending on the
+# palette, which reads as an error rather than healthy progress.
+PROGRESS_GREEN = "#4CAF50"
+
+
+def progress_bar_stylesheet(color: str = PROGRESS_GREEN) -> str:
+    """Build the shared stylesheet for a determinate/indeterminate progress bar.
+
+    The filled chunk (and the indeterminate sweep) are painted green so progress
+    reads as healthy rather than as the default highlight/red. A rounded track,
+    centered text, and a thin chunk gap give a clearer "progress line" than the
+    flat native bar.
+
+    Args:
+        color: The chunk fill color as a ``#rrggbb`` hex string.
+
+    Returns:
+        A Qt stylesheet string targeting ``QProgressBar`` and its chunk.
+    """
+    return (
+        "QProgressBar {\n"
+        "    border: 1px solid #cccccc;\n"
+        "    border-radius: 4px;\n"
+        "    text-align: center;\n"
+        "    background-color: #f5f5f5;\n"
+        "    height: 24px;\n"
+        "}\n"
+        "QProgressBar::chunk {\n"
+        f"    background-color: {color};\n"
+        "    border-radius: 2px;\n"
+        "    width: 10px;\n"
+        "    margin: 0.5px;\n"
+        "}\n"
+        "QProgressBar:indeterminate::chunk {\n"
+        f"    background-color: {color};\n"
+        "    border-radius: 2px;\n"
+        "    width: 10px;\n"
+        "    margin: 0.5px;\n"
+        "}\n"
+    )
+
+
+def style_progress_bar(progress_bar, color: str = PROGRESS_GREEN) -> None:
+    """Apply the shared green progress-bar stylesheet to ``progress_bar``.
+
+    Args:
+        progress_bar: The ``QProgressBar`` to style.
+        color: The chunk fill color as a ``#rrggbb`` hex string.
+    """
+    progress_bar.setStyleSheet(progress_bar_stylesheet(color))

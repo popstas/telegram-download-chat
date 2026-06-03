@@ -39,6 +39,32 @@ jobs:
         path: dist/telegram-download-chat.exe
         if-no-files-found: error
 
+    - name: Install Inno Setup
+      run: choco install innosetup -y --no-progress
+
+    - name: Build two-part installer (setup.exe + app update zip)
+      run: |
+        # Same version resolution as the one-file build above.
+        if ("${{ github.ref }}" -like 'refs/tags/*') {
+          $VERSION = "${{ github.ref }}" -replace 'refs/tags/v',''
+        } else {
+          $VERSION = "0.0.0"
+        }
+        $env:SETUPTOOLS_SCM_PRETEND_VERSION = $VERSION
+        # Rebuilds dist\ (embeddable base + app\) then compiles installer.iss
+        # into dist\telegram-download-chat-v<version>-setup.exe; also emits
+        # dist\app-<version>.zip (the asset the in-app updater downloads).
+        .\build_windows_installer.ps1
+
+    - name: Upload installer artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: telegram-download-chat-installer
+        path: |
+          dist/telegram-download-chat-v*-setup.exe
+          dist/app-*.zip
+        if-no-files-found: error
+
   # build-macos:
   #   name: Build macOS
   #   runs-on: macos-latest
@@ -100,6 +126,12 @@ jobs:
         name: telegram-download-chat-windows
         path: artifacts/windows
 
+    - name: Download installer artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: telegram-download-chat-installer
+        path: artifacts/installer
+
     # - name: Download macOS artifact
     #   uses: actions/download-artifact@v4
     #   with:
@@ -141,5 +173,7 @@ jobs:
         prerelease: false
         files: |
           artifacts/windows/telegram-download-chat.exe
+          artifacts/installer/telegram-download-chat-v*-setup.exe
+          artifacts/installer/app-*.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

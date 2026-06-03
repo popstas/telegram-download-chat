@@ -534,28 +534,10 @@ class DownloadTab(QWidget):
         self.progress.setFormat("Idle")
         self.progress.setVisible(False)
 
-        # Custom progress bar styling
-        self.progress.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #cccccc;
-                border-radius: 4px;
-                text-align: center;
-                background-color: #f5f5f5;
-                height: 24px;
-            }
-            QProgressBar::chunk {
-                background-color: #4CAF50;
-                border-radius: 2px;
-                width: 10px;
-                margin: 0.5px;
-            }
-            QProgressBar:indeterminate::chunk {
-                background-color: #4CAF50;
-                border-radius: 2px;
-                width: 10px;
-                margin: 0.5px;
-            }
-        """)
+        # Custom progress bar styling (shared green styling, see gui.utils.styles)
+        from ..utils.styles import style_progress_bar
+
+        style_progress_bar(self.progress)
 
         # Animation for indeterminate progress
         self.progress_animation = QPropertyAnimation(self.progress, b"value")
@@ -952,28 +934,10 @@ class DownloadTab(QWidget):
         self._reset_progress_style()
 
     def _reset_progress_style(self):
-        """Reset progress bar style to default."""
-        self.progress.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #cccccc;
-                border-radius: 4px;
-                text-align: center;
-                background-color: #f5f5f5;
-                height: 24px;
-            }
-            QProgressBar::chunk {
-                background-color: #4CAF50;
-                border-radius: 2px;
-                width: 10px;
-                margin: 0.5px;
-            }
-            QProgressBar:indeterminate::chunk {
-                background-color: #4CAF50;
-                border-radius: 2px;
-                width: 10px;
-                margin: 0.5px;
-            }
-        """)
+        """Reset progress bar style to default (shared green styling)."""
+        from ..utils.styles import style_progress_bar
+
+        style_progress_bar(self.progress)
 
     def _start_loading_animation(self):
         """Show the loading indicator."""

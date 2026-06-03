@@ -185,6 +185,75 @@ def test_dedup_collapses_refetched_comments():
     assert len(out) == 1
 
 
+def test_dedup_prefers_real_post_over_stale_citation_marker():
+    # A widened resume: the existing file has id 7 only as an outside-window
+    # citation backfill; the new history walk downloads it as a real post. The
+    # real (unmarked) post must replace the marker in place so the stale marker
+    # doesn't permanently shadow real history and skew the --limit counter.
+    citation = {"id": 7, "message": "quoted", "cited_outside_window": True}
+    real_post = {"id": 7, "message": "real post"}
+    out = _dedup_messages([citation, real_post])
+    assert len(out) == 1
+    assert out[0]["message"] == "real post"
+    assert "cited_outside_window" not in out[0]
+
+
+def test_dedup_keeps_citation_when_no_real_post_arrives():
+    # A lone citation backfill survives unchanged when no real copy is present.
+    citation = {"id": 7, "message": "quoted", "cited_outside_window": True}
+    out = _dedup_messages([citation])
+    assert len(out) == 1
+    assert out[0]["cited_outside_window"] is True
+
+
+def test_dedup_real_post_first_is_not_replaced_by_later_citation():
+    # Order-independence: a real post already kept is never demoted to a marker.
+    real_post = {"id": 7, "message": "real post"}
+    citation = {"id": 7, "message": "quoted", "cited_outside_window": True}
+    out = _dedup_messages([real_post, citation])
+    assert len(out) == 1
+    assert out[0]["message"] == "real post"
+    assert "cited_outside_window" not in out[0]
+
+
+@pytest.mark.asyncio
+async def test_fetch_skips_outside_window_citation_records():
+    """Outside-window citation backfills are not treated as posts for comments."""
+    seen_reply_to = []
+    entity = SimpleNamespace(id=42, broadcast=True)
+
+    class _Client:
+        async def __call__(self, request):
+            return SimpleNamespace(full_chat=SimpleNamespace(linked_chat_id=999))
+
+        def iter_messages(self, channel_entity, reply_to=None):
+            seen_reply_to.append(reply_to)
+            return _AsyncIter([])
+
+    downloader = SimpleNamespace(
+        client=_Client(),
+        logger=MagicMock(),
+        _stop_requested=False,
+        _progress_sink=None,
+        make_serializable=_make_serializable,
+    )
+
+    async def get_entity(_chat):
+        return entity
+
+    downloader.get_entity = get_entity
+
+    messages = [
+        {"id": 1, "message": "post"},
+        {"id": 9, "message": "older cited post", "cited_outside_window": True},
+    ]
+    args = _args(comments=True)
+    await fetch_channel_comments(downloader, "@chan", messages, args)
+
+    # Only the in-window post (id 1) is queried; the citation backfill (9) is skipped.
+    assert seen_reply_to == [1]
+
+
 @pytest.mark.asyncio
 async def test_fetch_skips_existing_comment_records():
     """On resume, comment records already in the list are not treated as posts."""
@@ -225,8 +294,8 @@ async def test_fetch_skips_existing_comment_records():
 
 @pytest.mark.asyncio
 async def test_combined_list_renders_comment_nested_under_post(tmp_path):
-    """Posts + normalized comments thread through HTML so each comment
-    anchors to its parent post bubble."""
+    """Posts + normalized comments thread through HTML so each comment nests
+    under its parent post without redundantly citing the post (Task 3)."""
     downloader = _make_downloader(
         broadcast=True,
         linked_chat_id=999,
@@ -255,6 +324,9 @@ async def test_combined_list_renders_comment_nested_under_post(tmp_path):
     RenderMixin().render_html(combined, out, chat_title="t")
     html = out.read_text(encoding="utf-8")
 
-    # The comment cites/anchors to the parent post bubble.
+    # The post bubble is anchorable, the comment renders beneath it, but the
+    # parent post is no longer cited as a quote inside the comment (Task 3).
     assert 'id="msg-1"' in html
-    assert 'href="#msg-1"' in html
+    assert "Commenter" in html
+    assert 'href="#msg-1"' not in html
+    assert 'class="rq"' not in html

@@ -217,7 +217,10 @@ class WorkerThread(QThread):
 
             # Start the process
             env = os.environ.copy()
-            env.setdefault("PYTHONIOENCODING", "utf-8")
+            # Force UTF-8 child stdio so Cyrillic (and other non-ASCII) chat
+            # names in log lines/paths survive the pipe. setdefault would leave a
+            # locale codepage in place if the parent env already set this.
+            env["PYTHONIOENCODING"] = "utf-8"
             # Ask the CLI to emit structured progress events on stdout so we can
             # consume them instead of scraping human-readable log text.
             env[PROGRESS_ENV_VAR] = "1"

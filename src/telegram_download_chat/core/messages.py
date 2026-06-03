@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..paths import get_relative_to_downloads_dir
+from .reactions import format_reactions_text, normalize_reactions
 
 
 class MessagesMixin:
@@ -287,6 +288,7 @@ class MessagesMixin:
         txt_path: Path,
         sort_order: str = "asc",
         media_placeholders: bool = False,
+        reactions: bool = False,
     ) -> int:
         saved = 0
         txt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -308,10 +310,14 @@ class MessagesMixin:
                 else:
                     date_fmt = ""
 
-                sender_name = ""
-                sender_id = self._get_sender_id(msg)
-                if sender_id:
-                    sender_name = await self._get_user_display_name(sender_id)
+                # Prefer the name already resolved in save_messages (which knows
+                # how to name channel posts); fall back to user resolution for
+                # messages passed straight into the TXT path (e.g. conversions).
+                sender_name = msg.get("user_display_name") or ""
+                if not sender_name:
+                    sender_id = self._get_sender_id(msg)
+                    if sender_id:
+                        sender_name = await self._get_user_display_name(sender_id)
 
                 text = msg.get("text", "")
                 if not text and "message" in msg:
@@ -324,6 +330,14 @@ class MessagesMixin:
                             text = f"{text}\n{placeholder}"
                         else:
                             text = placeholder
+
+                if reactions:
+                    reactions_suffix = format_reactions_text(msg.get("reactions"))
+                    if reactions_suffix:
+                        if text:
+                            text = f"{text} [{reactions_suffix}]"
+                        else:
+                            text = f"[{reactions_suffix}]"
 
                 recipient_name = ""
                 recipient_id = self._get_recipient_id(msg)
@@ -384,6 +398,7 @@ class MessagesMixin:
         chat_title: Optional[str] = None,
         media_placeholders: bool = False,
         html_media_links: bool = False,
+        reactions: bool = False,
     ) -> None:
         output_path = Path(output_file)
 
@@ -393,12 +408,25 @@ class MessagesMixin:
         for msg in messages:
             try:
                 msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else msg
-                sender_id = self._get_sender_id(msg_dict)
-                msg_dict["user_display_name"] = (
-                    await self._get_user_display_name(sender_id)
-                    if sender_id
-                    else "Unknown"
+                # Preserve the outside-window-citation marker: Telethon's
+                # to_dict() drops attributes not in the TL schema, so re-stamp
+                # it here so the saved JSON (and a later resume) can tell a
+                # backfilled citation from a downloaded chat post.
+                if not isinstance(msg, dict) and getattr(
+                    msg, "cited_outside_window", False
+                ):
+                    msg_dict["cited_outside_window"] = True
+                msg_dict["user_display_name"] = await self._resolve_sender_display_name(
+                    msg_dict
                 )
+                # Replace the verbose raw Telethon reactions with a stable
+                # normalized shape (idempotent for already-normalized dicts on
+                # resume). Drop the key entirely when there are no reactions.
+                normalized_reactions = normalize_reactions(msg_dict.get("reactions"))
+                if normalized_reactions:
+                    msg_dict["reactions"] = normalized_reactions
+                elif "reactions" in msg_dict:
+                    del msg_dict["reactions"]
                 if download_media:
                     # For dict messages (e.g. from resume), preserve existing
                     # attachment_path rather than recalculating from media
@@ -407,9 +435,15 @@ class MessagesMixin:
                         existing = attachments_dir / msg["attachment_path"]
                         if existing.exists():
                             msg_dict["attachment_path"] = msg["attachment_path"]
-                            mid = str(msg.get("id", ""))
-                            if mid:
-                                preserved_ids.add(mid)
+                            # Only post ids feed the post-media reconciliation.
+                            # A comment keeps its native discussion id, which can
+                            # numerically collide with a post id; namespacing it
+                            # out here keeps a failed post from being shielded by
+                            # a same-numbered comment (see reconciliation below).
+                            if msg.get("comment_of") is None:
+                                mid = str(msg.get("id", ""))
+                                if mid:
+                                    preserved_ids.add(mid)
                         else:
                             msg_dict["attachment_path"] = None
                     else:
@@ -447,6 +481,7 @@ class MessagesMixin:
                 txt_path,
                 sort_order,
                 media_placeholders=media_placeholders,
+                reactions=reactions,
             )
             txt_path_relative = get_relative_to_downloads_dir(txt_path)
             self.logger.info(f"Saved {saved} messages to {txt_path_relative}")
@@ -457,14 +492,21 @@ class MessagesMixin:
             # Reconcile predicted paths with actual download results:
             # - null out attachment_path for messages whose downloads failed
             # - update attachment_path when Telethon used a different filename
+            # Comment dicts carry their own attachment_path (downloaded during
+            # the comment pass) and live in a separate id space, so they are
+            # excluded from the post-media reconciliation entirely.
             ids_with_predicted_path = {
                 str(m.get("id", ""))
                 for m in serializable_messages
-                if m.get("attachment_path") is not None and m.get("id")
+                if m.get("attachment_path") is not None
+                and m.get("id")
+                and m.get("comment_of") is None
             }
             if ids_with_predicted_path:
                 changed = False
                 for m in serializable_messages:
+                    if m.get("comment_of") is not None:
+                        continue
                     mid = str(m.get("id", ""))
                     if mid in preserved_ids:
                         continue

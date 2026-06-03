@@ -117,6 +117,21 @@ def get_installer_url(version: str) -> str:
     )
 
 
+def get_app_update_url(version: str) -> str:
+    """Construct the two-part app update asset URL (``app-<version>.zip``).
+
+    This is the tiny per-release update applied in place by
+    ``core.app_updater`` on an embeddable install (vs. the full
+    :func:`get_installer_url` exe for a fresh install).
+    """
+    tag = version if version.startswith("v") else f"v{version}"
+    bare = version.lstrip("vV")
+    return (
+        f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}"
+        f"/releases/download/{tag}/app-{bare}.zip"
+    )
+
+
 def get_releases_page_url() -> str:
     """Return the releases page URL."""
     return RELEASES_PAGE_URL

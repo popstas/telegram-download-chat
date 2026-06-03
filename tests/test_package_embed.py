@@ -11,8 +11,6 @@ import importlib.util
 import zipfile
 from pathlib import Path
 
-import pytest
-
 _SPEC = importlib.util.spec_from_file_location(
     "package_embed",
     Path(__file__).resolve().parents[1] / "scripts" / "package_embed.py",
@@ -56,73 +54,6 @@ def test_build_app_zip_contents(tmp_path):
         # Generated marker files carry the version.
         assert zf.read("version.txt").decode().strip() == "1.2.3"
         assert "1.2.3" in zf.read("telegram_download_chat/_version.py").decode()
-
-
-def _install_app(tmp_path: Path, version: str, extra: dict | None = None) -> Path:
-    """Create an installed tree with app/ at the given version."""
-    app = tmp_path / "install" / "app" / "telegram_download_chat"
-    app.mkdir(parents=True)
-    (app / "__init__.py").write_text("old\n", encoding="utf-8")
-    for rel, content in (extra or {}).items():
-        (app / rel).write_text(content, encoding="utf-8")
-    (tmp_path / "install" / "app" / "version.txt").write_text(version, encoding="utf-8")
-    return tmp_path / "install"
-
-
-def test_read_installed_version(tmp_path):
-    install = _install_app(tmp_path, "1.0.0")
-    assert PKG.read_installed_version(install) == "1.0.0"
-    assert PKG.read_installed_version(tmp_path / "nope") is None
-
-
-def test_apply_app_update_replaces_app(tmp_path):
-    pkg = _make_src_pkg(tmp_path)
-    zip_path = PKG.build_app_zip(pkg, tmp_path / "dist", "2.0.0")
-    # Installed v1 has a stale module that must be gone after the swap.
-    install = _install_app(tmp_path, "1.0.0", extra={"stale.py": "remove me\n"})
-
-    version = PKG.apply_app_update(zip_path, install)
-
-    assert version == "2.0.0"
-    assert PKG.read_installed_version(install) == "2.0.0"
-    pkg_dir = install / "app" / "telegram_download_chat"
-    assert (pkg_dir / "core" / "__init__.py").exists()  # new file present
-    assert not (pkg_dir / "stale.py").exists()  # stale file gone
-    # No leftover temp/backup dirs next to app/.
-    leftovers = [p.name for p in (install).iterdir() if p.name != "app"]
-    assert leftovers == []
-
-
-def test_apply_app_update_bad_sha_leaves_install_intact(tmp_path):
-    pkg = _make_src_pkg(tmp_path)
-    zip_path = PKG.build_app_zip(pkg, tmp_path / "dist", "2.0.0")
-    install = _install_app(tmp_path, "1.0.0")
-
-    with pytest.raises(ValueError):
-        PKG.apply_app_update(zip_path, install, expected_sha256="deadbeef")
-
-    # Untouched: still v1, no temp/backup dirs.
-    assert PKG.read_installed_version(install) == "1.0.0"
-    assert (install / "app" / "telegram_download_chat" / "__init__.py").read_text(
-        encoding="utf-8"
-    ) == "old\n"
-    assert [p.name for p in install.iterdir()] == ["app"]
-
-
-def test_apply_app_update_invalid_payload_rolls_back(tmp_path):
-    # A zip missing the package must not destroy the existing install.
-    bad = tmp_path / "dist" / "app-9.9.9.zip"
-    bad.parent.mkdir(parents=True)
-    with zipfile.ZipFile(bad, "w") as zf:
-        zf.writestr("version.txt", "9.9.9")  # no telegram_download_chat/ payload
-    install = _install_app(tmp_path, "1.0.0")
-
-    with pytest.raises(ValueError):
-        PKG.apply_app_update(bad, install)
-
-    assert PKG.read_installed_version(install) == "1.0.0"
-    assert (install / "app" / "telegram_download_chat" / "__init__.py").exists()
-    assert [p.name for p in install.iterdir()] == ["app"]
 
 
 def test_build_script_uses_embeddable_python_and_packager():

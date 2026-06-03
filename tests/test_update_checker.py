@@ -85,6 +85,18 @@ class TestInstallerUrl:
     def test_releases_page_url(self):
         assert uc.get_releases_page_url().endswith("/releases")
 
+    def test_app_update_url(self):
+        url = uc.get_app_update_url("0.10.4")
+        assert url == (
+            "https://github.com/popstas/telegram-download-chat"
+            "/releases/download/v0.10.4/app-0.10.4.zip"
+        )
+
+    def test_app_update_url_v_prefix_not_doubled(self):
+        url = uc.get_app_update_url("v1.2.3")
+        assert "/download/v1.2.3/app-1.2.3.zip" in url
+        assert "/vv" not in url
+
 
 class TestFetchLatestVersion:
     def test_parses_version_from_redirect_url(self):

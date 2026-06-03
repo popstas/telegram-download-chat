@@ -239,10 +239,13 @@ Outputs:
 - `dist\app-<version>.zip` — the **update** (~150 KB). Each release ships just
   this; the base is reused.
 
-**Updating:** download `app-<version>.zip` and apply it (atomic swap of `app\`):
+**Updating:** in the GUI, open **Settings → Software Update → Check updates**; when
+an update is available the button becomes **Update now**, which downloads
+`app-<version>.zip` and swaps `app\` in place, then offers to restart. To update
+from the command line instead (atomic swap of `app\`):
 
 ```powershell
-runtime\python\python.exe scripts\package_embed.py apply app-<version>.zip <install-dir>
+runtime\python\python.exe -m telegram_download_chat.core.app_updater apply app-<version>.zip <install-dir>
 ```
 
 Because our code and the dependencies live in separate parts, a normal release

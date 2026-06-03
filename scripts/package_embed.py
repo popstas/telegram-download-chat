@@ -1,38 +1,26 @@
 #!/usr/bin/env python3
-"""Two-part Windows distribution packager (embeddable-Python "Variant A").
+"""Build-time packager for the two-part embeddable Windows distribution.
 
-The Windows build is split into two pieces:
+Produces the small ``app-<version>.zip`` (our source package only) that each
+release ships; the heavy ``runtime/`` base is assembled by
+``build_windows_embed.ps1``. This script is intentionally self-contained
+(stdlib only, no import of the project) so it runs in any build environment and
+is unit-testable on any OS.
 
-* **Base** (``runtime/``) — the official Windows *embeddable* CPython plus every
-  third-party package (PySide6/Qt, telethon, jinja2, reportlab, …) and the
-  launchers. Built by ``build_windows_embed.ps1``, installed once, and only
-  re-shipped when Python or a dependency is bumped.
-* **App** (``app/``) — only our ``telegram_download_chat`` source package. It is
-  replaced wholesale on every release, so an update is just a tiny
-  ``app-<version>.zip`` (~0.5–1 MB) and an atomic directory swap. No manifest,
-  no per-file diff.
-
-This module is the cross-platform half of that scheme (no Windows-only APIs) so
-it can be unit-tested on any OS:
-
-* :func:`build_app_zip` produces ``app-<version>.zip``.
-* :func:`apply_app_update` installs such a zip by atomically swapping ``app/``.
-
-``build_windows_embed.ps1`` calls ``build-app``; an updater (or the GUI update
-action) calls :func:`apply_app_update` / the ``apply`` subcommand.
+The *runtime* half — applying an ``app-<version>.zip`` onto an install — lives in
+the shipped package at ``telegram_download_chat.core.app_updater`` (so it is
+available for in-app self-update), not here.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
-import shutil
 import sys
 import zipfile
 from pathlib import Path
 from typing import Optional
 
-APP_DIRNAME = "app"
 APP_PACKAGE = "telegram_download_chat"
 VERSION_FILE = "version.txt"
 _VERSION_MODULE = f"{APP_PACKAGE}/_version.py"
@@ -40,7 +28,7 @@ _HASH_CHUNK = 1024 * 1024
 
 
 def compute_file_hash(path: Path) -> str:
-    """Return the SHA-256 hex digest of ``path``."""
+    """Return the SHA-256 hex digest of ``path`` (printed so releases can publish it)."""
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
         for chunk in iter(lambda: handle.read(_HASH_CHUNK), b""):
@@ -93,95 +81,6 @@ def build_app_zip(src_pkg_dir: Path, output_dir: Path, version: str) -> Path:
     return zip_path
 
 
-def read_installed_version(install_dir: Path) -> Optional[str]:
-    """Return the installed app version from ``install_dir/app/version.txt``."""
-    vfile = Path(install_dir) / APP_DIRNAME / VERSION_FILE
-    if not vfile.is_file():
-        return None
-    return vfile.read_text(encoding="utf-8").strip()
-
-
-def _validate_payload(payload_dir: Path) -> str:
-    """Ensure an extracted app payload is well-formed; return its version."""
-    pkg_init = payload_dir / APP_PACKAGE / "__init__.py"
-    vfile = payload_dir / VERSION_FILE
-    if not pkg_init.is_file() or not vfile.is_file():
-        raise ValueError(
-            "Invalid app payload: missing "
-            f"{APP_PACKAGE}/__init__.py or {VERSION_FILE}"
-        )
-    return vfile.read_text(encoding="utf-8").strip()
-
-
-def apply_app_update(
-    zip_path: Path, install_dir: Path, *, expected_sha256: Optional[str] = None
-) -> str:
-    """Atomically replace ``install_dir/app`` from ``zip_path``; return the version.
-
-    The existing install is never left broken: the zip is verified and extracted
-    to a temp directory first, and the directory swap restores the previous
-    ``app/`` if anything fails. Temp/backup directories are always cleaned up.
-    """
-    zip_path = Path(zip_path)
-    install_dir = Path(install_dir)
-    install_dir.mkdir(parents=True, exist_ok=True)
-
-    if expected_sha256 is not None:
-        actual = compute_file_hash(zip_path)
-        if actual.lower() != expected_sha256.lower():
-            raise ValueError(
-                f"Checksum mismatch for {zip_path.name}: "
-                f"expected {expected_sha256}, got {actual}"
-            )
-
-    app_dir = install_dir / APP_DIRNAME
-    staging = install_dir / f".{APP_DIRNAME}.new"
-    backup = install_dir / f".{APP_DIRNAME}.bak"
-    for stale in (staging, backup):
-        if stale.exists():
-            shutil.rmtree(stale)
-
-    try:
-        with zipfile.ZipFile(zip_path) as archive:
-            archive.extractall(staging)
-        version = _validate_payload(staging)
-    except Exception:
-        if staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
-        raise
-
-    # Swap: move current app aside, promote staging, then drop the backup. On
-    # failure, restore the backup so the previous install survives intact.
-    had_existing = app_dir.exists()
-    try:
-        if had_existing:
-            app_dir.rename(backup)
-        staging.rename(app_dir)
-    except Exception:
-        if had_existing and backup.exists() and not app_dir.exists():
-            backup.rename(app_dir)
-        shutil.rmtree(staging, ignore_errors=True)
-        raise
-    finally:
-        if backup.exists():
-            shutil.rmtree(backup, ignore_errors=True)
-
-    return version
-
-
-def _cmd_build_app(args: argparse.Namespace) -> int:
-    zip_path = build_app_zip(args.src_pkg_dir, args.output_dir, args.version)
-    print(f"App zip: {zip_path}")
-    print(f"SHA-256: {compute_file_hash(zip_path)}")
-    return 0
-
-
-def _cmd_apply(args: argparse.Namespace) -> int:
-    version = apply_app_update(args.zip, args.install_dir, expected_sha256=args.sha256)
-    print(f"Installed app version {version} into {args.install_dir}")
-    return 0
-
-
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -198,16 +97,12 @@ def main(argv: Optional[list] = None) -> int:
     b.add_argument(
         "--output-dir", type=Path, default=Path("dist"), help="Output directory"
     )
-    b.set_defaults(func=_cmd_build_app)
-
-    a = sub.add_parser("apply", help="Apply an app-<version>.zip onto an install")
-    a.add_argument("zip", type=Path, help="app-<version>.zip to install")
-    a.add_argument("install_dir", type=Path, help="Install root containing app/")
-    a.add_argument("--sha256", default=None, help="Expected SHA-256 of the zip")
-    a.set_defaults(func=_cmd_apply)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    zip_path = build_app_zip(args.src_pkg_dir, args.output_dir, args.version)
+    print(f"App zip: {zip_path}")
+    print(f"SHA-256: {compute_file_hash(zip_path)}")
+    return 0
 
 
 if __name__ == "__main__":

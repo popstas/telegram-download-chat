@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sys
 import threading
 import webbrowser
 from pathlib import Path
@@ -29,7 +30,7 @@ from telethon.errors import (
     SessionPasswordNeededError,
 )
 
-from ...core import TelegramChatDownloader, update_checker
+from ...core import TelegramChatDownloader, app_updater, update_checker
 from ...core.auth_utils import TelegramAuth, TelegramAuthError
 from ...paths import get_app_dir
 from ..auth import SessionManager
@@ -53,6 +54,10 @@ class SettingsTab(QWidget):
     # from update_checker.check_for_update). The id lets a stale, slower check
     # be ignored when a newer one has already been started.
     update_check_done = Signal(int, dict)
+
+    # Signal emitted when an in-app update install finishes (request id + result
+    # dict with keys: version | error).
+    update_install_done = Signal(int, dict)
 
     def __init__(self, parent=None):
         """Initialize the settings tab.
@@ -299,6 +304,12 @@ class SettingsTab(QWidget):
 
         # URL of an available update (populated after a successful check)
         self._update_download_url = None
+        # In-app update state: True when running from an embeddable install, so
+        # the update is applied in place (app-<version>.zip) instead of opening
+        # the browser. ``_update_app_url`` is the app-zip asset URL.
+        self._in_app_update = False
+        self._update_app_url = None
+        self._update_install_id = 0
 
         # Monotonic id of the most recently started update check. Results from
         # any earlier check are ignored so a slow/stale response can't overwrite
@@ -347,6 +358,8 @@ class SettingsTab(QWidget):
 
         # Update check result (from a background thread)
         self.update_check_done.connect(self._on_update_check_done)
+        # In-app update install result (from a background thread)
+        self.update_install_done.connect(self._on_update_install_done)
 
         # Logout
         self.logout_btn.clicked.connect(self.session_manager.logout)
@@ -821,20 +834,35 @@ class SettingsTab(QWidget):
             return
 
         if update_available and latest:
-            # download_url is a Windows installer asset; only follow it on
-            # Windows. Other platforms open the releases page in the browser.
-            if update_checker.is_windows():
-                self._update_download_url = (
-                    result.get("download_url") or update_checker.get_releases_page_url()
-                )
+            install_dir = app_updater.find_app_install_dir()
+            if install_dir is not None:
+                # Two-part embeddable install: apply the tiny app-<version>.zip
+                # in place ("Update now") instead of opening the browser.
+                self._in_app_update = True
+                self._update_app_url = update_checker.get_app_update_url(latest)
+                self._update_download_url = None
+                self.download_update_btn.setText("Update now")
             else:
-                self._update_download_url = update_checker.get_releases_page_url()
+                # download_url is a Windows installer asset; only follow it on
+                # Windows. Other platforms open the releases page in the browser.
+                self._in_app_update = False
+                self._update_app_url = None
+                if update_checker.is_windows():
+                    self._update_download_url = (
+                        result.get("download_url")
+                        or update_checker.get_releases_page_url()
+                    )
+                else:
+                    self._update_download_url = update_checker.get_releases_page_url()
+                self.download_update_btn.setText("Download")
             self.update_status_label.setText(
                 f"Update available: {latest} (current: {current})"
             )
             self.check_updates_btn.setVisible(False)
             self.download_update_btn.setVisible(True)
         else:
+            self._in_app_update = False
+            self._update_app_url = None
             self._update_download_url = None
             shown = latest or current
             self.update_status_label.setText(f"You're up to date (latest: {shown})")
@@ -842,7 +870,14 @@ class SettingsTab(QWidget):
             self.check_updates_btn.setVisible(True)
 
     def _download_update(self):
-        """Open/download the available update build."""
+        """Handle the update button: in-app install (embeddable) or browser."""
+        if self._in_app_update:
+            self._install_app_update()
+        else:
+            self._open_download_url()
+
+    def _open_download_url(self):
+        """Open the available update build in the browser."""
         # URL was resolved in _apply_update_check_result (Windows installer
         # asset on Windows, releases page elsewhere).
         url = self._update_download_url or update_checker.get_releases_page_url()
@@ -855,6 +890,60 @@ class SettingsTab(QWidget):
             opened = False
         if not opened:
             webbrowser.open(url)
+
+    def _install_app_update(self):
+        """Download and apply the app-<version>.zip in a background thread."""
+        url = self._update_app_url
+        if not url:  # pragma: no cover - defensive
+            return
+        self.download_update_btn.setEnabled(False)
+        self.update_status_label.setText("Downloading update...")
+
+        self._update_install_id += 1
+        request_id = self._update_install_id
+
+        def run_install():
+            try:
+                version = app_updater.perform_app_update(url)
+                result = {"version": version, "error": None}
+            except Exception as exc:  # pragma: no cover - defensive
+                logging.error(f"In-app update failed: {exc}", exc_info=True)
+                result = {"version": None, "error": str(exc)}
+            self.update_install_done.emit(request_id, result)
+
+        threading.Thread(target=run_install, daemon=True).start()
+
+    def _on_update_install_done(self, request_id: int, result: dict):
+        """Handle completion of an in-app update install (on the GUI thread)."""
+        if request_id != self._update_install_id:
+            return
+        self.download_update_btn.setEnabled(True)
+        error = result.get("error")
+        if error:
+            self.update_status_label.setText(f"Update failed: {error}")
+            QMessageBox.critical(self, "Update failed", error)
+            return
+
+        version = result.get("version")
+        self.update_status_label.setText(f"Updated to {version}. Restart to apply.")
+        self.download_update_btn.setVisible(False)
+        choice = QMessageBox.question(
+            self,
+            "Update installed",
+            f"Version {version} installed. Restart now to apply?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if choice == QMessageBox.Yes:
+            self._restart_application()
+
+    def _restart_application(self):
+        """Relaunch the GUI (a fresh process picks up the swapped app/ code)."""
+        from PySide6.QtCore import QProcess
+        from PySide6.QtWidgets import QApplication
+
+        # sys.executable is the embeddable python; -m loads the new app code.
+        QProcess.startDetached(sys.executable, ["-m", "telegram_download_chat", "gui"])
+        QApplication.quit()
 
     def _set_logged_in(
         self, logged_in: bool, skip_validation: bool = False, show_login: bool = False

@@ -30,6 +30,7 @@
 
 - [x] Replace the onedir+manifest portable build with a two-part embeddable-Python distribution (Variant A): an immutable `runtime/` base (embeddable CPython + all third-party packages + launchers) installed once, and a tiny `app/` part (our source only) replaced wholesale on each release via `app-<version>.zip`. Drop `package_portable.py` / `diff_manifests`; add `scripts/package_embed.py` (`build_app_zip`, `apply_app_update`) and `build_windows_embed.ps1`. See `docs/superpowers/specs/2026-06-04-windows-two-part-embed-build-design.md`.
 - [x] Wire in-app update into the GUI: `core/app_updater.py` (`find_app_install_dir`, `download_app_zip`, `perform_app_update`) + a Settings "Update now" button that downloads `app-<version>.zip` and atomically swaps `app/`, then offers a restart. Falls back to the browser when not running from an embeddable install.
+- [x] Add an optional Inno Setup `setup.exe` wrapper (`installer.iss` + `build_windows_installer.ps1`) around the portable tree: per-user install (writable, so in-app updates work), Start Menu/desktop shortcuts, uninstaller.
 
 ## E2E verification (applies to comments/citations/media/reactions tasks)
 

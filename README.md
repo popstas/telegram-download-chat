@@ -254,6 +254,21 @@ changes only on a Python or dependency bump (then re-install the base zip). Note
 the embeddable Python minor version is pinned by the base, so any dependency's
 native `.pyd` is ABI-locked to it.
 
+#### Optional setup.exe (Inno Setup)
+
+To wrap the portable tree into a classic `setup.exe` with Start Menu / desktop
+shortcuts and an uninstaller, install [Inno Setup 6](https://jrsoftware.org/isdl.php)
+and run:
+
+```powershell
+.\build_windows_installer.ps1
+```
+
+This runs `build_windows_embed.ps1` first, then compiles `installer.iss` into
+`dist\telegram-download-chat-setup-<version>.exe`. The installer is **per-user**
+(installs under `%LOCALAPPDATA%\Programs`, no admin) on purpose, so the in-app
+"Update now" can swap `app\` in place without elevation.
+
 ### Web Interface
 
 A lightweight web interface built with Streamlit is also available.

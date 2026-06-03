@@ -26,6 +26,10 @@
 - [x] Add HTML render filter for channel comments by minimum reactions — percentile buttons (All / Top 50% / 20% / 10% / 5%), each showing the computed reaction threshold and matching comment count (e.g. "Top 20%: 3+ (12)"); client-side, hides comments below the threshold.
 - [x] Add optional channel comments filter by min reactions: `--comments-min-reactions N` drops comments whose total reaction count is below N before they are saved (and before their media is downloaded).
 
+## Windows build
+
+- [ ] Replace the onedir+manifest portable build with a two-part embeddable-Python distribution (Variant A): an immutable `runtime/` base (embeddable CPython + all third-party packages + launchers) installed once, and a tiny `app/` part (our source only) replaced wholesale on each release via `app-<version>.zip`. Drop `package_portable.py` / `diff_manifests`; add `scripts/package_embed.py` (`build_app_zip`, `apply_app_update`) and `build_windows_embed.ps1`. See `docs/superpowers/specs/2026-06-04-windows-two-part-embed-build-design.md`.
+
 ## E2E verification (applies to comments/citations/media/reactions tasks)
 
 - Target channel: `@seeallochnaya` (channel-with-comments).

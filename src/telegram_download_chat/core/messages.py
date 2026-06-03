@@ -309,10 +309,14 @@ class MessagesMixin:
                 else:
                     date_fmt = ""
 
-                sender_name = ""
-                sender_id = self._get_sender_id(msg)
-                if sender_id:
-                    sender_name = await self._get_user_display_name(sender_id)
+                # Prefer the name already resolved in save_messages (which knows
+                # how to name channel posts); fall back to user resolution for
+                # messages passed straight into the TXT path (e.g. conversions).
+                sender_name = msg.get("user_display_name") or ""
+                if not sender_name:
+                    sender_id = self._get_sender_id(msg)
+                    if sender_id:
+                        sender_name = await self._get_user_display_name(sender_id)
 
                 text = msg.get("text", "")
                 if not text and "message" in msg:
@@ -402,11 +406,8 @@ class MessagesMixin:
                     msg, "cited_outside_window", False
                 ):
                     msg_dict["cited_outside_window"] = True
-                sender_id = self._get_sender_id(msg_dict)
-                msg_dict["user_display_name"] = (
-                    await self._get_user_display_name(sender_id)
-                    if sender_id
-                    else "Unknown"
+                msg_dict["user_display_name"] = await self._resolve_sender_display_name(
+                    msg_dict
                 )
                 # Replace the verbose raw Telethon reactions with a stable
                 # normalized shape (idempotent for already-normalized dicts on

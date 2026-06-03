@@ -45,10 +45,14 @@ class EntitiesMixin:
     async def _get_user_display_name(self, user_id: int) -> str:
         if not user_id:
             return "Unknown"
-        if user_id in self.config.get("users_map", {}):
-            return self.config["users_map"][user_id]
-        else:
-            fetched_name = await self.fetch_user_name(user_id)
+        cached = self.config.get("users_map", {}).get(user_id)
+        # A cached value equal to the stringified id is a failed-resolution
+        # sentinel, not a real name — ignore it so a later run can recover.
+        if cached is not None and str(cached) != str(user_id):
+            return cached
+        fetched_name = await self.fetch_user_name(user_id)
+        # Don't cache failures; they would permanently mask the real name.
+        if str(fetched_name) != str(user_id):
             if not self.config.get("users_map", {}):
                 self.config["users_map"] = {}
             self.config["users_map"][user_id] = fetched_name
@@ -58,16 +62,20 @@ class EntitiesMixin:
                 self.logger.info(
                     f"Fetched {self._fetched_usernames_count} usernames so far"
                 )
-            return fetched_name
+        return fetched_name
 
     async def _get_peer_display_name(self, peer_id: int) -> str:
         if not peer_id:
             return "Unknown"
 
-        if peer_id in self.config.get("users_map", {}):
-            return self.config["users_map"][peer_id]
-        if peer_id in self.config.get("chats_map", {}):
-            return self.config["chats_map"][peer_id]
+        # Skip failed-resolution sentinels (value == stringified id) in either
+        # map so a channel id wrongly cached as a number can still resolve.
+        cached_user = self.config.get("users_map", {}).get(peer_id)
+        if cached_user is not None and str(cached_user) != str(peer_id):
+            return cached_user
+        cached_chat = self.config.get("chats_map", {}).get(peer_id)
+        if cached_chat is not None and str(cached_chat) != str(peer_id):
+            return cached_chat
 
         entity = None
         try:
@@ -80,15 +88,17 @@ class EntitiesMixin:
 
         if isinstance(entity, (Chat, Channel)):
             name = entity.title or str(peer_id)
-            if not self.config.get("chats_map", {}):
-                self.config["chats_map"] = {}
-            self.config["chats_map"][peer_id] = name
-            self._fetched_chatnames_count += 1
-            if self._fetched_chatnames_count % 100 == 0:
-                self._save_config()
-                self.logger.info(
-                    f"Fetched {self._fetched_chatnames_count} chat names so far"
-                )
+            # Don't cache a title that's just the stringified id (no real title).
+            if str(name) != str(peer_id):
+                if not self.config.get("chats_map", {}):
+                    self.config["chats_map"] = {}
+                self.config["chats_map"][peer_id] = name
+                self._fetched_chatnames_count += 1
+                if self._fetched_chatnames_count % 100 == 0:
+                    self._save_config()
+                    self.logger.info(
+                        f"Fetched {self._fetched_chatnames_count} chat names so far"
+                    )
             return name
 
         return await self._get_user_display_name(peer_id)
@@ -106,6 +116,42 @@ class EntitiesMixin:
             return int(sender)
         except (TypeError, ValueError):
             return None
+
+    def _sender_is_channel(self, msg: Dict[str, Any]) -> bool:
+        """True when a message's effective sender is a channel/chat, not a user.
+
+        Broadcast-channel posts are authored by the channel itself: ``from_id``
+        is absent and ``peer_id`` is a ``PeerChannel`` (so ``_get_sender_id``
+        falls back to the channel id). Messages sent on behalf of a channel/chat
+        (e.g. anonymous admins) carry a ``PeerChannel``/``PeerChat`` ``from_id``.
+        """
+        from_id = msg.get("from_id")
+        if isinstance(from_id, dict):
+            return bool(from_id.get("channel_id") or from_id.get("chat_id"))
+        if from_id:
+            return False
+        peer = msg.get("peer_id")
+        if isinstance(peer, dict):
+            return bool(peer.get("channel_id") or peer.get("chat_id"))
+        return False
+
+    async def _resolve_sender_display_name(self, msg: Dict[str, Any]) -> str:
+        """Resolve the display name for a message's sender.
+
+        A signed channel post carries the author name in ``post_author``; an
+        unsigned channel post is authored by the channel, so resolve its title
+        (via the peer resolver) rather than letting the user resolver return the
+        raw numeric channel id. Everything else is authored by a user.
+        """
+        post_author = msg.get("post_author")
+        if post_author:
+            return post_author
+        sender_id = self._get_sender_id(msg)
+        if not sender_id:
+            return "Unknown"
+        if self._sender_is_channel(msg):
+            return await self._get_peer_display_name(sender_id)
+        return await self._get_user_display_name(sender_id)
 
     def _get_recipient_id(self, msg: Dict[str, Any]) -> Optional[int]:
         peer = msg.get("peer_id") or msg.get("to_id")

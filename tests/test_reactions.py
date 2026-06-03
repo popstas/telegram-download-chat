@@ -13,6 +13,7 @@ from telegram_download_chat.core.reactions import (
 from telegram_download_chat.core.render import (
     HTML_TEMPLATE,
     RenderMixin,
+    _comment_filters,
     _comment_reaction_percentiles,
 )
 
@@ -258,6 +259,33 @@ def test_comment_reaction_percentiles_distribution():
     ]
 
 
+def test_comment_filters_empty():
+    assert _comment_filters([]) == []
+
+
+def test_comment_filters_always_has_one_plus_and_hides_zero():
+    # Most comments have 0 reactions, so the 50th-percentile threshold is 0 and
+    # must be hidden; a fixed "1+" floor is always present.
+    totals = [0, 0, 0, 0, 1, 2, 6, 14]
+    buttons = _comment_filters(totals)
+    thresholds = [b["threshold"] for b in buttons]
+    assert thresholds[0] == 1  # always-present 1+ floor, first
+    assert 0 not in thresholds  # no "0+" buttons
+    labels = [b["label"] for b in buttons]
+    assert labels[0] == "1+"
+    assert all("0+" not in lbl for lbl in labels)
+    # Counts: 1+ -> comments with >=1 reaction.
+    assert buttons[0] == {"label": "1+", "threshold": 1, "count": 4}
+
+
+def test_comment_filters_dedupes_threshold_one_percentile():
+    # A percentile whose threshold equals 1 must not duplicate the fixed 1+.
+    totals = [0, 1, 1, 5]
+    buttons = _comment_filters(totals)
+    thresholds = [b["threshold"] for b in buttons]
+    assert thresholds.count(1) == 1
+
+
 def _post_msg(mid, text):
     return {
         "id": mid,
@@ -297,9 +325,11 @@ def test_html_comment_filter_bar_present(tmp_path):
         chat_title="t",
     )
     html = out.read_text(encoding="utf-8")
-    # Filter bar with percentile buttons carrying thresholds.
+    # Filter bar with an All button, a fixed 1+ button, and percentile buttons.
     assert 'class="cfilter"' in html
-    assert "data-threshold=" in html
+    assert 'data-threshold="0"' in html  # All
+    assert 'data-threshold="1"' in html  # always-present 1+ floor
+    assert ">1+ (" in html  # 1+ button label
     # Comment bubbles carry their total reaction count for client-side filtering.
     assert 'data-reactions="5"' in html
     assert 'data-reactions="1"' in html

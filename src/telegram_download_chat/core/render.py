@@ -223,7 +223,7 @@ a:hover{text-decoration:underline}
   <span class="cfilter-lbl">Comments:</span>
   <button class="cfilter-btn active" data-threshold="0">All ({{ comment_total_count }})</button>
   {%- for f in comment_filters %}
-  <button class="cfilter-btn" data-threshold="{{ f.threshold }}">Top {{ f.percentile }}%: {{ f.threshold }}+ ({{ f.count }})</button>
+  <button class="cfilter-btn" data-threshold="{{ f.threshold }}">{{ f.label }} ({{ f.count }})</button>
   {%- endfor %}
 </div>
 {%- endif %}
@@ -459,7 +459,7 @@ class RenderMixin:
             for group in item.get("groups", []):
                 for msg in group.get("messages", []):
                     comment_totals.append(int(msg.get("reactions_total") or 0))
-        comment_filters = _comment_reaction_percentiles(comment_totals)
+        comment_filters = _comment_filters(comment_totals)
         comment_total_count = len(comment_totals)
 
         env = Environment(loader=BaseLoader(), autoescape=True)
@@ -987,6 +987,40 @@ def _comment_reaction_percentiles(
         count = sum(1 for t in totals if t >= threshold)
         out.append({"percentile": p, "threshold": threshold, "count": count})
     return out
+
+
+def _comment_filters(totals: List[int]) -> List[Dict[str, Any]]:
+    """Build the comment reaction-filter buttons (excluding the always-on "All").
+
+    Always offers a fixed ``1+`` floor button, then the "top N%" percentile
+    buttons from :func:`_comment_reaction_percentiles` — but drops any whose
+    threshold is ``0`` (a "0+" filter is identical to "All") and dedupes buttons
+    that resolve to a threshold already shown. Returns ``[]`` for no comments.
+
+    Each button is ``{"label": str, "threshold": int, "count": int}``.
+    """
+    if not totals:
+        return []
+    buttons: List[Dict[str, Any]] = []
+    seen: set = set()
+    # Always offer a "1+ reactions" floor.
+    buttons.append(
+        {"label": "1+", "threshold": 1, "count": sum(1 for t in totals if t >= 1)}
+    )
+    seen.add(1)
+    for entry in _comment_reaction_percentiles(totals):
+        threshold = entry["threshold"]
+        if threshold == 0 or threshold in seen:
+            continue
+        seen.add(threshold)
+        buttons.append(
+            {
+                "label": f"Top {entry['percentile']}%: {threshold}+",
+                "threshold": threshold,
+                "count": entry["count"],
+            }
+        )
+    return buttons
 
 
 def _log(obj: Any) -> logging.Logger:

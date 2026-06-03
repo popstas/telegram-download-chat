@@ -88,6 +88,12 @@ Bug-Tracker = "https://github.com/popstas/telegram-download-chat/issues"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# Ship the GUI app icon so the running app can set its window/taskbar icon
+# (gui.main.get_icon_path searches <pkg>/gui/assets/icon.ico) in pip and
+# embeddable installs where the repo-root assets/ dir is not present.
+telegram_download_chat = ["gui/assets/*.ico"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

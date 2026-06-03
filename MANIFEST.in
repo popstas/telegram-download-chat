@@ -3,6 +3,7 @@ include LICENSE
 include CHANGELOG.md
 include config.yml.example
 recursive-include src/telegram_download_chat *.py
+recursive-include src/telegram_download_chat *.ico
 recursive-include tests *.py
 recursive-include docs *
 recursive-exclude * __pycache__

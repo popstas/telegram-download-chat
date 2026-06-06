@@ -90,3 +90,7 @@ Thumbs.db
 
 .claude/skills/
 
+
+# Local agent / tool state
+.claude/
+.ralphex/

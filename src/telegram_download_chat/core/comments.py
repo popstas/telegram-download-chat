@@ -149,6 +149,133 @@ def _normalize_comment(downloader: Any, msg: Any, post_id: int) -> Dict[str, Any
     return data
 
 
+def _attr_or_key(obj: Any, name: str) -> Any:
+    """Read ``name`` from a dict key or an object attribute, ``None`` if absent.
+
+    Discussion messages reach the mapper either as live Telethon objects (the
+    real fetch path) or as serialized dicts (the unit-test fixtures), so field
+    access must work on both.
+    """
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def map_discussion_to_comments(
+    downloader: Any,
+    discussion_messages: Sequence[Any],
+    post_ids: Sequence[int],
+    *,
+    limit: Optional[int] = None,
+    min_reactions: int = 0,
+) -> tuple[List[Dict[str, Any]], List[Any]]:
+    """Map a single discussion-group download onto per-post comments.
+
+    A broadcast post is auto-forwarded into the linked discussion group as a
+    *thread root* carrying ``fwd_from.channel_post`` (the original channel post
+    id). Every comment replies within that thread, so its
+    ``reply_to.reply_to_top_id`` (nested replies) or
+    ``reply_to.reply_to_msg_id`` (direct replies) points back at the root's
+    discussion id. This builds ``root_to_post`` from the forwarded roots, then
+    maps each comment to its parent post — replacing the per-post
+    ``iter_messages(reply_to=post_id)`` scan with one pass over the discussion.
+
+    Args:
+        downloader: Object exposing ``logger`` and ``make_serializable``.
+        discussion_messages: Messages from the linked discussion group (live
+            Telethon objects or serialized dicts).
+        post_ids: Ids of the in-window channel posts; comments whose mapped post
+            is outside this set are dropped.
+        limit: Max comments per post (group-then-cap). ``None`` / ``0`` keeps
+            all, matching ``--comments-limit``.
+        min_reactions: Drop comments whose total reaction count is below this
+            value (applied after ``limit``, mirroring the per-post path); their
+            raw media messages are excluded too.
+
+    Returns:
+        ``(comments, raw_media_messages)`` — a flat list of normalized comment
+        dicts and the subset of source messages that carry media (keyed by id,
+        which equals each comment's ``discussion_msg_id``) for a later media
+        download pass.
+    """
+    logger = getattr(downloader, "logger", None)
+    post_id_set = {int(p) for p in post_ids}
+    unlimited = not limit or limit <= 0
+
+    # Phase 1: forwarded thread roots -> parent channel post id.
+    root_to_post: Dict[int, int] = {}
+    for msg in discussion_messages:
+        channel_post = _attr_or_key(_attr_or_key(msg, "fwd_from"), "channel_post")
+        if channel_post is None:
+            continue
+        msg_id = _attr_or_key(msg, "id")
+        if msg_id is not None:
+            root_to_post[msg_id] = channel_post
+
+    # Phase 2: group every non-root comment under its parent post (input order).
+    grouped: Dict[int, List[Any]] = {}
+    for msg in discussion_messages:
+        msg_id = _attr_or_key(msg, "id")
+        if msg_id in root_to_post:
+            continue  # forwarded root, not a comment
+        reply_to = _attr_or_key(msg, "reply_to")
+        if reply_to is None:
+            continue  # service / non-reply message
+        root_id = _attr_or_key(reply_to, "reply_to_top_id") or _attr_or_key(
+            reply_to, "reply_to_msg_id"
+        )
+        post_id = root_to_post.get(root_id)
+        if post_id is None or post_id not in post_id_set:
+            if logger is not None:
+                logger.debug(
+                    "Discussion message %s maps to root %s with no in-window "
+                    "post; skipping",
+                    msg_id,
+                    root_id,
+                )
+            continue
+        grouped.setdefault(post_id, []).append(msg)
+
+    # Iterate posts in the order they were requested for deterministic output.
+    ordered_posts: List[int] = []
+    seen: Set[int] = set()
+    for p in post_ids:
+        pi = int(p)
+        if pi in grouped and pi not in seen:
+            ordered_posts.append(pi)
+            seen.add(pi)
+
+    comments: List[Dict[str, Any]] = []
+    raw_media_messages: List[Any] = []
+    for post_id in ordered_posts:
+        msgs = grouped[post_id]
+        if not unlimited:
+            msgs = msgs[:limit]
+        post_comments = [_normalize_comment(downloader, m, post_id) for m in msgs]
+        post_raw = [m for m in msgs if _attr_or_key(m, "media")]
+
+        # Quality gate: drop low-reaction comments and their media (matches the
+        # per-post path's post-fetch filter).
+        if min_reactions > 0:
+            kept_disc_ids: Set[Any] = set()
+            filtered: List[Dict[str, Any]] = []
+            for comment in post_comments:
+                if total_reaction_count(comment.get("reactions")) >= min_reactions:
+                    filtered.append(comment)
+                    disc_id = comment.get("discussion_msg_id")
+                    if disc_id is not None:
+                        kept_disc_ids.add(disc_id)
+            post_comments = filtered
+            post_raw = [m for m in post_raw if _attr_or_key(m, "id") in kept_disc_ids]
+
+        comments.extend(post_comments)
+        raw_media_messages.extend(post_raw)
+
+    return comments, raw_media_messages
+
+
 async def download_post_comments(
     downloader: Any,
     channel_entity: Any,
@@ -365,6 +492,7 @@ async def _download_comment_media(
 
 __all__ = [
     "download_post_comments",
+    "map_discussion_to_comments",
     "get_linked_discussion",
     "get_comments_checkpoint_path",
     "load_comments_checkpoint",

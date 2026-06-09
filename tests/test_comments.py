@@ -1,5 +1,7 @@
 """Tests for core/comments.py — linked group resolution and per-post fetch."""
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -9,7 +11,10 @@ from telethon.errors import FloodWaitError, MsgIdInvalidError
 from telegram_download_chat.core.comments import (
     download_post_comments,
     get_linked_discussion,
+    map_discussion_to_comments,
 )
+
+DISCUSSION_FIXTURE = Path(__file__).parent / "fixtures" / "discussion_messages.json"
 
 
 class FakeMessage:
@@ -326,3 +331,126 @@ async def test_get_linked_discussion_swallows_errors():
     downloader = SimpleNamespace(client=fake_client, logger=MagicMock())
     linked = await get_linked_discussion(downloader, object())
     assert linked is None
+
+
+# ---------------------------------------------------------------------------
+# Part B: map_discussion_to_comments (single-pass discussion -> comments)
+# ---------------------------------------------------------------------------
+
+
+def _load_discussion_messages():
+    with open(DISCUSSION_FIXTURE, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _mapping_downloader():
+    downloader = SimpleNamespace()
+    downloader.logger = MagicMock()
+    downloader.make_serializable = _make_serializable
+    return downloader
+
+
+def test_map_discussion_direct_reply_maps_to_post():
+    msgs = _load_discussion_messages()
+    downloader = _mapping_downloader()
+
+    comments, raw_media = map_discussion_to_comments(
+        downloader, msgs, [5477, 5445], limit=None, min_reactions=0
+    )
+
+    by_disc = {c["discussion_msg_id"]: c for c in comments}
+    # Direct replies map to their parent channel post via the forwarded root.
+    assert by_disc[9240]["comment_of"] == 5477
+    assert by_disc[9240]["reply_to_msg_id"] == 5477
+    assert by_disc[9131]["comment_of"] == 5445
+    # Forwarded roots themselves are not emitted as comments.
+    assert 9230 not in by_disc
+    assert 9120 not in by_disc
+    # Media-bearing comments are returned as raw messages keyed by their id.
+    raw_ids = {m["id"] for m in raw_media}
+    assert raw_ids == {9240, 9131}
+
+
+def test_map_discussion_nested_reply_maps_via_top_id():
+    msgs = _load_discussion_messages()
+    downloader = _mapping_downloader()
+
+    comments, _ = map_discussion_to_comments(
+        downloader, msgs, [5477, 5445], limit=None, min_reactions=0
+    )
+
+    by_disc = {c["discussion_msg_id"]: c for c in comments}
+    # 9241 replies to 9240 but carries reply_to_top_id=9230 (the thread root for
+    # post 5477), so it maps to 5477.
+    assert by_disc[9241]["comment_of"] == 5477
+
+
+def test_map_discussion_out_of_window_post_dropped():
+    msgs = _load_discussion_messages()
+    downloader = _mapping_downloader()
+
+    # 9300 replies into a thread root (9299) that is not present, so it cannot
+    # be mapped to an in-window post and is dropped.
+    comments, _ = map_discussion_to_comments(
+        downloader, msgs, [5477, 5445], limit=None, min_reactions=0
+    )
+
+    assert all(c["discussion_msg_id"] != 9300 for c in comments)
+
+
+def test_map_discussion_post_not_in_window_dropped():
+    msgs = _load_discussion_messages()
+    downloader = _mapping_downloader()
+
+    # Only post 5445 is in-window; comments mapping to 5477 are dropped.
+    comments, raw_media = map_discussion_to_comments(
+        downloader, msgs, [5445], limit=None, min_reactions=0
+    )
+
+    assert {c["discussion_msg_id"] for c in comments} == {9131}
+    assert {m["id"] for m in raw_media} == {9131}
+
+
+def test_map_discussion_limit_caps_per_post():
+    msgs = _load_discussion_messages()
+    downloader = _mapping_downloader()
+
+    # Post 5477 has two comments (9240, 9241); limit=1 keeps only the first.
+    comments, _ = map_discussion_to_comments(
+        downloader, msgs, [5477, 5445], limit=1, min_reactions=0
+    )
+
+    by_post = {}
+    for c in comments:
+        by_post.setdefault(c["comment_of"], []).append(c["discussion_msg_id"])
+    assert by_post[5477] == [9240]
+    assert by_post[5445] == [9131]
+
+
+def test_map_discussion_min_reactions_filters():
+    msgs = _load_discussion_messages()
+    downloader = _mapping_downloader()
+
+    # 9240 has 👍4 (keep), 9241 has ❤️1 (drop), 9131 has none (drop).
+    comments, raw_media = map_discussion_to_comments(
+        downloader, msgs, [5477, 5445], limit=None, min_reactions=2
+    )
+
+    assert {c["discussion_msg_id"] for c in comments} == {9240}
+    # The dropped comments' media is excluded from the raw media set too.
+    assert {m["id"] for m in raw_media} == {9240}
+
+
+def test_map_discussion_forwarded_roots_not_emitted():
+    msgs = _load_discussion_messages()
+    downloader = _mapping_downloader()
+
+    comments, _ = map_discussion_to_comments(
+        downloader, msgs, [5477, 5445], limit=None, min_reactions=0
+    )
+
+    disc_ids = {c["discussion_msg_id"] for c in comments}
+    assert 9230 not in disc_ids
+    assert 9120 not in disc_ids
+    # The three in-window comments are exactly 9240, 9131, 9241.
+    assert disc_ids == {9240, 9131, 9241}

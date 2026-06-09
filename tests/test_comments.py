@@ -1,6 +1,7 @@
 """Tests for core/comments.py — linked group resolution and per-post fetch."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -9,7 +10,9 @@ import pytest
 from telethon.errors import FloodWaitError
 
 from telegram_download_chat.core.comments import (
+    coerce_datetime,
     download_post_comments,
+    fetch_discussion_messages,
     get_linked_discussion,
     map_discussion_to_comments,
 )
@@ -536,3 +539,60 @@ async def test_download_post_comments_single_pass_over_fixtures(tmp_path):
     raw_arg, dir_arg = downloader.download_all_media.await_args.args
     assert {m["id"] for m in raw_arg} == {9240, 9131}
     assert dir_arg == attachments
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        # Aware datetime passes through unchanged.
+        (
+            datetime(2025, 5, 1, 11, 0, tzinfo=timezone.utc),
+            datetime(2025, 5, 1, 11, 0, tzinfo=timezone.utc),
+        ),
+        # Naive datetime is assumed UTC.
+        (
+            datetime(2025, 5, 1, 11, 0),
+            datetime(2025, 5, 1, 11, 0, tzinfo=timezone.utc),
+        ),
+        # The space-separated str(datetime) form Telethon serialization produces.
+        (
+            "2025-05-01 11:00:00+00:00",
+            datetime(2025, 5, 1, 11, 0, tzinfo=timezone.utc),
+        ),
+        # Plain ISO-8601 string.
+        (
+            "2025-05-01T11:00:00+00:00",
+            datetime(2025, 5, 1, 11, 0, tzinfo=timezone.utc),
+        ),
+        # Naive ISO string gets UTC.
+        (
+            "2025-05-01T11:00:00",
+            datetime(2025, 5, 1, 11, 0, tzinfo=timezone.utc),
+        ),
+        # Unparseable / wrong-typed values yield None (date bound is optional).
+        ("garbage", None),
+        (None, None),
+        (12345, None),
+    ],
+)
+def test_coerce_datetime(value, expected):
+    assert coerce_datetime(value) == expected
+
+
+@pytest.mark.asyncio
+async def test_fetch_discussion_messages_stops_below_min_date():
+    """The single date-bounded pass stops once a message older than ``min_date``
+    is reached (newest-first), excluding it and everything after it."""
+    floor = datetime(2025, 5, 1, 12, 0, tzinfo=timezone.utc)
+    # iter_messages yields newest-first.
+    newer = FakeComment(3, date="2025-05-01 13:00:00+00:00")
+    at_floor = FakeComment(2, date="2025-05-01 12:00:00+00:00")  # not < floor -> kept
+    older = FakeComment(1, date="2025-05-01 11:00:00+00:00")  # < floor -> stop
+    trailing = FakeComment(0, date="2025-05-01 10:00:00+00:00")  # never reached
+    downloader = _make_downloader([newer, at_floor, older, trailing])
+
+    result = await fetch_discussion_messages(
+        downloader, 123, min_date=floor, silent=True
+    )
+
+    assert [m.id for m in result] == [3, 2]

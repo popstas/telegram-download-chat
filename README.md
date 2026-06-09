@@ -389,7 +389,7 @@ The tool will process the archive and generate both JSON and TXT files with the 
 If the download is interrupted, you can simply run the same command again to resume from where it left off. The tool automatically saves progress to a temporary file.
 You can also resume later using `--since-id` with the last downloaded message ID or let the tool read it from the existing JSON file. Use `--overwrite` to replace existing output files instead of resuming.
 
-Interrupted `--comments` runs resume per-post via a `[chat_name]/messages.comments-progress.json` checkpoint, so a restart skips posts whose comments were already fetched. The checkpoint is cleared on clean completion and when `--overwrite` is used.
+Interrupted `--comments` runs resume by simply running the same command again. Comments are fetched in a single pass over the channel's linked discussion group (there is no per-post checkpoint file), so a restart re-fetches that group and merges the results, removing duplicates automatically. A re-run also recovers any comment media links that an earlier interrupted export saved without them.
 
 ### User Mapping
 Display names for users and bots are collected automatically. You can override them in the `users_map` section:

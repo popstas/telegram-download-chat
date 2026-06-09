@@ -17,10 +17,9 @@ discussion message id is preserved as ``discussion_msg_id``.
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 from telethon.errors import FloodWaitError
 
@@ -53,64 +52,6 @@ def coerce_datetime(value: Any) -> Optional[datetime]:
             return None
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
     return None
-
-
-def get_comments_checkpoint_path(output_file: Any) -> Path:
-    """Return the sidecar checkpoint path for an output file.
-
-    Mirrors the partial-download file convention: a checkpoint lives next to the
-    chat's ``messages.json`` and records which post ids have already had their
-    comments fetched, so an interrupted ``--comments`` run resumes instead of
-    re-scanning every post.
-    """
-    return Path(output_file).with_suffix(".comments-progress.json")
-
-
-def load_comments_checkpoint(path: Any) -> Set[int]:
-    """Load the set of post ids whose comments were already fetched.
-
-    Returns an empty set when the checkpoint is missing or unreadable so callers
-    fall back to scanning every post (the dedup logic keeps that correct, just
-    slower).
-    """
-    p = Path(path)
-    if not p.exists():
-        return set()
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return set()
-    done: Set[int] = set()
-    if isinstance(data, list):
-        for pid in data:
-            try:
-                done.add(int(pid))
-            except (TypeError, ValueError):
-                continue
-    return done
-
-
-def save_comments_checkpoint(path: Any, done_post_ids: Iterable[int]) -> None:
-    """Persist the set of fetched-post ids to the checkpoint file (best-effort)."""
-    p = Path(path)
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump(sorted(int(pid) for pid in done_post_ids), f)
-    except OSError:
-        # Checkpointing is an optimization; a write failure must not abort the run.
-        pass
-
-
-def clear_comments_checkpoint(path: Any) -> None:
-    """Remove the checkpoint file if present (best-effort)."""
-    p = Path(path)
-    try:
-        if p.exists():
-            p.unlink()
-    except OSError:
-        pass
 
 
 async def get_linked_discussion(downloader: Any, entity: Any) -> Optional[int]:
@@ -524,8 +465,4 @@ __all__ = [
     "map_discussion_to_comments",
     "coerce_datetime",
     "get_linked_discussion",
-    "get_comments_checkpoint_path",
-    "load_comments_checkpoint",
-    "save_comments_checkpoint",
-    "clear_comments_checkpoint",
 ]

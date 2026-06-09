@@ -1,8 +1,11 @@
-"""Tests for resumable channel-comment fetching (Task 5).
+"""Tests for resuming an interrupted ``--comments`` run (Task B4).
 
-Restarting an interrupted ``--comments`` run must skip posts whose comments were
-already fetched, via a sidecar checkpoint file that mirrors the partial-download
-file lifecycle.
+The per-post ``*.comments-progress.json`` checkpoint was retired once comments
+moved to a single date-bounded download of the linked discussion group. Resume
+is now handled by the standard output-merge path: a restart simply re-downloads
+the discussion group, re-maps it onto the in-window posts, and the
+``(comment_of, id)`` dedup (:func:`_dedup_messages`) keeps the merged output
+free of duplicates. No sidecar file is required for correctness.
 """
 
 from types import SimpleNamespace
@@ -10,18 +13,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from telegram_download_chat.cli.arguments import parse_args
-from telegram_download_chat.cli.commands import (
-    _persist_comments_checkpoint,
-    fetch_channel_comments,
-)
-from telegram_download_chat.core.comments import (
-    clear_comments_checkpoint,
-    download_post_comments,
-    get_comments_checkpoint_path,
-    load_comments_checkpoint,
-    save_comments_checkpoint,
-)
+import telegram_download_chat.core.comments as comments_mod
+from telegram_download_chat.cli.commands import _dedup_messages, fetch_channel_comments
+from telegram_download_chat.core.comments import download_post_comments
 
 
 class _AsyncIter:
@@ -37,13 +31,40 @@ class _AsyncIter:
         return self._items.pop(0)
 
 
-class _FakeComment:
-    def __init__(self, msg_id):
-        self.id = msg_id
+class _FakeRoot:
+    """Forwarded thread root carrying ``fwd_from.channel_post`` = parent post id."""
+
+    def __init__(self, root_id, channel_post):
+        self.id = root_id
+        self.fwd_from = SimpleNamespace(channel_post=channel_post)
+        self.reply_to = None
         self.media = None
 
     def to_dict(self):
+        return {"_": "Message", "id": self.id, "message": ""}
+
+
+class _FakeComment:
+    def __init__(self, msg_id):
+        self.id = msg_id
+        self.fwd_from = None
+        self.media = None
+        self.reply_to = None  # wired by _discussion_from_posts
+
+    def to_dict(self):
         return {"_": "Message", "id": self.id, "message": f"comment {self.id}"}
+
+
+def _discussion_from_posts(comments_by_post, *, root_base=900000):
+    """Synthesize a flat discussion list (forwarded roots + direct replies)."""
+    msgs = []
+    for i, (post_id, comments) in enumerate(comments_by_post.items()):
+        root_id = root_base + i
+        msgs.append(_FakeRoot(root_id, post_id))
+        for c in comments:
+            c.reply_to = SimpleNamespace(reply_to_msg_id=root_id, reply_to_top_id=None)
+            msgs.append(c)
+    return msgs
 
 
 def _make_serializable(obj):
@@ -58,7 +79,8 @@ def _make_serializable(obj):
 
 def _make_downloader(comments_by_post, *, broadcast=True, linked_chat_id=999):
     entity = SimpleNamespace(id=42, broadcast=broadcast)
-    seen = []
+    discussion = _discussion_from_posts(comments_by_post)
+    calls = {"iter": 0}
 
     class _Client:
         async def __call__(self, request):
@@ -66,12 +88,9 @@ def _make_downloader(comments_by_post, *, broadcast=True, linked_chat_id=999):
                 full_chat=SimpleNamespace(linked_chat_id=linked_chat_id)
             )
 
-        def iter_messages(self, channel_entity, reply_to=None):
-            seen.append(reply_to)
-            value = comments_by_post.get(reply_to, [])
-            if isinstance(value, Exception):
-                raise value
-            return _AsyncIter(value)
+        def iter_messages(self, channel_entity):
+            calls["iter"] += 1
+            return _AsyncIter(list(discussion))
 
     downloader = SimpleNamespace(
         client=_Client(),
@@ -85,184 +104,127 @@ def _make_downloader(comments_by_post, *, broadcast=True, linked_chat_id=999):
         return entity
 
     downloader.get_entity = get_entity
-    downloader._seen_reply_to = seen
+    downloader._iter_calls = calls
     return downloader
 
 
 def _args(**overrides):
+    from telegram_download_chat.cli.arguments import parse_args
+
     args = parse_args(["@chan"])
     for k, v in overrides.items():
         setattr(args, k, v)
     return args
 
 
-# --- checkpoint file primitives -------------------------------------------
+# --- the checkpoint machinery is gone -------------------------------------
 
 
-def test_checkpoint_roundtrip(tmp_path):
-    path = get_comments_checkpoint_path(tmp_path / "messages.json")
-    assert path.name == "messages.comments-progress.json"
-
-    assert load_comments_checkpoint(path) == set()
-
-    save_comments_checkpoint(path, [3, 1, 2])
-    assert load_comments_checkpoint(path) == {1, 2, 3}
-
-    clear_comments_checkpoint(path)
-    assert not path.exists()
-    # Clearing a missing file is a no-op.
-    clear_comments_checkpoint(path)
+def test_checkpoint_helpers_removed():
+    """The per-post checkpoint API no longer exists on ``core.comments``."""
+    for name in (
+        "get_comments_checkpoint_path",
+        "load_comments_checkpoint",
+        "save_comments_checkpoint",
+        "clear_comments_checkpoint",
+    ):
+        assert not hasattr(comments_mod, name), f"{name} should have been removed"
 
 
-def test_load_checkpoint_ignores_garbage(tmp_path):
-    path = tmp_path / "messages.comments-progress.json"
-    path.write_text("not json", encoding="utf-8")
-    assert load_comments_checkpoint(path) == set()
+def test_fetch_channel_comments_has_no_checkpoint_param():
+    """``fetch_channel_comments`` no longer accepts a ``checkpoint_path``."""
+    import inspect
+
+    sig = inspect.signature(fetch_channel_comments)
+    assert "checkpoint_path" not in sig.parameters
 
 
-# --- download_post_comments callback --------------------------------------
+def test_persist_comments_checkpoint_removed():
+    import telegram_download_chat.cli.commands as commands_mod
+
+    assert not hasattr(commands_mod, "_persist_comments_checkpoint")
 
 
-@pytest.mark.asyncio
-async def test_on_post_done_fires_for_scanned_posts():
-    done = []
-    downloader = _make_downloader(
-        {1: [_FakeComment(1001)], 2: []},  # post 2 scanned, no comments
-    )
-    await download_post_comments(
-        downloader,
-        SimpleNamespace(),
-        [1, 2],
-        on_post_done=done.append,
-    )
-    # Both posts scanned (post 2 has zero comments but is still done).
-    assert done == [1, 2]
+# --- resume via re-map + dedup --------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_on_post_done_skips_transient_failure():
-    done = []
-    downloader = _make_downloader(
-        {1: [_FakeComment(1001)], 2: RuntimeError("boom")},
-    )
-    await download_post_comments(
-        downloader,
-        SimpleNamespace(),
-        [1, 2],
-        on_post_done=done.append,
-    )
-    # Post 2 failed transiently -> not checkpointed so a restart retries it.
-    assert done == [1]
-
-
-# --- fetch_channel_comments resume integration ----------------------------
-
-
-@pytest.mark.asyncio
-async def test_restart_skips_already_fetched_posts(tmp_path):
-    checkpoint = get_comments_checkpoint_path(tmp_path / "messages.json")
-    # Post 1 was fetched in a prior interrupted run.
-    save_comments_checkpoint(checkpoint, [1])
-
-    downloader = _make_downloader(
-        {1: [_FakeComment(1001)], 2: [_FakeComment(1002)]},
-    )
+async def test_resume_remaps_and_dedup_avoids_duplicates():
+    """A resume re-fetches the discussion and dedup keeps the merge duplicate-free."""
+    comments_by_post = {
+        1: [_FakeComment(1001), _FakeComment(1002)],
+        2: [_FakeComment(1003)],
+    }
     posts = [{"id": 1, "message": "post 1"}, {"id": 2, "message": "post 2"}]
     args = _args(comments=True)
 
-    comments = await fetch_channel_comments(
-        downloader, "@chan", posts, args, checkpoint_path=checkpoint
+    # First run: fetch + persist (simulated saved messages.json).
+    first = await fetch_channel_comments(
+        _make_downloader(comments_by_post), "@chan", posts, args
     )
+    assert {c["comment_of"] for c in first} == {1, 2}
+    saved = posts + first
 
-    # Only post 2 is queried; post 1 is skipped from the checkpoint.
-    assert downloader._seen_reply_to == [2]
-    assert [c["comment_of"] for c in comments] == [2]
+    # Resume run: re-fetch the same discussion group (fresh downloader so its
+    # iter counter starts clean) and re-map onto the same posts.
+    second = await fetch_channel_comments(
+        _make_downloader(comments_by_post), "@chan", saved, args
+    )
+    assert {(c["comment_of"], c["id"]) for c in second} == {
+        (c["comment_of"], c["id"]) for c in first
+    }
+
+    # Merging the resumed comments into the already-saved output must not
+    # duplicate any comment record (keyed by (comment_of, id)).
+    merged = _dedup_messages(saved + second)
+    comment_keys = [
+        (m["comment_of"], m["id"]) for m in merged if m.get("comment_of") is not None
+    ]
+    assert len(comment_keys) == len(set(comment_keys)) == 3
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_cleared_on_completion(tmp_path):
-    checkpoint = get_comments_checkpoint_path(tmp_path / "messages.json")
-    downloader = _make_downloader({1: [_FakeComment(1001)]})
-    posts = [{"id": 1, "message": "post 1"}]
+async def test_single_pass_no_request_per_empty_post():
+    """The discussion group is downloaded exactly once regardless of post count."""
+    downloader = _make_downloader({1: [_FakeComment(1001)], 5: []})
+    # Many in-window posts, most with no comments — the old path issued one
+    # request per post; the new path issues exactly one discussion download.
+    posts = [{"id": i, "message": f"post {i}"} for i in range(1, 20)]
     args = _args(comments=True)
 
-    await fetch_channel_comments(
-        downloader, "@chan", posts, args, checkpoint_path=checkpoint
-    )
+    await fetch_channel_comments(downloader, "@chan", posts, args)
 
-    # Persistence is deferred to the post-save hook; a clean finish clears it.
-    _persist_comments_checkpoint(downloader)
-    assert not checkpoint.exists()
+    assert downloader._iter_calls["iter"] == 1
+
+
+# --- stop mid-download returns partial; resume recovers the rest ----------
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_kept_when_stopped(tmp_path):
-    checkpoint = get_comments_checkpoint_path(tmp_path / "messages.json")
-
-    downloader = _make_downloader({1: [_FakeComment(1001)], 2: [_FakeComment(1002)]})
-
-    # Flip the stop flag once post 1 has been scanned, so post 2 is skipped and
-    # the partial checkpoint (just post 1) must be preserved for the next run.
-    orig_iter = downloader.client.iter_messages
-
-    def iter_messages(channel_entity, reply_to=None):
-        it = orig_iter(channel_entity, reply_to=reply_to)
-        if reply_to == 1:
-            downloader._stop_requested = True
-        return it
-
-    downloader.client.iter_messages = iter_messages
-
+async def test_stop_mid_download_returns_partial_then_resume_recovers():
+    comments_by_post = {1: [_FakeComment(1001)], 2: [_FakeComment(1002)]}
     posts = [{"id": 1, "message": "post 1"}, {"id": 2, "message": "post 2"}]
     args = _args(comments=True)
 
-    await fetch_channel_comments(
-        downloader, "@chan", posts, args, checkpoint_path=checkpoint
-    )
+    # Stopped run: flip the stop flag before the discussion download yields, so
+    # the pass returns an empty/partial result without error.
+    stopped = _make_downloader(comments_by_post)
+    stopped._stop_requested = True
+    partial = await fetch_channel_comments(stopped, "@chan", posts, args)
+    assert partial == []  # nothing collected once stopped immediately
 
-    # Post 2 was never queried (stopped). The checkpoint is not written until
-    # the post-save hook runs, after which it persists with post 1.
-    assert downloader._seen_reply_to == [1]
-    assert not checkpoint.exists()
-    _persist_comments_checkpoint(downloader)
-    assert checkpoint.exists()
-    assert load_comments_checkpoint(checkpoint) == {1}
+    # Resume run (not stopped): re-downloads the full discussion and maps it.
+    resumed = _make_downloader(comments_by_post)
+    recovered = await fetch_channel_comments(resumed, "@chan", posts, args)
+    assert {c["comment_of"] for c in recovered} == {1, 2}
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_not_written_during_fetch(tmp_path):
-    """The checkpoint must not hit disk mid-fetch.
+async def test_download_post_comments_single_pass_signature():
+    """``download_post_comments`` takes the single-pass shape (no ``on_post_done``)."""
+    import inspect
 
-    Writing it before the comments are durably saved would let it get ahead of
-    the saved output: a hard kill in between would then make a resume skip posts
-    whose comments were never saved, losing them. The in-memory state still
-    tracks every scanned post so the post-save hook can persist them.
-    """
-    checkpoint = get_comments_checkpoint_path(tmp_path / "messages.json")
-    downloader = _make_downloader({1: [_FakeComment(1001)], 2: [_FakeComment(1002)]})
-
-    state_at_post2 = {}
-    orig_iter = downloader.client.iter_messages
-
-    def iter_messages(channel_entity, reply_to=None):
-        if reply_to == 2:
-            state_at_post2["exists"] = checkpoint.exists()
-        return orig_iter(channel_entity, reply_to=reply_to)
-
-    downloader.client.iter_messages = iter_messages
-
-    posts = [{"id": 1, "message": "post 1"}, {"id": 2, "message": "post 2"}]
-    args = _args(comments=True)
-
-    await fetch_channel_comments(
-        downloader, "@chan", posts, args, checkpoint_path=checkpoint
-    )
-
-    # No on-disk checkpoint existed while post 2 was being scanned.
-    assert state_at_post2.get("exists") is False
-    assert downloader._seen_reply_to == [1, 2]
-    # The in-memory state tracks both scanned posts, ready for the post-save hook.
-    assert downloader._comments_checkpoint_state["done"] == {1, 2}
-    # A clean completion clears it.
-    _persist_comments_checkpoint(downloader)
-    assert not checkpoint.exists()
+    sig = inspect.signature(download_post_comments)
+    assert "on_post_done" not in sig.parameters
+    assert "linked_id" in sig.parameters
+    assert "min_date" in sig.parameters

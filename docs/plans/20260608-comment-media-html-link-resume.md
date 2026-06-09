@@ -59,11 +59,11 @@ Two related improvements to `--comments`, driven by issue #80 (ksandigo) and ver
 - [x] Run `pytest tests/test_comments_command.py -k dedup` — bug-demonstrating test FAILS (red); the demote test PASSES (dedup's keep-first already protects the with-path copy at order `[with_path, without_path]`, so it's green from the start) and the keep-first test PASSES, all four pre-existing dedup tests still PASS.
 
 ### Task A2: Implement the attachment-aware replace rule in `_dedup_messages`
-- [ ] Add a `_has_attachment(m)` helper (dict/attr safe, mirroring `_is_citation`) → bool of non-empty `attachment_path`.
-- [ ] Extend the collision branch (`commands.py:76-78`) with `elif comment_of is not None and not _has_attachment(deduped[seen[key]]) and _has_attachment(m): deduped[seen[key]] = m`. Scope to comment records; only replace when kept lacks a path and the new one has one (never demote, never touch non-comment ids).
-- [ ] Update the `_dedup_messages` docstring to document the new rule.
-- [ ] Run `pytest tests/test_comments_command.py -k dedup` — all dedup tests PASS (green).
-- [ ] Run `pytest tests/test_comment_media.py tests/test_comments_command.py tests/test_comments_resume.py` — PASS (no regression).
+- [x] Add a `_has_attachment(m)` helper (dict/attr safe, mirroring `_is_citation`) → bool of non-empty `attachment_path`.
+- [x] Extend the collision branch (`commands.py:76-78`) with `elif comment_of is not None and not _has_attachment(deduped[seen[key]]) and _has_attachment(m): deduped[seen[key]] = m`. Scope to comment records; only replace when kept lacks a path and the new one has one (never demote, never touch non-comment ids).
+- [x] Update the `_dedup_messages` docstring to document the new rule.
+- [x] Run `pytest tests/test_comments_command.py -k dedup` — all dedup tests PASS (green).
+- [x] Run `pytest tests/test_comment_media.py tests/test_comments_command.py tests/test_comments_resume.py` — PASS (no regression).
 
 ### Task A3: Verify Part A acceptance
 - [ ] Confirm a stale-then-fresh comment list yields a record with `attachment_path` that `render.py` renders as a link (cross-check `test_html_renders_comment_media_inline`).

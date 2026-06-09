@@ -48,6 +48,14 @@ def _dedup_messages(messages: List[Any]) -> List[Any]:
     shadowed by the first copy). Otherwise the stale marker would persist,
     permanently excluding that id from the ``--limit`` resume counter and making
     a widened run think one more real post is always missing.
+
+    For comment records, a freshly-fetched copy carrying ``attachment_path``
+    replaces a same-key copy that lacks one (e.g. a stale ``messages.json``
+    comment saved before its media was downloaded). This mirrors the
+    citation-replace precedent so resume runs finally surface the comment's
+    media link in the HTML/JSON output. It never demotes: a kept comment that
+    already has a path is left in place, and two comments that both have (or
+    both lack) a path keep the first.
     """
 
     def _is_citation(m: Any) -> bool:
@@ -55,6 +63,13 @@ def _dedup_messages(messages: List[Any]) -> List[Any]:
             m.get("cited_outside_window")
             if isinstance(m, dict)
             else getattr(m, "cited_outside_window", False)
+        )
+
+    def _has_attachment(m: Any) -> bool:
+        return bool(
+            m.get("attachment_path")
+            if isinstance(m, dict)
+            else getattr(m, "attachment_path", None)
         )
 
     seen: Dict[Any, int] = {}
@@ -75,6 +90,14 @@ def _dedup_messages(messages: List[Any]) -> List[Any]:
             deduped.append(m)
         elif _is_citation(deduped[seen[key]]) and not _is_citation(m):
             # Replace a previously kept citation marker with the real post.
+            deduped[seen[key]] = m
+        elif (
+            comment_of is not None
+            and not _has_attachment(deduped[seen[key]])
+            and _has_attachment(m)
+        ):
+            # Resume: a re-fetched comment carrying attachment_path replaces a
+            # stale same-key comment that lacks one, so its media link appears.
             deduped[seen[key]] = m
     return deduped
 

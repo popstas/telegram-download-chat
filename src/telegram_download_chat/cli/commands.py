@@ -415,7 +415,14 @@ async def fetch_channel_comments(
     # Date floor for the single discussion download: a comment is never older
     # than the post it replies to, so the earliest in-window post date bounds
     # the pass (optimization only — mapping still filters by post id).
+    # Subtract a small margin so the earliest post's *forwarded root* (a separate
+    # discussion message whose date can sit at/just-below the post date) is still
+    # paged: in newest-first order comments arrive before their root, so a root
+    # cut off by an exact floor would silently orphan its already-collected
+    # comments. The post-id filter keeps the looser floor correct.
     min_date = _earliest_post_date(messages, post_ids)
+    if min_date is not None:
+        min_date = min_date - timedelta(minutes=5)
 
     downloader.logger.info(f"Fetching comments for {len(post_ids)} post(s)...")
     comments = await download_post_comments(

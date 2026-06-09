@@ -1,9 +1,11 @@
 """Download broadcast-channel comments from the linked discussion group.
 
 A broadcast channel keeps its post comments in a linked discussion supergroup.
-This module resolves that linked group and fetches the per-post comment threads
-via Telethon's ``iter_messages(channel_entity, reply_to=post_id)``, which maps a
-channel-post id onto the discussion thread internally.
+This module resolves that linked group, downloads it **once** (paginated and
+bounded by the in-window posts' date floor), and maps each discussion message to
+its parent channel post via the auto-forwarded thread root — replacing the older
+per-post ``iter_messages(channel_entity, reply_to=post_id)`` scan that issued one
+request per post (including posts with no comments).
 
 Each fetched comment is normalized so the existing reply-thread + anchor logic
 (``core/render.py``) nests it under its parent channel post with zero export
@@ -16,13 +18,41 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set
 
-from telethon.errors import FloodWaitError, MsgIdInvalidError
+from telethon.errors import FloodWaitError
 
 from .progress import emit_progress
 from .reactions import total_reaction_count
+
+
+def coerce_datetime(value: Any) -> Optional[datetime]:
+    """Best-effort parse of a message ``date`` into an aware ``datetime``.
+
+    Accepts a ``datetime`` (live Telethon message), an ISO-8601 string, or the
+    ``str(datetime)`` form Telethon serialization produces
+    (``"2025-05-01 11:00:00+00:00"``). Returns ``None`` when the value can't be
+    parsed — date bounding is an optimization, so an unparseable date simply
+    isn't used as a boundary.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        parsed: Optional[datetime] = None
+        for candidate in (value, value.replace(" ", "T", 1)):
+            try:
+                parsed = datetime.fromisoformat(candidate)
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return None
 
 
 def get_comments_checkpoint_path(output_file: Any) -> Path:
@@ -276,64 +306,45 @@ def map_discussion_to_comments(
     return comments, raw_media_messages
 
 
-async def download_post_comments(
+async def fetch_discussion_messages(
     downloader: Any,
-    channel_entity: Any,
-    post_ids: Sequence[int],
+    linked_id: Any,
     *,
-    silent: bool = False,
+    min_date: Optional[datetime] = None,
     stop_check: Optional[Callable[[], bool]] = None,
-    limit: Optional[int] = None,
-    min_reactions: int = 0,
-    download_media: bool = False,
-    attachments_dir: Optional[Any] = None,
-    on_post_done: Optional[Callable[[int], None]] = None,
-) -> List[Dict[str, Any]]:
-    """Fetch comment threads for the given channel ``post_ids``.
+    silent: bool = False,
+) -> List[Any]:
+    """Download the linked discussion group once, newest-first.
 
-    For each post id, pages ``client.iter_messages(channel_entity,
-    reply_to=post_id)`` and normalizes every comment to point at its parent
-    post (see :func:`_normalize_comment`).
+    Resolves the discussion entity via ``downloader.get_entity(linked_id)`` and
+    pages it with a single ``client.iter_messages`` pass. ``iter_messages``
+    yields newest-first, so once a message older than ``min_date`` is reached the
+    pass stops early: a comment is always at least as new as the post it replies
+    to, so nothing older than the in-window posts' date floor can map to an
+    in-window post. ``min_date`` is purely an optimization — correctness comes
+    from the post-id filter in :func:`map_discussion_to_comments`.
+
+    A ``FloodWaitError`` sleeps and restarts the pass from scratch (mirroring the
+    old per-post retry); a stop request returns the messages collected so far.
 
     Args:
-        downloader: Object exposing ``client``, ``logger`` and
-            ``make_serializable`` (the ``TelegramChatDownloader``).
-        channel_entity: Resolved broadcast-channel entity.
-        post_ids: Ids of the channel posts whose comments to fetch.
+        downloader: Object exposing ``client``, ``logger`` and ``get_entity``.
+        linked_id: Id of the linked discussion supergroup.
+        min_date: Stop paging once messages older than this aware datetime are
+            reached. ``None`` pages the whole group.
+        stop_check: Optional callable; when it returns True the pass stops.
+            ``downloader._stop_requested`` is also honored.
         silent: Suppress info logging when True.
-        stop_check: Optional callable; when it returns True the fetch stops
-            between posts. ``downloader._stop_requested`` is also honored.
-        limit: Max comments per post. A positive int caps each post;
-            ``None`` / ``0`` means unlimited.
-        min_reactions: Drop comments whose total reaction count
-            (:func:`total_reaction_count`) is below this value. ``0`` keeps all.
-            Applied after ``limit`` (which caps how many are fetched) and before
-            comment media is downloaded, so dropped comments never trigger a
-            media fetch.
-        download_media: When True (and ``attachments_dir`` is set), download
-            the attachments of comments that carry media, reusing
-            ``downloader.download_all_media``. Each downloaded comment's
-            normalized dict gets an ``attachment_path`` so the saved JSON keeps
-            it and the HTML export renders it inline.
-        attachments_dir: Target attachments directory for comment media; must
-            match the chat's ``attachments/`` dir so ``save_messages`` finds the
-            downloaded files.
-        on_post_done: Optional callback invoked with each post id once that
-            post's comment thread has been fully scanned (including posts with
-            no comments / comments disabled). Used to checkpoint resume progress.
-            Not called for posts skipped due to a transient fetch failure, so a
-            restart retries them.
 
     Returns:
-        A flat list of normalized comment dicts across all posts.
+        The fetched discussion messages (live Telethon objects).
     """
     client = getattr(downloader, "client", None)
     if client is None:
         raise RuntimeError("Telegram client is not connected")
 
     logger = getattr(downloader, "logger", None)
-    unlimited = not limit or limit <= 0
-    want_media = bool(download_media) and attachments_dir is not None
+    entity = await downloader.get_entity(linked_id)
 
     def _should_stop() -> bool:
         if getattr(downloader, "_stop_requested", False):
@@ -345,102 +356,119 @@ async def download_post_comments(
                 return False
         return False
 
-    comments: List[Dict[str, Any]] = []
-    # Raw Telethon comment messages that carry media, kept so they can be
-    # batch-downloaded after the fetch loop (download needs the live objects,
-    # not the serialized dicts). Their ids are the native discussion ids, which
-    # match each normalized comment's ``discussion_msg_id``.
-    raw_media_messages: List[Any] = []
-    total_posts = len(post_ids)
-
-    for idx, post_id in enumerate(post_ids):
-        if _should_stop():
+    while True:
+        # Restart the list per attempt so a mid-iteration flood-wait retry
+        # re-pages from scratch instead of duplicating messages.
+        messages: List[Any] = []
+        try:
+            async for msg in client.iter_messages(entity):
+                if _should_stop():
+                    if logger is not None and not silent:
+                        logger.info(
+                            "Stop requested, breaking discussion download loop..."
+                        )
+                    return messages
+                if min_date is not None:
+                    msg_date = coerce_datetime(_attr_or_key(msg, "date"))
+                    if msg_date is not None and msg_date < min_date:
+                        return messages
+                messages.append(msg)
+            return messages
+        except FloodWaitError as exc:
+            wait = exc.seconds + 1
             if logger is not None and not silent:
-                logger.info("Stop requested, breaking comment download loop...")
-            break
+                logger.info(
+                    f"Flood-wait {wait}s while fetching discussion, sleeping..."
+                )
+            await asyncio.sleep(wait)
+            continue
+        except Exception as exc:  # noqa: BLE001 - comment fetch is best-effort
+            # The call site isn't wrapped, so a discussion-download failure must
+            # not abort the whole run: log and return what was collected.
+            if logger is not None and not silent:
+                logger.warning("Failed to fetch discussion messages: %s", exc)
+            return messages
 
-        post_comments: List[Dict[str, Any]] = []
-        post_raw_media: List[Any] = []
-        # Whether the post's thread was actually scanned (success or legitimately
-        # empty). A transient failure leaves this False so the post is retried on
-        # the next run rather than checkpointed as done.
-        scanned = False
-        while True:
-            # Restart the list per attempt so a mid-iteration flood-wait retry
-            # re-fetches from scratch instead of duplicating comments.
-            post_comments = []
-            post_raw_media = []
-            try:
-                async for msg in client.iter_messages(channel_entity, reply_to=post_id):
-                    post_comments.append(_normalize_comment(downloader, msg, post_id))
-                    if want_media and getattr(msg, "media", None):
-                        post_raw_media.append(msg)
-                    if not unlimited and len(post_comments) >= limit:
-                        break
-                scanned = True
-                break
-            except FloodWaitError as exc:
-                wait = exc.seconds + 1
-                if logger is not None and not silent:
-                    logger.info(
-                        f"Flood-wait {wait}s while fetching comments, sleeping..."
-                    )
-                await asyncio.sleep(wait)
-                continue
-            except MsgIdInvalidError:
-                # Comments disabled or post id not valid for discussion; skip it.
-                if logger is not None and not silent:
-                    logger.info(
-                        f"Post {post_id} has no comments (or comments disabled), skipping"
-                    )
-                post_comments = []
-                scanned = True
-                break
-            except (
-                Exception
-            ) as exc:  # noqa: BLE001 - one bad post must not abort the rest
-                if logger is not None and not silent:
-                    logger.warning(
-                        f"Failed to fetch comments for post {post_id}: {exc}"
-                    )
-                post_comments = []
-                scanned = False
-                break
 
-        # Quality gate: drop low-reaction comments after the (limit-capped)
-        # fetch and before any media download, so dropped comments never trigger
-        # a media fetch. Their raw media messages are excluded by id too.
-        if min_reactions > 0 and post_comments:
-            kept_disc_ids = set()
-            filtered: List[Dict[str, Any]] = []
-            for comment in post_comments:
-                if total_reaction_count(comment.get("reactions")) >= min_reactions:
-                    filtered.append(comment)
-                    disc_id = comment.get("discussion_msg_id")
-                    if disc_id is not None:
-                        kept_disc_ids.add(disc_id)
-            post_comments = filtered
-            if post_raw_media:
-                post_raw_media = [
-                    m for m in post_raw_media if getattr(m, "id", None) in kept_disc_ids
-                ]
+async def download_post_comments(
+    downloader: Any,
+    linked_id: Any,
+    post_ids: Sequence[int],
+    *,
+    min_date: Optional[datetime] = None,
+    silent: bool = False,
+    stop_check: Optional[Callable[[], bool]] = None,
+    limit: Optional[int] = None,
+    min_reactions: int = 0,
+    download_media: bool = False,
+    attachments_dir: Optional[Any] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch comments for the given channel ``post_ids`` in a single pass.
 
-        comments.extend(post_comments)
-        if want_media and post_raw_media:
-            raw_media_messages.extend(post_raw_media)
+    Downloads the linked discussion group once
+    (:func:`fetch_discussion_messages`) and maps its messages onto the requested
+    posts (:func:`map_discussion_to_comments`), replacing the old per-post
+    ``iter_messages(reply_to=post_id)`` scan. Each comment is normalized to point
+    at its parent post (see :func:`_normalize_comment`).
 
-        if scanned and on_post_done is not None:
-            on_post_done(post_id)
+    Args:
+        downloader: Object exposing ``client``, ``logger``, ``get_entity`` and
+            ``make_serializable`` (the ``TelegramChatDownloader``).
+        linked_id: Id of the linked discussion supergroup to download.
+        post_ids: Ids of the in-window channel posts whose comments to keep.
+        min_date: Date floor of the in-window posts; bounds the discussion
+            download (optimization only — see :func:`fetch_discussion_messages`).
+        silent: Suppress info logging when True.
+        stop_check: Optional callable; when it returns True the discussion pass
+            stops. ``downloader._stop_requested`` is also honored.
+        limit: Max comments per post (group-then-cap). A positive int caps each
+            post; ``None`` / ``0`` means unlimited.
+        min_reactions: Drop comments whose total reaction count
+            (:func:`total_reaction_count`) is below this value. ``0`` keeps all.
+            Applied after ``limit`` and before comment media is downloaded, so
+            dropped comments never trigger a media fetch.
+        download_media: When True (and ``attachments_dir`` is set), download
+            the attachments of comments that carry media, reusing
+            ``downloader.download_all_media``. Each downloaded comment's
+            normalized dict gets an ``attachment_path`` so the saved JSON keeps
+            it and the HTML export renders it inline.
+        attachments_dir: Target attachments directory for comment media; must
+            match the chat's ``attachments/`` dir so ``save_messages`` finds the
+            downloaded files.
 
-        emit_progress(
-            {
-                "type": "comments",
-                "posts_done": idx + 1,
-                "posts_total": total_posts,
-                "comments": len(comments),
-            },
-            sink=getattr(downloader, "_progress_sink", None),
-        )
+    Returns:
+        A flat list of normalized comment dicts across all in-window posts.
+    """
+    want_media = bool(download_media) and attachments_dir is not None
+
+    discussion_messages = await fetch_discussion_messages(
+        downloader,
+        linked_id,
+        min_date=min_date,
+        stop_check=stop_check,
+        silent=silent,
+    )
+
+    comments, raw_media_messages = map_discussion_to_comments(
+        downloader,
+        discussion_messages,
+        post_ids,
+        limit=limit,
+        min_reactions=min_reactions,
+    )
+
+    # Single progress event for the whole discussion pass (replacing the old
+    # per-post emission); the GUI surfaces it the same way.
+    total_posts = len(post_ids)
+    emit_progress(
+        {
+            "type": "comments",
+            "posts_done": total_posts,
+            "posts_total": total_posts,
+            "comments": len(comments),
+        },
+        sink=getattr(downloader, "_progress_sink", None),
+    )
 
     if want_media and raw_media_messages and attachments_dir is not None:
         await _download_comment_media(
@@ -492,7 +520,9 @@ async def _download_comment_media(
 
 __all__ = [
     "download_post_comments",
+    "fetch_discussion_messages",
     "map_discussion_to_comments",
+    "coerce_datetime",
     "get_linked_discussion",
     "get_comments_checkpoint_path",
     "load_comments_checkpoint",

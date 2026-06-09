@@ -25,12 +25,40 @@ class _AsyncIter:
         return self._items.pop(0)
 
 
+class _FakeRoot:
+    """Forwarded thread root carrying ``fwd_from.channel_post`` = parent post id."""
+
+    def __init__(self, root_id, channel_post):
+        self.id = root_id
+        self.fwd_from = SimpleNamespace(channel_post=channel_post)
+        self.reply_to = None
+        self.media = None
+
+    def to_dict(self):
+        return {"_": "Message", "id": self.id, "message": ""}
+
+
 class _FakeComment:
     def __init__(self, msg_id):
         self.id = msg_id
+        self.fwd_from = None
+        self.media = None
+        self.reply_to = None  # wired by _discussion_from_posts
 
     def to_dict(self):
         return {"_": "Message", "id": self.id, "message": f"comment {self.id}"}
+
+
+def _discussion_from_posts(comments_by_post, *, root_base=900000):
+    """Synthesize a flat discussion list (forwarded roots + direct replies)."""
+    msgs = []
+    for i, (post_id, comments) in enumerate(comments_by_post.items()):
+        root_id = root_base + i
+        msgs.append(_FakeRoot(root_id, post_id))
+        for c in comments:
+            c.reply_to = SimpleNamespace(reply_to_msg_id=root_id, reply_to_top_id=None)
+            msgs.append(c)
+    return msgs
 
 
 def _make_serializable(obj):
@@ -46,6 +74,7 @@ def _make_serializable(obj):
 def _make_downloader(*, broadcast, linked_chat_id, comments_by_post):
     """Build a fake downloader exposing get_entity + client for comment fetch."""
     entity = SimpleNamespace(id=42, broadcast=broadcast)
+    discussion = _discussion_from_posts(comments_by_post)
 
     class _Client:
         async def __call__(self, request):
@@ -53,8 +82,8 @@ def _make_downloader(*, broadcast, linked_chat_id, comments_by_post):
                 full_chat=SimpleNamespace(linked_chat_id=linked_chat_id)
             )
 
-        def iter_messages(self, channel_entity, reply_to=None):
-            return _AsyncIter(comments_by_post.get(reply_to, []))
+        def iter_messages(self, channel_entity):
+            return _AsyncIter(list(discussion))
 
     downloader = SimpleNamespace()
     downloader.client = _Client()
@@ -259,31 +288,21 @@ def test_dedup_keeps_first_when_neither_comment_has_attachment_path():
 
 
 @pytest.mark.asyncio
-async def test_fetch_skips_outside_window_citation_records():
+async def test_fetch_skips_outside_window_citation_records(monkeypatch):
     """Outside-window citation backfills are not treated as posts for comments."""
-    seen_reply_to = []
-    entity = SimpleNamespace(id=42, broadcast=True)
+    captured = {}
 
-    class _Client:
-        async def __call__(self, request):
-            return SimpleNamespace(full_chat=SimpleNamespace(linked_chat_id=999))
+    async def fake_download(downloader, linked_id, post_ids, **kwargs):
+        captured["post_ids"] = list(post_ids)
+        return []
 
-        def iter_messages(self, channel_entity, reply_to=None):
-            seen_reply_to.append(reply_to)
-            return _AsyncIter([])
-
-    downloader = SimpleNamespace(
-        client=_Client(),
-        logger=MagicMock(),
-        _stop_requested=False,
-        _progress_sink=None,
-        make_serializable=_make_serializable,
+    monkeypatch.setattr(
+        "telegram_download_chat.cli.commands.download_post_comments", fake_download
     )
 
-    async def get_entity(_chat):
-        return entity
-
-    downloader.get_entity = get_entity
+    downloader = _make_downloader(
+        broadcast=True, linked_chat_id=999, comments_by_post={}
+    )
 
     messages = [
         {"id": 1, "message": "post"},
@@ -292,36 +311,26 @@ async def test_fetch_skips_outside_window_citation_records():
     args = _args(comments=True)
     await fetch_channel_comments(downloader, "@chan", messages, args)
 
-    # Only the in-window post (id 1) is queried; the citation backfill (9) is skipped.
-    assert seen_reply_to == [1]
+    # Only the in-window post (id 1) is mapped; the citation backfill (9) is skipped.
+    assert captured["post_ids"] == [1]
 
 
 @pytest.mark.asyncio
-async def test_fetch_skips_existing_comment_records():
+async def test_fetch_skips_existing_comment_records(monkeypatch):
     """On resume, comment records already in the list are not treated as posts."""
-    seen_reply_to = []
-    entity = SimpleNamespace(id=42, broadcast=True)
+    captured = {}
 
-    class _Client:
-        async def __call__(self, request):
-            return SimpleNamespace(full_chat=SimpleNamespace(linked_chat_id=999))
+    async def fake_download(downloader, linked_id, post_ids, **kwargs):
+        captured["post_ids"] = list(post_ids)
+        return []
 
-        def iter_messages(self, channel_entity, reply_to=None):
-            seen_reply_to.append(reply_to)
-            return _AsyncIter([])
-
-    downloader = SimpleNamespace(
-        client=_Client(),
-        logger=MagicMock(),
-        _stop_requested=False,
-        _progress_sink=None,
-        make_serializable=_make_serializable,
+    monkeypatch.setattr(
+        "telegram_download_chat.cli.commands.download_post_comments", fake_download
     )
 
-    async def get_entity(_chat):
-        return entity
-
-    downloader.get_entity = get_entity
+    downloader = _make_downloader(
+        broadcast=True, linked_chat_id=999, comments_by_post={}
+    )
 
     messages = [
         {"id": 1, "message": "post"},
@@ -330,8 +339,8 @@ async def test_fetch_skips_existing_comment_records():
     args = _args(comments=True)
     await fetch_channel_comments(downloader, "@chan", messages, args)
 
-    # Only the real post (id 1) is queried; the comment record (1001) is skipped.
-    assert seen_reply_to == [1]
+    # Only the real post (id 1) is mapped; the comment record (1001) is skipped.
+    assert captured["post_ids"] == [1]
 
 
 @pytest.mark.asyncio

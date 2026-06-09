@@ -30,19 +30,46 @@ class _AsyncIter:
         return self._items.pop(0)
 
 
+class _FakeRoot:
+    """Forwarded thread root carrying ``fwd_from.channel_post`` = parent post id."""
+
+    def __init__(self, root_id, channel_post):
+        self.id = root_id
+        self.fwd_from = SimpleNamespace(channel_post=channel_post)
+        self.reply_to = None
+        self.media = None
+
+    def to_dict(self):
+        return {"_": "Message", "id": self.id, "message": ""}
+
+
 class _FakeComment:
     """Telethon-message stand-in; ``media`` truthy marks a downloadable file."""
 
     def __init__(self, msg_id, media=None, reactions=None):
         self.id = msg_id
         self.media = media
+        self.fwd_from = None
         self._reactions = reactions
+        self.reply_to = None  # wired by _discussion_from_posts
 
     def to_dict(self):
         data = {"_": "Message", "id": self.id, "message": f"comment {self.id}"}
         if self._reactions is not None:
             data["reactions"] = self._reactions
         return data
+
+
+def _discussion_from_posts(comments_by_post, *, root_base=900000):
+    """Synthesize a flat discussion list (forwarded roots + direct replies)."""
+    msgs = []
+    for i, (post_id, comments) in enumerate(comments_by_post.items()):
+        root_id = root_base + i
+        msgs.append(_FakeRoot(root_id, post_id))
+        for c in comments:
+            c.reply_to = SimpleNamespace(reply_to_msg_id=root_id, reply_to_top_id=None)
+            msgs.append(c)
+    return msgs
 
 
 def _reactions(count):
@@ -69,11 +96,10 @@ def _make_serializable(obj):
 
 
 def _make_downloader(comments_by_post, download_results=None):
+    discussion = _discussion_from_posts(comments_by_post)
     client = MagicMock()
     client.iter_messages = MagicMock(
-        side_effect=lambda entity, reply_to=None: _AsyncIter(
-            comments_by_post.get(reply_to, [])
-        )
+        side_effect=lambda entity: _AsyncIter(list(discussion))
     )
     downloader = SimpleNamespace()
     downloader.client = client
@@ -82,6 +108,11 @@ def _make_downloader(comments_by_post, download_results=None):
     downloader._progress_sink = None
     downloader.make_serializable = _make_serializable
     downloader.download_all_media = AsyncMock(return_value=download_results or {})
+
+    async def get_entity(_linked_id):
+        return object()
+
+    downloader.get_entity = get_entity
     return downloader
 
 

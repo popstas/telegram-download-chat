@@ -3,10 +3,10 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from telethon.errors import FloodWaitError, MsgIdInvalidError
+from telethon.errors import FloodWaitError
 
 from telegram_download_chat.core.comments import (
     download_post_comments,
@@ -17,21 +17,53 @@ from telegram_download_chat.core.comments import (
 DISCUSSION_FIXTURE = Path(__file__).parent / "fixtures" / "discussion_messages.json"
 
 
-class FakeMessage:
-    """Minimal stand-in for a Telethon message with to_dict()."""
+class FakeRoot:
+    """Forwarded thread root: carries ``fwd_from.channel_post`` = parent post id."""
 
-    def __init__(self, msg_id: int, reply_to=None, reactions=None):
+    def __init__(self, root_id: int, channel_post: int, date=None):
+        self.id = root_id
+        self.fwd_from = SimpleNamespace(channel_post=channel_post)
+        self.reply_to = None
+        self.media = None
+        self.date = date
+
+    def to_dict(self):
+        return {"_": "Message", "id": self.id, "message": ""}
+
+
+class FakeComment:
+    """A discussion comment; ``reply_to`` is wired by :func:`_discussion`."""
+
+    def __init__(self, msg_id: int, reactions=None, media=None, date=None):
         self.id = msg_id
-        self._reply_to = reply_to
+        self.fwd_from = None
+        self.media = media
+        self.date = date
         self._reactions = reactions
+        self.reply_to = None  # set when placed under a thread root
 
     def to_dict(self):
         data = {"_": "Message", "id": self.id, "message": f"comment {self.id}"}
-        if self._reply_to is not None:
-            data["reply_to"] = self._reply_to
         if self._reactions is not None:
             data["reactions"] = self._reactions
         return data
+
+
+def _discussion(comments_by_post, *, root_base=900000):
+    """Build a flat discussion list: a forwarded root per post + its replies.
+
+    Each reply is a direct reply to its post's thread root
+    (``reply_to.reply_to_msg_id == root_id``), mirroring the live structure the
+    single-pass mapper consumes.
+    """
+    msgs = []
+    for i, (post_id, replies) in enumerate(comments_by_post.items()):
+        root_id = root_base + i
+        msgs.append(FakeRoot(root_id, post_id))
+        for r in replies:
+            r.reply_to = SimpleNamespace(reply_to_msg_id=root_id, reply_to_top_id=None)
+            msgs.append(r)
+    return msgs
 
 
 def _reactions(*pairs):
@@ -67,21 +99,6 @@ class _AsyncIter:
         return self._items.pop(0)
 
 
-def _make_downloader(iter_factory):
-    """Build a fake downloader whose client.iter_messages uses iter_factory."""
-    client = MagicMock()
-    client.iter_messages = MagicMock(side_effect=iter_factory)
-
-    downloader = SimpleNamespace()
-    downloader.client = client
-    downloader.logger = MagicMock()
-    downloader._stop_requested = False
-    downloader._progress_sink = None
-    # Mirror messages.MessagesMixin.make_serializable behavior.
-    downloader.make_serializable = _make_serializable
-    return downloader
-
-
 def _make_serializable(obj):
     if isinstance(obj, dict):
         return {k: _make_serializable(v) for k, v in obj.items()}
@@ -92,18 +109,43 @@ def _make_serializable(obj):
     return str(obj)
 
 
+def _make_downloader(discussion_messages=None, *, iter_factory=None):
+    """Build a fake downloader for the single-pass discussion download.
+
+    ``client.iter_messages(entity)`` (no ``reply_to``) yields the whole linked
+    discussion group in one pass. Pass ``discussion_messages`` for the simple
+    case or ``iter_factory`` to drive flood-wait/error scenarios.
+    """
+    client = MagicMock()
+    if iter_factory is None:
+        client.iter_messages = MagicMock(
+            side_effect=lambda entity: _AsyncIter(list(discussion_messages or []))
+        )
+    else:
+        client.iter_messages = MagicMock(side_effect=iter_factory)
+
+    downloader = SimpleNamespace()
+    downloader.client = client
+    downloader.logger = MagicMock()
+    downloader._stop_requested = False
+    downloader._progress_sink = None
+    # Mirror messages.MessagesMixin.make_serializable behavior.
+    downloader.make_serializable = _make_serializable
+
+    async def get_entity(_linked_id):
+        return object()
+
+    downloader.get_entity = get_entity
+    return downloader
+
+
 @pytest.mark.asyncio
 async def test_parent_id_normalization():
     post_id = 500
+    disc = _discussion({post_id: [FakeComment(1001), FakeComment(1002)]})
 
-    def factory(entity, reply_to=None):
-        assert reply_to == post_id
-        return _AsyncIter([FakeMessage(1001), FakeMessage(1002)])
-
-    downloader = _make_downloader(factory)
-    comments = await download_post_comments(
-        downloader, object(), [post_id], silent=True
-    )
+    downloader = _make_downloader(disc)
+    comments = await download_post_comments(downloader, 999, [post_id], silent=True)
 
     assert len(comments) == 2
     for c in comments:
@@ -118,15 +160,20 @@ async def test_parent_id_normalization():
 @pytest.mark.asyncio
 async def test_normalization_preserves_existing_reply_to_fields():
     post_id = 7
+    root = FakeRoot(900000, post_id)
+    comment = FakeComment(42)
+    comment.reply_to = SimpleNamespace(reply_to_msg_id=900000, reply_to_top_id=None)
+    # The serialized message carries an extra quote field that normalization
+    # must preserve while still pointing reply_to_msg_id at the channel post.
+    comment.to_dict = lambda: {
+        "_": "Message",
+        "id": 42,
+        "message": "c",
+        "reply_to": {"_": "MessageReplyHeader", "quote_text": "q"},
+    }
 
-    def factory(entity, reply_to=None):
-        msg = FakeMessage(42, reply_to={"_": "MessageReplyHeader", "quote_text": "q"})
-        return _AsyncIter([msg])
-
-    downloader = _make_downloader(factory)
-    comments = await download_post_comments(
-        downloader, object(), [post_id], silent=True
-    )
+    downloader = _make_downloader([root, comment])
+    comments = await download_post_comments(downloader, 999, [post_id], silent=True)
 
     assert comments[0]["reply_to"]["quote_text"] == "q"
     assert comments[0]["reply_to"]["reply_to_msg_id"] == post_id
@@ -134,12 +181,16 @@ async def test_normalization_preserves_existing_reply_to_fields():
 
 @pytest.mark.asyncio
 async def test_limit_caps_per_post():
-    def factory(entity, reply_to=None):
-        return _AsyncIter([FakeMessage(i) for i in range(100)])
+    disc = _discussion(
+        {
+            1: [FakeComment(i) for i in range(100)],
+            2: [FakeComment(1000 + i) for i in range(100)],
+        }
+    )
 
-    downloader = _make_downloader(factory)
+    downloader = _make_downloader(disc)
     comments = await download_post_comments(
-        downloader, object(), [1, 2], silent=True, limit=10
+        downloader, 999, [1, 2], silent=True, limit=10
     )
 
     # Two posts, capped at 10 each.
@@ -148,19 +199,20 @@ async def test_limit_caps_per_post():
 
 @pytest.mark.asyncio
 async def test_min_reactions_filters_low_reaction_comments():
-    def factory(entity, reply_to=None):
-        return _AsyncIter(
-            [
-                FakeMessage(1, reactions=_reactions(("👍", 5))),  # total 5 -> keep
-                FakeMessage(2, reactions=_reactions(("👍", 1), ("❤️", 1))),  # 2 -> keep
-                FakeMessage(3, reactions=_reactions(("👍", 1))),  # total 1 -> drop
-                FakeMessage(4),  # no reactions -> drop
+    disc = _discussion(
+        {
+            10: [
+                FakeComment(1, reactions=_reactions(("👍", 5))),  # total 5 -> keep
+                FakeComment(2, reactions=_reactions(("👍", 1), ("❤️", 1))),  # 2 -> keep
+                FakeComment(3, reactions=_reactions(("👍", 1))),  # total 1 -> drop
+                FakeComment(4),  # no reactions -> drop
             ]
-        )
+        }
+    )
 
-    downloader = _make_downloader(factory)
+    downloader = _make_downloader(disc)
     comments = await download_post_comments(
-        downloader, object(), [10], silent=True, min_reactions=2
+        downloader, 999, [10], silent=True, min_reactions=2
     )
 
     assert {c["id"] for c in comments} == {1, 2}
@@ -168,14 +220,13 @@ async def test_min_reactions_filters_low_reaction_comments():
 
 @pytest.mark.asyncio
 async def test_min_reactions_zero_keeps_all():
-    def factory(entity, reply_to=None):
-        return _AsyncIter(
-            [FakeMessage(1, reactions=_reactions(("👍", 1))), FakeMessage(2)]
-        )
+    disc = _discussion(
+        {10: [FakeComment(1, reactions=_reactions(("👍", 1))), FakeComment(2)]}
+    )
 
-    downloader = _make_downloader(factory)
+    downloader = _make_downloader(disc)
     comments = await download_post_comments(
-        downloader, object(), [10], silent=True, min_reactions=0
+        downloader, 999, [10], silent=True, min_reactions=0
     )
 
     assert len(comments) == 2
@@ -184,28 +235,25 @@ async def test_min_reactions_zero_keeps_all():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("limit", [None, 0])
 async def test_limit_none_or_zero_returns_all(limit):
-    def factory(entity, reply_to=None):
-        return _AsyncIter([FakeMessage(i) for i in range(25)])
+    disc = _discussion({99: [FakeComment(i) for i in range(25)]})
 
-    downloader = _make_downloader(factory)
+    downloader = _make_downloader(disc)
     comments = await download_post_comments(
-        downloader, object(), [99], silent=True, limit=limit
+        downloader, 999, [99], silent=True, limit=limit
     )
 
     assert len(comments) == 25
 
 
 @pytest.mark.asyncio
-async def test_comments_disabled_post_is_skipped():
-    def factory(entity, reply_to=None):
-        if reply_to == 1:
-            return _AsyncIter(raises=MsgIdInvalidError(request=None))
-        return _AsyncIter([FakeMessage(10), FakeMessage(11)])
+async def test_post_with_no_replies_yields_no_comments():
+    # Post 1 has a forwarded thread root but no comments; post 2 has two. The
+    # single pass simply maps nothing for post 1 (no per-post request at all).
+    disc = _discussion({1: [], 2: [FakeComment(10), FakeComment(11)]})
 
-    downloader = _make_downloader(factory)
-    comments = await download_post_comments(downloader, object(), [1, 2], silent=True)
+    downloader = _make_downloader(disc)
+    comments = await download_post_comments(downloader, 999, [1, 2], silent=True)
 
-    # Post 1 raised MsgIdInvalidError and was skipped; post 2 yielded 2 comments.
     assert len(comments) == 2
     assert all(c["comment_of"] == 2 for c in comments)
 
@@ -222,75 +270,69 @@ async def test_flood_wait_retries_without_duplicating(monkeypatch):
     )
 
     calls = {"n": 0}
+    disc = _discussion({500: [FakeComment(1), FakeComment(2), FakeComment(3)]})
 
-    def factory(entity, reply_to=None):
+    def factory(entity):
         calls["n"] += 1
         if calls["n"] == 1:
             err = FloodWaitError(request=None)
             err.seconds = 0
             return _AsyncIter(raises=err)
-        return _AsyncIter([FakeMessage(1), FakeMessage(2), FakeMessage(3)])
+        return _AsyncIter(list(disc))
 
-    downloader = _make_downloader(factory)
-    comments = await download_post_comments(downloader, object(), [500], silent=True)
+    downloader = _make_downloader(iter_factory=factory)
+    comments = await download_post_comments(downloader, 999, [500], silent=True)
 
-    # First attempt floods, the retry re-fetches from scratch: exactly 3, no dups.
+    # First attempt floods, the retry re-pages from scratch: exactly 3, no dups.
     assert calls["n"] == 2
     assert len(comments) == 3
     assert sleeps  # slept once before retry
 
 
 @pytest.mark.asyncio
-async def test_generic_error_skips_post_and_continues():
-    def factory(entity, reply_to=None):
-        if reply_to == 1:
-            return _AsyncIter(raises=RuntimeError("network boom"))
-        return _AsyncIter([FakeMessage(10)])
+async def test_generic_error_returns_empty_and_logs():
+    def factory(entity):
+        return _AsyncIter(raises=RuntimeError("network boom"))
 
-    downloader = _make_downloader(factory)
-    comments = await download_post_comments(downloader, object(), [1, 2], silent=False)
+    downloader = _make_downloader(iter_factory=factory)
+    comments = await download_post_comments(downloader, 999, [1, 2], silent=False)
 
-    # Post 1 errored generically and was skipped; post 2 still fetched.
-    assert len(comments) == 1
-    assert comments[0]["comment_of"] == 2
+    # The discussion download failed; comment fetch is best-effort, so it logs a
+    # warning and returns no comments instead of aborting the run.
+    assert comments == []
     assert downloader.logger.warning.called
 
 
 @pytest.mark.asyncio
-async def test_stop_check_breaks_between_posts():
-    calls = {"n": 0}
-
-    def factory(entity, reply_to=None):
-        calls["n"] += 1
-        return _AsyncIter([FakeMessage(1)])
-
-    downloader = _make_downloader(factory)
+async def test_stop_check_breaks_discussion_pass():
+    disc = _discussion({1: [FakeComment(1), FakeComment(2), FakeComment(3)]})
+    seen = {"n": 0}
 
     def stop_after_first():
-        return calls["n"] >= 1
+        seen["n"] += 1
+        return seen["n"] >= 2  # stop once the first message has been collected
 
+    downloader = _make_downloader(disc)
     comments = await download_post_comments(
-        downloader, object(), [1, 2, 3], silent=True, stop_check=stop_after_first
+        downloader, 999, [1], silent=True, stop_check=stop_after_first
     )
 
-    # First post fetched (1 comment); stop_check then halts before post 2.
-    assert calls["n"] == 1
-    assert len(comments) == 1
+    # The pass stopped early, so not all messages were collected.
+    assert len(comments) < 3
 
 
 @pytest.mark.asyncio
-async def test_progress_events_emitted_per_post():
+async def test_progress_event_emitted_once_for_the_pass():
     events = []
+    disc = _discussion({10: [FakeComment(1)], 20: [FakeComment(2)]})
 
-    def factory(entity, reply_to=None):
-        return _AsyncIter([FakeMessage(1)])
-
-    downloader = _make_downloader(factory)
+    downloader = _make_downloader(disc)
     downloader._progress_sink = events.append
 
-    await download_post_comments(downloader, object(), [10, 20], silent=True)
+    await download_post_comments(downloader, 999, [10, 20], silent=True)
 
-    assert [e["type"] for e in events] == ["comments", "comments"]
+    # A single discussion pass emits one summary event covering all posts.
+    assert [e["type"] for e in events] == ["comments"]
     assert events[-1] == {
         "type": "comments",
         "posts_done": 2,
@@ -454,3 +496,43 @@ def test_map_discussion_forwarded_roots_not_emitted():
     assert 9120 not in disc_ids
     # The three in-window comments are exactly 9240, 9131, 9241.
     assert disc_ids == {9240, 9131, 9241}
+
+
+@pytest.mark.asyncio
+async def test_download_post_comments_single_pass_over_fixtures(tmp_path):
+    """The full single-pass path (fetch_discussion_messages -> map -> media) over
+    the Task B1 fixtures yields the same comments + ``attachment_path`` the old
+    per-post path produced for an equivalent input."""
+    msgs = _load_discussion_messages()
+    downloader = _make_downloader(msgs)
+    downloader.download_all_media = AsyncMock(
+        return_value={
+            "9240": "documents/9240_post5477.pdf",
+            "9131": "documents/9131_post5445.pdf",
+        }
+    )
+    attachments = tmp_path / "attachments"
+
+    comments = await download_post_comments(
+        downloader,
+        1619992925,
+        [5477, 5445],
+        download_media=True,
+        attachments_dir=attachments,
+        silent=True,
+    )
+
+    by_disc = {c["discussion_msg_id"]: c for c in comments}
+    # Direct replies map to their parent post and carry the downloaded media link.
+    assert by_disc[9240]["comment_of"] == 5477
+    assert by_disc[9240]["attachment_path"] == "documents/9240_post5477.pdf"
+    assert by_disc[9131]["comment_of"] == 5445
+    assert by_disc[9131]["attachment_path"] == "documents/9131_post5445.pdf"
+    # Nested reply mapped via reply_to_top_id; out-of-window + roots excluded.
+    assert by_disc[9241]["comment_of"] == 5477
+    assert 9300 not in by_disc
+    assert 9230 not in by_disc and 9120 not in by_disc
+    # Only the two media-bearing, in-window comments were sent to media download.
+    raw_arg, dir_arg = downloader.download_all_media.await_args.args
+    assert {m["id"] for m in raw_arg} == {9240, 9131}
+    assert dir_arg == attachments

@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from telethon.tl.types import Channel, Chat, User
 
@@ -15,6 +15,7 @@ from telegram_download_chat.core import TelegramChatDownloader
 from telegram_download_chat.core.citations import fetch_cited_messages
 from telegram_download_chat.core.comments import (
     clear_comments_checkpoint,
+    coerce_datetime,
     download_post_comments,
     get_comments_checkpoint_path,
     get_linked_discussion,
@@ -337,6 +338,25 @@ async def save_txt_with_status(
     )
 
 
+def _earliest_post_date(messages: List[Any], post_ids: Sequence[Any]) -> Optional[Any]:
+    """Return the earliest parseable ``date`` among the given in-window posts.
+
+    Used as the date floor for the single discussion download. Returns ``None``
+    when no post carries a parseable date (then the whole group is paged).
+    """
+    wanted = {int(pid) for pid in post_ids if pid is not None}
+    dates = []
+    for m in messages:
+        mid = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
+        if mid is None or int(mid) not in wanted:
+            continue
+        raw = m.get("date") if isinstance(m, dict) else getattr(m, "date", None)
+        parsed = coerce_datetime(raw)
+        if parsed is not None:
+            dates.append(parsed)
+    return min(dates) if dates else None
+
+
 async def fetch_channel_comments(
     downloader: TelegramChatDownloader,
     chat_identifier: Any,
@@ -403,7 +423,6 @@ async def fetch_channel_comments(
     done_posts: set = (
         load_comments_checkpoint(checkpoint_path) if checkpoint_path else set()
     )
-    on_post_done = None
     if done_posts:
         skipped = len(done_posts & set(post_ids))
         if skipped:
@@ -421,9 +440,6 @@ async def fetch_channel_comments(
         # then make a resume skip posts whose comments/media were never written,
         # losing them permanently. Deferring the write keeps the checkpoint and
         # the saved output in lockstep.
-        def on_post_done(post_id: int) -> None:  # noqa: F811 - conditional def
-            done_posts.add(post_id)
-
         downloader._comments_checkpoint_state = {
             "path": checkpoint_path,
             "done": done_posts,
@@ -434,18 +450,32 @@ async def fetch_channel_comments(
         # caller clears the checkpoint after re-saving the existing output.
         return []
 
+    # Date floor for the single discussion download: a comment is never older
+    # than the post it replies to, so the earliest in-window post date bounds
+    # the pass (optimization only — mapping still filters by post id).
+    min_date = _earliest_post_date(messages, post_ids)
+
     downloader.logger.info(f"Fetching comments for {len(post_ids)} post(s)...")
     comments = await download_post_comments(
         downloader,
-        entity,
+        linked,
         post_ids,
+        min_date=min_date,
         limit=args.comments_limit,
         min_reactions=getattr(args, "comments_min_reactions", 0) or 0,
         download_media=bool(getattr(args, "media", False)),
         attachments_dir=attachments_dir,
-        on_post_done=on_post_done,
     )
     downloader.logger.info(f"Fetched {len(comments)} comment(s)")
+
+    # The single-pass discussion download has no per-post granularity, so on a
+    # clean return every requested post has been scanned. A stop mid-download
+    # returns the partial result with ``_stop_requested`` set; don't mark posts
+    # done in that case so the next run re-scans them.
+    if checkpoint_path is not None and not getattr(
+        downloader, "_stop_requested", False
+    ):
+        done_posts.update(int(pid) for pid in post_ids if pid is not None)
 
     return comments
 

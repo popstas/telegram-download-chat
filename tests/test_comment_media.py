@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from telegram_download_chat.cli.commands import _dedup_messages
 from telegram_download_chat.core.comments import download_post_comments
 from telegram_download_chat.core.render import RenderMixin
 
@@ -299,6 +300,45 @@ def test_html_renders_comment_media_inline(tmp_path):
     html = out.read_text(encoding="utf-8")
 
     # The comment image renders inside the collapsible comments block.
+    assert 'class="comments"' in html
+    assert 'class="media-img"' in html
+    assert "images/1001_pic.jpg" in html
+
+
+def test_resume_dedup_then_render_surfaces_comment_media_link(tmp_path):
+    """End-to-end Part A: a stale comment (no attachment_path, as saved by an
+    earlier run) followed by a fresh re-fetch carrying attachment_path must
+    dedup to the copy WITH the path, so render.py emits the media link on resume.
+    """
+    post = {
+        "id": 1,
+        "date": "2026-01-01T10:00:00+00:00",
+        "from_id": {"channel_id": 42},
+        "user_display_name": "Channel",
+        "message": "Original post",
+    }
+    stale_comment = {
+        "id": 1001,
+        "comment_of": 1,
+        "reply_to_msg_id": 1,
+        "reply_to": {"reply_to_msg_id": 1},
+        "date": "2026-01-01T10:05:00+00:00",
+        "from_id": {"user_id": 7},
+        "user_display_name": "Commenter",
+        "message": "nice pic",
+    }
+    fresh_comment = {**stale_comment, "attachment_path": "images/1001_pic.jpg"}
+
+    # Resume merge order: existing (stale) first, fresh second.
+    deduped = _dedup_messages([post, stale_comment, fresh_comment])
+    comment_records = [m for m in deduped if m.get("comment_of") is not None]
+    assert len(comment_records) == 1
+    assert comment_records[0]["attachment_path"] == "images/1001_pic.jpg"
+
+    out = tmp_path / "out.html"
+    RenderMixin().render_html(deduped, out, chat_title="t")
+    html = out.read_text(encoding="utf-8")
+
     assert 'class="comments"' in html
     assert 'class="media-img"' in html
     assert "images/1001_pic.jpg" in html

@@ -66,9 +66,9 @@ Two related improvements to `--comments`, driven by issue #80 (ksandigo) and ver
 - [x] Run `pytest tests/test_comment_media.py tests/test_comments_command.py tests/test_comments_resume.py` — PASS (no regression).
 
 ### Task A3: Verify Part A acceptance
-- [ ] Confirm a stale-then-fresh comment list yields a record with `attachment_path` that `render.py` renders as a link (cross-check `test_html_renders_comment_media_inline`).
-- [ ] Run full `pytest`; run `black src/ tests/`, `isort src/ tests/`, `mypy src/` and fix any issues from the change.
-- [ ] Confirm the four original dedup tests are unmodified and passing.
+- [x] Confirm a stale-then-fresh comment list yields a record with `attachment_path` that `render.py` renders as a link (cross-check `test_html_renders_comment_media_inline`). Added `test_resume_dedup_then_render_surfaces_comment_media_link` in `tests/test_comment_media.py`: resume merge order (stale, fresh) → `_dedup_messages` → `render_html` emits the `media-img` link.
+- [x] Run full `pytest`; run `black src/ tests/`, `isort src/ tests/`, `mypy src/` and fix any issues from the change. Full suite: 444 passed, 9 skipped. black/isort clean on the changed file; mypy errors are all pre-existing (telethon stubs, unrelated files) — none from this change.
+- [x] Confirm the four original dedup tests are unmodified and passing. `test_comments_command.py:171-216` (collide / collapse / citation-replace / citation-keep / real-post-first) unchanged and green.
 
 ### Part B — single discussion-group download mapped to posts
 

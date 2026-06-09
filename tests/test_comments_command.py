@@ -216,6 +216,48 @@ def test_dedup_real_post_first_is_not_replaced_by_later_citation():
     assert "cited_outside_window" not in out[0]
 
 
+def test_dedup_fresh_comment_attachment_path_replaces_stale():
+    # Resume bug: an existing comment was saved without attachment_path (pre-v0.13
+    # export, or a run where the media download failed). A fresh re-fetch carries
+    # the real attachment_path; it must replace the stale same-key copy so the
+    # HTML link finally appears on resume.
+    stale = {"id": 9240, "comment_of": 5477, "message": "c"}
+    fresh = {
+        "id": 9240,
+        "comment_of": 5477,
+        "message": "c",
+        "attachment_path": "documents/9240_x.pdf",
+    }
+    out = _dedup_messages([stale, fresh])
+    assert len(out) == 1
+    assert out[0]["attachment_path"] == "documents/9240_x.pdf"
+
+
+def test_dedup_does_not_demote_comment_with_attachment_path():
+    # Order-independence: a comment that already has attachment_path is never
+    # demoted by a later same-key copy lacking one.
+    with_path = {
+        "id": 9240,
+        "comment_of": 5477,
+        "message": "c",
+        "attachment_path": "documents/9240_x.pdf",
+    }
+    without_path = {"id": 9240, "comment_of": 5477, "message": "c"}
+    out = _dedup_messages([with_path, without_path])
+    assert len(out) == 1
+    assert out[0]["attachment_path"] == "documents/9240_x.pdf"
+
+
+def test_dedup_keeps_first_when_neither_comment_has_attachment_path():
+    # Unchanged no-media collapse behavior: two same-key comments without an
+    # attachment_path dedupe to the first copy.
+    c1 = {"id": 9240, "comment_of": 5477, "message": "first"}
+    c2 = {"id": 9240, "comment_of": 5477, "message": "second"}
+    out = _dedup_messages([c1, c2])
+    assert len(out) == 1
+    assert out[0]["message"] == "first"
+
+
 @pytest.mark.asyncio
 async def test_fetch_skips_outside_window_citation_records():
     """Outside-window citation backfills are not treated as posts for comments."""

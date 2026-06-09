@@ -53,10 +53,10 @@ Two related improvements to `--comments`, driven by issue #80 (ksandigo) and ver
 ### Part A — fix comment media HTML link on resume
 
 ### Task A1: Failing regression tests for resume dedup dropping `attachment_path`
-- [ ] In `tests/test_comments_command.py`, add `test_dedup_fresh_comment_attachment_path_replaces_stale()`: stale `{"id": 9240, "comment_of": 5477, "message": "c"}` (no `attachment_path`) then fresh same-key with `attachment_path="documents/9240_x.pdf"`; assert `_dedup_messages([stale, fresh])` yields one record with that `attachment_path`.
-- [ ] Add `test_dedup_does_not_demote_comment_with_attachment_path()`: order `[with_path, without_path]` keeps the path (order-independence, never demote).
-- [ ] Add `test_dedup_keeps_first_when_neither_comment_has_attachment_path()`: guards the unchanged no-media collapse behavior.
-- [ ] Run `pytest tests/test_comments_command.py -k dedup` — first two new tests FAIL (red), third PASSES, all four pre-existing dedup tests still PASS.
+- [x] In `tests/test_comments_command.py`, add `test_dedup_fresh_comment_attachment_path_replaces_stale()`: stale `{"id": 9240, "comment_of": 5477, "message": "c"}` (no `attachment_path`) then fresh same-key with `attachment_path="documents/9240_x.pdf"`; assert `_dedup_messages([stale, fresh])` yields one record with that `attachment_path`.
+- [x] Add `test_dedup_does_not_demote_comment_with_attachment_path()`: order `[with_path, without_path]` keeps the path (order-independence, never demote).
+- [x] Add `test_dedup_keeps_first_when_neither_comment_has_attachment_path()`: guards the unchanged no-media collapse behavior.
+- [x] Run `pytest tests/test_comments_command.py -k dedup` — bug-demonstrating test FAILS (red); the demote test PASSES (dedup's keep-first already protects the with-path copy at order `[with_path, without_path]`, so it's green from the start) and the keep-first test PASSES, all four pre-existing dedup tests still PASS.
 
 ### Task A2: Implement the attachment-aware replace rule in `_dedup_messages`
 - [ ] Add a `_has_attachment(m)` helper (dict/attr safe, mirroring `_is_citation`) → bool of non-empty `attachment_path`.

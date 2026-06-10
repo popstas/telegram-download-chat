@@ -7,19 +7,16 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from telethon.tl.types import Channel, Chat, User
 
 from telegram_download_chat.core import TelegramChatDownloader
 from telegram_download_chat.core.citations import fetch_cited_messages
 from telegram_download_chat.core.comments import (
-    clear_comments_checkpoint,
+    coerce_datetime,
     download_post_comments,
-    get_comments_checkpoint_path,
     get_linked_discussion,
-    load_comments_checkpoint,
-    save_comments_checkpoint,
 )
 from telegram_download_chat.core.topics import (
     GENERAL_KEY,
@@ -48,6 +45,14 @@ def _dedup_messages(messages: List[Any]) -> List[Any]:
     shadowed by the first copy). Otherwise the stale marker would persist,
     permanently excluding that id from the ``--limit`` resume counter and making
     a widened run think one more real post is always missing.
+
+    For comment records, a freshly-fetched copy carrying ``attachment_path``
+    replaces a same-key copy that lacks one (e.g. a stale ``messages.json``
+    comment saved before its media was downloaded). This mirrors the
+    citation-replace precedent so resume runs finally surface the comment's
+    media link in the HTML/JSON output. It never demotes: a kept comment that
+    already has a path is left in place, and two comments that both have (or
+    both lack) a path keep the first.
     """
 
     def _is_citation(m: Any) -> bool:
@@ -55,6 +60,13 @@ def _dedup_messages(messages: List[Any]) -> List[Any]:
             m.get("cited_outside_window")
             if isinstance(m, dict)
             else getattr(m, "cited_outside_window", False)
+        )
+
+    def _has_attachment(m: Any) -> bool:
+        return bool(
+            m.get("attachment_path")
+            if isinstance(m, dict)
+            else getattr(m, "attachment_path", None)
         )
 
     seen: Dict[Any, int] = {}
@@ -75,6 +87,14 @@ def _dedup_messages(messages: List[Any]) -> List[Any]:
             deduped.append(m)
         elif _is_citation(deduped[seen[key]]) and not _is_citation(m):
             # Replace a previously kept citation marker with the real post.
+            deduped[seen[key]] = m
+        elif (
+            comment_of is not None
+            and not _has_attachment(deduped[seen[key]])
+            and _has_attachment(m)
+        ):
+            # Resume: a re-fetched comment carrying attachment_path replaces a
+            # stale same-key comment that lacks one, so its media link appears.
             deduped[seen[key]] = m
     return deduped
 
@@ -314,13 +334,31 @@ async def save_txt_with_status(
     )
 
 
+def _earliest_post_date(messages: List[Any], post_ids: Sequence[Any]) -> Optional[Any]:
+    """Return the earliest parseable ``date`` among the given in-window posts.
+
+    Used as the date floor for the single discussion download. Returns ``None``
+    when no post carries a parseable date (then the whole group is paged).
+    """
+    wanted = {int(pid) for pid in post_ids if pid is not None}
+    dates = []
+    for m in messages:
+        mid = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
+        if mid is None or int(mid) not in wanted:
+            continue
+        raw = m.get("date") if isinstance(m, dict) else getattr(m, "date", None)
+        parsed = coerce_datetime(raw)
+        if parsed is not None:
+            dates.append(parsed)
+    return min(dates) if dates else None
+
+
 async def fetch_channel_comments(
     downloader: TelegramChatDownloader,
     chat_identifier: Any,
     messages: List[Any],
     args: CLIOptions,
     attachments_dir: Optional[Path] = None,
-    checkpoint_path: Optional[Path] = None,
 ) -> List[Any]:
     """Fetch comments for downloaded channel posts when ``--comments`` is set.
 
@@ -332,14 +370,12 @@ async def fetch_channel_comments(
     ``attachments/`` directory so comment attachments are downloaded there and
     each comment dict gets an ``attachment_path`` for JSON/HTML output.
 
-    When ``checkpoint_path`` is set, posts whose comments were already fetched in
-    a prior interrupted run (recorded in that sidecar file) are skipped. Scanned
-    posts are tracked in memory and stashed on ``downloader`` as
-    ``_comments_checkpoint_state``; the actual on-disk write/clear is deferred to
-    ``_persist_comments_checkpoint`` after the comments are durably saved, so the
-    checkpoint can never get ahead of the saved output (a stop keeps the scanned
-    set; a clean finish clears it so a later incremental run re-scans for new
-    comments — mirroring the partial-download file lifecycle).
+    Comments are fetched in a single date-bounded pass over the linked discussion
+    group (see :func:`download_post_comments`). There is no per-post checkpoint:
+    an interrupted run simply re-downloads the discussion group on restart and the
+    ``(comment_of, id)`` dedup (:func:`_dedup_messages`) keeps the re-mapped
+    comments correct without duplicates — so resume is handled by the standard
+    output-merge path, not a sidecar file.
     """
     if not getattr(args, "comments", False):
         return []
@@ -376,76 +412,32 @@ async def fetch_channel_comments(
     if not post_ids:
         return []
 
-    # Skip posts already scanned in a prior interrupted run.
-    done_posts: set = (
-        load_comments_checkpoint(checkpoint_path) if checkpoint_path else set()
-    )
-    on_post_done = None
-    if done_posts:
-        skipped = len(done_posts & set(post_ids))
-        if skipped:
-            downloader.logger.info(
-                f"Resuming comments: skipping {skipped} post(s) already fetched"
-            )
-        post_ids = [pid for pid in post_ids if pid not in done_posts]
-
-    if checkpoint_path is not None:
-        # Accumulate scanned posts in memory only. The checkpoint is written to
-        # disk by the caller *after* the comments are durably saved (see
-        # ``_persist_comments_checkpoint``). Writing it here — before the
-        # comments/media are persisted at the end of the run — would let the
-        # checkpoint get ahead of the saved output: a hard kill in between would
-        # then make a resume skip posts whose comments/media were never written,
-        # losing them permanently. Deferring the write keeps the checkpoint and
-        # the saved output in lockstep.
-        def on_post_done(post_id: int) -> None:  # noqa: F811 - conditional def
-            done_posts.add(post_id)
-
-        downloader._comments_checkpoint_state = {
-            "path": checkpoint_path,
-            "done": done_posts,
-        }
-
-    if not post_ids:
-        # Everything was already fetched; nothing new to fetch or save. The
-        # caller clears the checkpoint after re-saving the existing output.
-        return []
+    # Date floor for the single discussion download: a comment is never older
+    # than the post it replies to, so the earliest in-window post date bounds
+    # the pass (optimization only — mapping still filters by post id).
+    # Subtract a small margin so the earliest post's *forwarded root* (a separate
+    # discussion message whose date can sit at/just-below the post date) is still
+    # paged: in newest-first order comments arrive before their root, so a root
+    # cut off by an exact floor would silently orphan its already-collected
+    # comments. The post-id filter keeps the looser floor correct.
+    min_date = _earliest_post_date(messages, post_ids)
+    if min_date is not None:
+        min_date = min_date - timedelta(minutes=5)
 
     downloader.logger.info(f"Fetching comments for {len(post_ids)} post(s)...")
     comments = await download_post_comments(
         downloader,
-        entity,
+        linked,
         post_ids,
+        min_date=min_date,
         limit=args.comments_limit,
         min_reactions=getattr(args, "comments_min_reactions", 0) or 0,
         download_media=bool(getattr(args, "media", False)),
         attachments_dir=attachments_dir,
-        on_post_done=on_post_done,
     )
     downloader.logger.info(f"Fetched {len(comments)} comment(s)")
 
     return comments
-
-
-def _persist_comments_checkpoint(downloader: TelegramChatDownloader) -> None:
-    """Persist or clear the comments-resume checkpoint after a durable save.
-
-    Invoked only once the chat's ``messages.json`` has been written, so the
-    checkpoint can never get ahead of the saved comments. An interrupted run
-    keeps the scanned-post set (so the next run skips those posts); a clean
-    finish clears it (so a later incremental run re-scans every post for newly
-    added comments). A no-op when no comment fetch ran this chat.
-    """
-    state = getattr(downloader, "_comments_checkpoint_state", None)
-    if not state:
-        return
-    path = state.get("path")
-    if path is not None:
-        if getattr(downloader, "_stop_requested", False):
-            save_comments_checkpoint(path, state.get("done", set()))
-        else:
-            clear_comments_checkpoint(path)
-    downloader._comments_checkpoint_state = None
 
 
 async def fetch_outside_window_citations(
@@ -531,8 +523,6 @@ async def process_chat_download(
         part_path = downloader.get_temp_file_path(output_path)
         if part_path.exists():
             part_path.unlink()
-        # Fresh start: drop any stale comments-resume checkpoint too.
-        clear_comments_checkpoint(get_comments_checkpoint_path(output_path))
 
     download_kwargs = {
         "chat_id": chat_identifier,
@@ -582,9 +572,6 @@ async def process_chat_download(
     if existing_messages:
         messages = _dedup_messages(existing_messages + messages)
 
-    # Reset any checkpoint intent left over from a previous chat (folder mode
-    # reuses the downloader); fetch_channel_comments sets it when it runs.
-    downloader._comments_checkpoint_state = None
     if args.comments and messages:
         # Under --media, download comment attachments into the same chat-level
         # attachments/ dir the post media uses (split-by-date files share one
@@ -598,7 +585,6 @@ async def process_chat_download(
             messages,
             args,
             attachments_dir=comments_attachments_dir,
-            checkpoint_path=get_comments_checkpoint_path(Path(output_file)),
         )
         if comments:
             # Dedup so a resumed run doesn't accumulate comments already saved
@@ -818,10 +804,6 @@ async def process_chat_download(
     except Exception as e:
         downloader.logger.exception(f"Failed to save messages: {e}")
         return {"chat_id": chat_identifier, "error": str(e)}
-
-    # The comments are now durably saved above, so it is safe to advance the
-    # comments-resume checkpoint (or clear it on a clean finish).
-    _persist_comments_checkpoint(downloader)
 
     entity = await downloader.get_entity(chat_identifier)
     chat_type = "unknown"

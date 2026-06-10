@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from telegram_download_chat.cli.commands import _dedup_messages
 from telegram_download_chat.core.comments import download_post_comments
 from telegram_download_chat.core.render import RenderMixin
 
@@ -29,19 +30,46 @@ class _AsyncIter:
         return self._items.pop(0)
 
 
+class _FakeRoot:
+    """Forwarded thread root carrying ``fwd_from.channel_post`` = parent post id."""
+
+    def __init__(self, root_id, channel_post):
+        self.id = root_id
+        self.fwd_from = SimpleNamespace(channel_post=channel_post)
+        self.reply_to = None
+        self.media = None
+
+    def to_dict(self):
+        return {"_": "Message", "id": self.id, "message": ""}
+
+
 class _FakeComment:
     """Telethon-message stand-in; ``media`` truthy marks a downloadable file."""
 
     def __init__(self, msg_id, media=None, reactions=None):
         self.id = msg_id
         self.media = media
+        self.fwd_from = None
         self._reactions = reactions
+        self.reply_to = None  # wired by _discussion_from_posts
 
     def to_dict(self):
         data = {"_": "Message", "id": self.id, "message": f"comment {self.id}"}
         if self._reactions is not None:
             data["reactions"] = self._reactions
         return data
+
+
+def _discussion_from_posts(comments_by_post, *, root_base=900000):
+    """Synthesize a flat discussion list (forwarded roots + direct replies)."""
+    msgs = []
+    for i, (post_id, comments) in enumerate(comments_by_post.items()):
+        root_id = root_base + i
+        msgs.append(_FakeRoot(root_id, post_id))
+        for c in comments:
+            c.reply_to = SimpleNamespace(reply_to_msg_id=root_id, reply_to_top_id=None)
+            msgs.append(c)
+    return msgs
 
 
 def _reactions(count):
@@ -68,11 +96,10 @@ def _make_serializable(obj):
 
 
 def _make_downloader(comments_by_post, download_results=None):
+    discussion = _discussion_from_posts(comments_by_post)
     client = MagicMock()
     client.iter_messages = MagicMock(
-        side_effect=lambda entity, reply_to=None: _AsyncIter(
-            comments_by_post.get(reply_to, [])
-        )
+        side_effect=lambda entity: _AsyncIter(list(discussion))
     )
     downloader = SimpleNamespace()
     downloader.client = client
@@ -81,6 +108,11 @@ def _make_downloader(comments_by_post, download_results=None):
     downloader._progress_sink = None
     downloader.make_serializable = _make_serializable
     downloader.download_all_media = AsyncMock(return_value=download_results or {})
+
+    async def get_entity(_linked_id):
+        return object()
+
+    downloader.get_entity = get_entity
     return downloader
 
 
@@ -299,6 +331,45 @@ def test_html_renders_comment_media_inline(tmp_path):
     html = out.read_text(encoding="utf-8")
 
     # The comment image renders inside the collapsible comments block.
+    assert 'class="comments"' in html
+    assert 'class="media-img"' in html
+    assert "images/1001_pic.jpg" in html
+
+
+def test_resume_dedup_then_render_surfaces_comment_media_link(tmp_path):
+    """End-to-end Part A: a stale comment (no attachment_path, as saved by an
+    earlier run) followed by a fresh re-fetch carrying attachment_path must
+    dedup to the copy WITH the path, so render.py emits the media link on resume.
+    """
+    post = {
+        "id": 1,
+        "date": "2026-01-01T10:00:00+00:00",
+        "from_id": {"channel_id": 42},
+        "user_display_name": "Channel",
+        "message": "Original post",
+    }
+    stale_comment = {
+        "id": 1001,
+        "comment_of": 1,
+        "reply_to_msg_id": 1,
+        "reply_to": {"reply_to_msg_id": 1},
+        "date": "2026-01-01T10:05:00+00:00",
+        "from_id": {"user_id": 7},
+        "user_display_name": "Commenter",
+        "message": "nice pic",
+    }
+    fresh_comment = {**stale_comment, "attachment_path": "images/1001_pic.jpg"}
+
+    # Resume merge order: existing (stale) first, fresh second.
+    deduped = _dedup_messages([post, stale_comment, fresh_comment])
+    comment_records = [m for m in deduped if m.get("comment_of") is not None]
+    assert len(comment_records) == 1
+    assert comment_records[0]["attachment_path"] == "images/1001_pic.jpg"
+
+    out = tmp_path / "out.html"
+    RenderMixin().render_html(deduped, out, chat_title="t")
+    html = out.read_text(encoding="utf-8")
+
     assert 'class="comments"' in html
     assert 'class="media-img"' in html
     assert "images/1001_pic.jpg" in html

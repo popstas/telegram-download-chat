@@ -1,0 +1,206 @@
+[
+  {
+    "_": "Message",
+    "id": 9230,
+    "peer_id": {"_": "PeerChannel", "channel_id": 1619992925},
+    "date": "2025-05-01 10:00:00+00:00",
+    "message": "",
+    "out": false,
+    "post": false,
+    "from_id": {"_": "PeerChannel", "channel_id": 1001234567},
+    "fwd_from": {
+      "_": "MessageFwdHeader",
+      "imported": false,
+      "saved_out": false,
+      "from_id": {"_": "PeerChannel", "channel_id": 1001234567},
+      "from_name": null,
+      "date": "2025-05-01 10:00:00+00:00",
+      "channel_post": 5477,
+      "post_author": null,
+      "saved_from_peer": {"_": "PeerChannel", "channel_id": 1001234567},
+      "saved_from_msg_id": 5477,
+      "saved_from_id": null,
+      "saved_from_name": null,
+      "saved_date": null,
+      "psa_type": null
+    },
+    "reply_to": null,
+    "media": null,
+    "reactions": null,
+    "grouped_id": null
+  },
+  {
+    "_": "Message",
+    "id": 9120,
+    "peer_id": {"_": "PeerChannel", "channel_id": 1619992925},
+    "date": "2025-04-20 09:00:00+00:00",
+    "message": "",
+    "out": false,
+    "post": false,
+    "from_id": {"_": "PeerChannel", "channel_id": 1001234567},
+    "fwd_from": {
+      "_": "MessageFwdHeader",
+      "imported": false,
+      "saved_out": false,
+      "from_id": {"_": "PeerChannel", "channel_id": 1001234567},
+      "from_name": null,
+      "date": "2025-04-20 09:00:00+00:00",
+      "channel_post": 5445,
+      "post_author": null,
+      "saved_from_peer": {"_": "PeerChannel", "channel_id": 1001234567},
+      "saved_from_msg_id": 5445,
+      "saved_from_id": null,
+      "saved_from_name": null,
+      "saved_date": null,
+      "psa_type": null
+    },
+    "reply_to": null,
+    "media": null,
+    "reactions": null,
+    "grouped_id": null
+  },
+  {
+    "_": "Message",
+    "id": 9240,
+    "peer_id": {"_": "PeerChannel", "channel_id": 1619992925},
+    "date": "2025-05-01 11:00:00+00:00",
+    "message": "Here is the PDF for post 5477",
+    "out": false,
+    "post": false,
+    "from_id": {"_": "PeerUser", "user_id": 111111},
+    "fwd_from": null,
+    "reply_to": {
+      "_": "MessageReplyHeader",
+      "reply_to_scheduled": false,
+      "forum_topic": false,
+      "quote": false,
+      "reply_to_msg_id": 9230,
+      "reply_to_peer_id": null,
+      "reply_from": null,
+      "reply_media": null,
+      "reply_to_top_id": null,
+      "quote_text": null,
+      "quote_entities": [],
+      "quote_offset": null
+    },
+    "media": {
+      "_": "MessageMediaDocument",
+      "document": {
+        "_": "Document",
+        "id": 5000000001,
+        "mime_type": "application/pdf",
+        "size": 204800,
+        "attributes": [
+          {"_": "DocumentAttributeFilename", "file_name": "post5477.pdf"}
+        ]
+      }
+    },
+    "reactions": {
+      "_": "MessageReactions",
+      "results": [
+        {"_": "ReactionCount", "reaction": {"_": "ReactionEmoji", "emoticon": "👍"}, "count": 4}
+      ]
+    },
+    "grouped_id": null
+  },
+  {
+    "_": "Message",
+    "id": 9131,
+    "peer_id": {"_": "PeerChannel", "channel_id": 1619992925},
+    "date": "2025-04-20 10:30:00+00:00",
+    "message": "PDF for post 5445",
+    "out": false,
+    "post": false,
+    "from_id": {"_": "PeerUser", "user_id": 222222},
+    "fwd_from": null,
+    "reply_to": {
+      "_": "MessageReplyHeader",
+      "reply_to_scheduled": false,
+      "forum_topic": false,
+      "quote": false,
+      "reply_to_msg_id": 9120,
+      "reply_to_peer_id": null,
+      "reply_from": null,
+      "reply_media": null,
+      "reply_to_top_id": null,
+      "quote_text": null,
+      "quote_entities": [],
+      "quote_offset": null
+    },
+    "media": {
+      "_": "MessageMediaDocument",
+      "document": {
+        "_": "Document",
+        "id": 5000000002,
+        "mime_type": "application/pdf",
+        "size": 102400,
+        "attributes": [
+          {"_": "DocumentAttributeFilename", "file_name": "post5445.pdf"}
+        ]
+      }
+    },
+    "reactions": null,
+    "grouped_id": null
+  },
+  {
+    "_": "Message",
+    "id": 9241,
+    "peer_id": {"_": "PeerChannel", "channel_id": 1619992925},
+    "date": "2025-05-01 11:30:00+00:00",
+    "message": "Thanks for the PDF!",
+    "out": false,
+    "post": false,
+    "from_id": {"_": "PeerUser", "user_id": 333333},
+    "fwd_from": null,
+    "reply_to": {
+      "_": "MessageReplyHeader",
+      "reply_to_scheduled": false,
+      "forum_topic": false,
+      "quote": false,
+      "reply_to_msg_id": 9240,
+      "reply_to_peer_id": null,
+      "reply_from": null,
+      "reply_media": null,
+      "reply_to_top_id": 9230,
+      "quote_text": null,
+      "quote_entities": [],
+      "quote_offset": null
+    },
+    "media": null,
+    "reactions": {
+      "_": "MessageReactions",
+      "results": [
+        {"_": "ReactionCount", "reaction": {"_": "ReactionEmoji", "emoticon": "❤️"}, "count": 1}
+      ]
+    },
+    "grouped_id": null
+  },
+  {
+    "_": "Message",
+    "id": 9300,
+    "peer_id": {"_": "PeerChannel", "channel_id": 1619992925},
+    "date": "2025-06-01 08:00:00+00:00",
+    "message": "Comment on an out-of-window post",
+    "out": false,
+    "post": false,
+    "from_id": {"_": "PeerUser", "user_id": 444444},
+    "fwd_from": null,
+    "reply_to": {
+      "_": "MessageReplyHeader",
+      "reply_to_scheduled": false,
+      "forum_topic": false,
+      "quote": false,
+      "reply_to_msg_id": 9299,
+      "reply_to_peer_id": null,
+      "reply_from": null,
+      "reply_media": null,
+      "reply_to_top_id": null,
+      "quote_text": null,
+      "quote_entities": [],
+      "quote_offset": null
+    },
+    "media": null,
+    "reactions": null,
+    "grouped_id": null
+  }
+]

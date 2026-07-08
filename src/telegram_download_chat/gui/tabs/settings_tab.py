@@ -69,6 +69,7 @@ class SettingsTab(QWidget):
         self.config = ConfigManager()
         self.session_manager = SessionManager(self)
         self.telegram_auth = None
+        self.downloader = None
         self._setup_ui()
         self._connect_signals()
         self._load_settings()
@@ -636,9 +637,10 @@ class SettingsTab(QWidget):
             # Re-raise the exception to be handled by the done callback
             raise
         finally:
-            if self.downloader:
+            downloader = getattr(self, "downloader", None)
+            if downloader is not None:
                 try:
-                    await self.downloader.close()
+                    await downloader.close()
                 finally:
                     self.downloader = None
 

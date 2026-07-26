@@ -2,6 +2,14 @@
 
 A powerful command-line, GUI and web interface utility to download and analyze Telegram chat history in multiple formats.
 
+> **Need to send or manage messages?** This tool is download-only. To send
+> messages, create groups/topics, manage members and folders, see
+> [popstas/telegram-assistant](https://github.com/popstas/telegram-assistant).
+>
+> **Need live monitoring instead of a one-off export?** To watch chats, channels
+> and folders and forward matching messages in real time, see
+> [popstas/telegram-resender](https://github.com/popstas/telegram-resender).
+
 ## Features
 
 - Download complete chat history from any Telegram chat, group, supergroup, channel or Telegram export archive

@@ -28,9 +28,10 @@ settings:
   # gui_chat_hint_tooltip: false  # info icon + hover tooltip (off by default)
   # gui_chat_hint_help: true      # collapsible "How to fill this?" block (on)
 
-  # Optional proxy URL for Telegram connections
-  # Supported schemes: socks5, socks4, http, https
+  # Optional proxy URL for Telegram connections.
+  # Supported: socks5, socks4, http, https, tg://proxy and https://t.me/proxy.
   # proxy_url: socks5://user:password@proxy-host:1080
+  # proxy_url: tg://proxy?server=proxy-host&port=443&secret=YOUR_SECRET
 
   # Parallel media download tuning (default on for files above the threshold).
   # Multiple MTProto connections per file dramatically increase per-file

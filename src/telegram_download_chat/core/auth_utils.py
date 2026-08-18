@@ -4,7 +4,7 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from telethon import TelegramClient
 from telethon.errors import (
@@ -18,8 +18,11 @@ from telethon.errors import (
     RPCError,
     SessionPasswordNeededError,
 )
+from telethon.network.connection import ConnectionTcpMTProxyRandomizedIntermediate
 
 logger = logging.getLogger(__name__)
+
+MT_PROXY_TYPE = "mtproto"
 
 
 class TelegramAuthError(Exception):
@@ -44,7 +47,7 @@ class TelegramAuth:
             api_id: Telegram API ID
             api_hash: Telegram API hash
             session_path: Path to store the session file
-            proxy_url: Optional proxy URL (e.g. socks5://user:pass@host:port)
+            proxy_url: Optional SOCKS/HTTP URL or Telegram MTProto proxy link
         """
         self.api_id = api_id
         self.api_hash = api_hash
@@ -53,19 +56,23 @@ class TelegramAuth:
         self.client: Optional[TelegramClient] = None
         self._is_authenticated = False
         self.phone_code_hash: Optional[str] = None
+        self._proxy_config: Optional[dict] = None
 
     @staticmethod
     def parse_proxy_url(proxy_url: Optional[str]) -> Optional[dict]:
-        """Parse a proxy URL into Telethon proxy parameters.
+        """Parse and validate proxy input for Telethon.
 
-        Supports socks5, socks4, and http proxy schemes.
+        Supports SOCKS4/SOCKS5/HTTP URLs plus Telegram MTProto proxy links in
+        ``tg://proxy`` and ``https://t.me/proxy`` form.
 
         Args:
-            proxy_url: Proxy URL string (e.g. socks5://user:pass@host:1080)
+            proxy_url: Proxy URL or Telegram proxy link.
 
         Returns:
-            Dict with proxy_type, addr, port, and optionally username/password,
-            or None if proxy_url is empty/None.
+            Validated proxy configuration, or None when no proxy is configured.
+
+        Raises:
+            ValueError: If the proxy input is unsupported or malformed.
         """
         if not proxy_url:
             return None
@@ -76,6 +83,49 @@ class TelegramAuth:
 
         parsed = urlparse(proxy_url)
         scheme = parsed.scheme.lower()
+        hostname = (parsed.hostname or "").lower()
+        path = parsed.path.rstrip("/").lower()
+
+        is_tg_mtproxy = scheme == "tg" and parsed.netloc.lower() == "proxy"
+        is_tme_proxy_path = hostname == "t.me" and path == "/proxy"
+        is_tme_mtproxy = scheme == "https" and is_tme_proxy_path
+
+        if scheme == "http" and is_tme_proxy_path:
+            raise ValueError(
+                "Telegram MTProto proxy links must use https://t.me/proxy."
+            )
+
+        if is_tg_mtproxy or is_tme_mtproxy:
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            server = query.get("server", [""])[0].strip()
+            port_value = query.get("port", [""])[0].strip()
+            secret = query.get("secret", [""])[0].strip()
+
+            if not server:
+                raise ValueError("MTProto proxy link is missing server.")
+            if not port_value:
+                raise ValueError("MTProto proxy link is missing port.")
+
+            try:
+                port = int(port_value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "MTProto proxy port must be an integer between 1 and 65535."
+                ) from exc
+
+            if not 1 <= port <= 65535:
+                raise ValueError(
+                    "MTProto proxy port must be an integer between 1 and 65535."
+                )
+            if not secret:
+                raise ValueError("MTProto proxy link is missing secret.")
+
+            return {
+                "proxy_type": MT_PROXY_TYPE,
+                "addr": server,
+                "port": port,
+                "secret": secret,
+            }
 
         scheme_map = {
             "socks5": SOCKS5,
@@ -88,7 +138,8 @@ class TelegramAuth:
         if proxy_type is None:
             raise ValueError(
                 f"Unsupported proxy scheme: {scheme}. "
-                f"Supported: socks5, socks4, http, https"
+                "Supported: socks5, socks4, http, https, tg://proxy, "
+                "https://t.me/proxy"
             )
 
         if not parsed.hostname:
@@ -110,6 +161,27 @@ class TelegramAuth:
 
         return result
 
+    async def _connect_client(self) -> None:
+        """Connect while preventing MTProto proxy secrets from reaching errors."""
+        if not self.client:
+            return
+
+        try:
+            await self.client.connect()
+        except Exception:
+            if (
+                self._proxy_config
+                and self._proxy_config.get("proxy_type") == MT_PROXY_TYPE
+            ):
+                # Suppress the original exception context. Some transports may
+                # include proxy configuration in low-level error text, so keeping
+                # the exception chain could expose the MTProto secret if a caller
+                # later logs a traceback.
+                raise TelegramAuthError(
+                    "Failed to connect through the configured MTProto proxy."
+                ) from None
+            raise
+
     async def initialize(self) -> None:
         """Initialize the Telegram client."""
         if self.client is None:
@@ -122,15 +194,24 @@ class TelegramAuth:
             }
 
             proxy = self.parse_proxy_url(self.proxy_url)
+            self._proxy_config = proxy
             if proxy:
-                try:
-                    import python_socks  # noqa: F401
-                except ImportError:
-                    raise ImportError(
-                        "Proxy support requires python-socks[asyncio]. "
-                        "Install with: pip install 'python-socks[asyncio]'"
+                if proxy.get("proxy_type") == MT_PROXY_TYPE:
+                    kwargs["connection"] = ConnectionTcpMTProxyRandomizedIntermediate
+                    kwargs["proxy"] = (
+                        proxy["addr"],
+                        proxy["port"],
+                        proxy["secret"],
                     )
-                kwargs["proxy"] = proxy
+                else:
+                    try:
+                        import python_socks  # noqa: F401
+                    except ImportError:
+                        raise ImportError(
+                            "Proxy support requires python-socks[asyncio]. "
+                            "Install with: pip install 'python-socks[asyncio]'"
+                        )
+                    kwargs["proxy"] = proxy
 
             self.client = TelegramClient(
                 self.session_path,
@@ -138,7 +219,7 @@ class TelegramAuth:
                 self.api_hash,
                 **kwargs,
             )
-            await self.client.connect()
+            await self._connect_client()
             self._is_authenticated = await self.client.is_user_authorized()
 
     async def request_code(self, phone: str) -> Optional[str]:
@@ -160,13 +241,19 @@ class TelegramAuth:
 
             if not self.client.is_connected():
                 logger.debug("Client not connected, connecting...")
-                await self.client.connect()
+                await self._connect_client()
 
             logger.debug("Sending code request...")
             result = await self.client.send_code_request(phone)
             self.phone_code_hash = getattr(result, "phone_code_hash", None)
             logger.debug(f"Code request sent successfully: {result}")
             return self.phone_code_hash
+
+        except TelegramAuthError:
+            # Connection errors from _connect_client() are already sanitized.
+            # Re-raise them unchanged instead of sending them through the generic
+            # traceback logger below.
+            raise
 
         except (
             PhoneNumberInvalidError,

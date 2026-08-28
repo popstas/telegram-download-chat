@@ -18,6 +18,7 @@ from telegram_download_chat.core.comments import (
     download_post_comments,
     get_linked_discussion,
 )
+from telegram_download_chat.core.stt import TranscriptCache, transcribe_messages
 from telegram_download_chat.core.topics import (
     GENERAL_KEY,
     fetch_forum_topics,
@@ -455,6 +456,43 @@ async def fetch_outside_window_citations(
     return await fetch_cited_messages(downloader, entity, messages)
 
 
+async def apply_transcriptions(
+    downloader: TelegramChatDownloader,
+    chat_identifier: Any,
+    messages: List[Any],
+    args: Any,
+) -> None:
+    """Transcribe voice messages and stash the results for ``save_messages``.
+
+    Best-effort: any failure is logged and the export continues without
+    transcripts. Results are keyed by media document id and read back in
+    ``save_messages``, because Telethon's ``to_dict()`` drops attributes set on
+    a raw message.
+    """
+    # Reset first: the downloader is reused across chats in multi-chat runs.
+    downloader._transcripts = {}
+    if not getattr(args, "stt", False) or not messages:
+        return
+    cache = None
+    cache_path = (
+        (downloader.config or {}).get("settings", {}).get("stt_cache_path")
+        if getattr(downloader, "config", None)
+        else None
+    )
+    if cache_path:
+        cache = TranscriptCache(Path(cache_path))
+    try:
+        transcripts = await transcribe_messages(
+            downloader, chat_identifier, messages, cache=cache
+        )
+    except Exception as exc:  # pragma: no cover - best-effort enrichment
+        downloader.logger.warning(f"Failed to transcribe voice messages: {exc}")
+        return
+    downloader._transcripts = transcripts
+    if transcripts:
+        downloader.logger.info(f"Transcribed {len(transcripts)} voice message(s)")
+
+
 async def process_chat_download(
     downloader: TelegramChatDownloader,
     chat_identifier: Any,
@@ -632,6 +670,8 @@ async def process_chat_download(
             downloader.logger.info(
                 f"Filtered to {len(messages)} messages matching keywords: {kw_list}"
             )
+
+    await apply_transcriptions(downloader, chat_identifier, messages, args)
 
     msg_dates = [
         _parse_date(
@@ -1170,6 +1210,7 @@ __all__ = [
     "save_txt_with_status",
     "fetch_channel_comments",
     "fetch_outside_window_citations",
+    "apply_transcriptions",
     "process_chat_download",
     "convert",
     "folder",

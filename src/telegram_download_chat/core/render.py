@@ -185,6 +185,8 @@ a:hover{text-decoration:underline}
 .poll-total{font-size:11px;color:#888;margin-top:3px}
 /* Text */
 .txt{white-space:pre-wrap;font-size:14px;color:#111}
+.stt{white-space:pre-wrap;font-size:13px;font-style:italic;color:#5c6b73;margin-top:4px;border-left:2px solid #00a884;padding-left:6px}
+.stt-ico{font-style:normal;margin-right:4px;opacity:.7}
 /* Reactions */
 .reactions{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
 .reaction{display:inline-flex;align-items:center;gap:3px;background:rgba(0,0,0,0.05);
@@ -294,6 +296,9 @@ a:hover{text-decoration:underline}
       {%- endif %}
       {%- if msg.text %}
       <div class="txt">{{ msg.text | fmt_entities(msg.entities) }}</div>
+      {%- endif %}
+      {%- if msg.transcript %}
+      <div class="stt"><span class="stt-ico">&#127897;</span>{{ msg.transcript | e }}</div>
       {%- endif %}
       {%- if msg.reactions %}
       <div class="reactions">
@@ -837,6 +842,7 @@ class RenderMixin:
                     "poll_data": poll_data,
                     "location_lat": loc_lat,
                     "location_lng": loc_lng,
+                    "transcript": msg.get("transcript") or "",
                     "reactions": _render_reactions(msg.get("reactions")),
                     "reactions_total": total_reaction_count(msg.get("reactions")),
                 }
@@ -1916,6 +1922,14 @@ def _render_pdf_reportlab(
                             format_entities(text, msg_data.get("entities"), "pdf"),
                             s_text,
                         )
+                    )
+
+                # Speech-to-text: the PDF cannot collapse it, so it renders
+                # inline right under the message it belongs to.
+                transcript = msg_data.get("transcript")
+                if transcript:
+                    parts.append(
+                        Paragraph(f"<i>{_xml_escape(transcript)}</i>", s_reply)
                     )
 
                 tick = " \u2713\u2713" if is_out else ""

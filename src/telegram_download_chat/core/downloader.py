@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Dict, Optional
 
 from ..partial import PartialDownloadManager
 from .auth import AuthMixin
@@ -40,6 +40,9 @@ class TelegramChatDownloader(
         self._is_premium = False
         self._premium_checked = False
         self._fast_dl_settings = None
+        # {media document id: transcription}, filled by the --stt pass and read
+        # back in save_messages (see core/stt.py).
+        self._transcripts: Dict[int, str] = {}
         # Optional in-process callable for structured progress events. When None,
         # events fall back to stdout (gated by the PROGRESS_ENV_VAR env var).
         self._progress_sink = None

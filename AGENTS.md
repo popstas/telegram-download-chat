@@ -81,9 +81,11 @@ pip install .
 
 ### Release
 ```bash
-# Bump version, run tests, build, and publish
+# Bump version, run tests, build (bumpversion commits and tags)
 python deploy.py patch   # or: minor | major
+git push && git push --tags
 ```
+- `deploy.py` does **not** upload to PyPI. The `Build and Release` workflow owns publishing: it triggers on the `v*` tag, builds the Windows artifacts, uploads to PyPI and creates the GitHub release. Uploading from both made the workflow's publish job fail with a 400 from PyPI, since the files were already there.
 - If a step fails and you re-run, skip the already-completed steps.
 - To fold release fixups into the version-bump commit, amend it (`git commit --amend`).
 

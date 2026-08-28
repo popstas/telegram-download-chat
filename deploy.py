@@ -45,15 +45,9 @@ def check_package():
     subprocess.run(["python", "-m", "twine", "check", "dist/*"], check=True)
 
 
-def upload_package():
-    """Upload the package to PyPI."""
-    print("\n=== Uploading to PyPI ===")
-    subprocess.run(["python", "-m", "twine", "upload", "dist/*"], check=True)
-
-
 def main() -> None:
-    """Run deployment steps with optional version bump."""
-    parser = argparse.ArgumentParser(description="Build and upload the package")
+    """Bump the version, test and build. Publishing is left to CI."""
+    parser = argparse.ArgumentParser(description="Bump, test and build the package")
     parser.add_argument(
         "bump",
         nargs="?",
@@ -72,9 +66,13 @@ def main() -> None:
     # Proceed with deployment if tests pass
     build_package()
     check_package()
-    upload_package()
 
-    print("\n[SUCCESS] Deployment completed successfully!")
+    # Publishing is the release workflow's job: it triggers on the version tag
+    # and uploads to PyPI itself. Uploading here too made that job fail with a
+    # 400 from PyPI, because the files were already there.
+    print("\n[SUCCESS] Build completed successfully!")
+    print("Push the branch and the version tag to publish:")
+    print("    git push && git push --tags")
 
 
 if __name__ == "__main__":

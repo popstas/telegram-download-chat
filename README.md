@@ -18,6 +18,7 @@ A powerful command-line, GUI and web interface utility to download and analyze T
 - Save messages in JSON format with full message metadata
 - Generate human and LLM readable TXT exports with user-friendly display names
 - Download media attachments (photos, videos, documents, audio, etc.)
+- Transcribe voice messages with Telegram Premium speech-to-text (`--stt`), cached so nothing is transcribed twice
 - Use presets for common option sets via `--preset`
 - Cross-platform support (Windows, macOS, Linux)
 - CLI-first, optional graphical user interface and web interface
@@ -101,6 +102,9 @@ telegram-download-chat channel_username --comments --comments-min-reactions 2
 # Include each message's reactions inline in the TXT output
 telegram-download-chat username --reactions
 
+# Transcribe voice messages and round video notes (Telegram Premium)
+telegram-download-chat username --stt
+
 # Split output into separate files by month or year
 telegram-download-chat username --split month
 
@@ -171,6 +175,7 @@ options:
   --no-fast-download    Disable parallel multi-connection media downloads (use single-stream Telethon downloader)
   --media-placeholders  Insert media type indicators (e.g. [photo], [file=name.pdf]) in TXT output
   --reactions           Append each message's reactions as an inline text suffix (e.g. [👍5 ❤️2]) in the TXT output
+  --stt                 Transcribe voice messages and round video notes via Telegram speech-to-text (requires Telegram Premium; results are cached locally)
   --html                Export chat as a Telegram-style HTML file (alongside JSON/TXT)
   --html-media-links    Show clickable file path captions under each media element in HTML export
   --pdf                 Export chat as a PDF document (alongside JSON/TXT)
@@ -352,6 +357,7 @@ settings:
   max_retries: 5            # Maximum number of retry attempts
   log_level: INFO           # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
   log_file: app.log        # Path to log file (relative to app dir or absolute)
+  stt_cache_path: ''        # Optional: custom path for the --stt transcript cache
 
 # Map user IDs to display names for text exports
 # Names for users and bots are automatically fetched and stored here, you can change them here.
@@ -439,6 +445,34 @@ telegram-download-chat group_username --subchat 12345 --subchat-name "Important 
 telegram-download-chat group_username --subchat "https://t.me/c/123456789/12345"
 ```
 
+### Voice Transcription (Speech-to-Text)
+
+`--stt` transcribes voice messages and round video notes using Telegram's own
+speech-to-text, the same one the official clients show. It **requires a Telegram
+Premium account** — without one the export runs normally and logs a warning
+instead of transcribing.
+
+```bash
+# Transcribe voice messages while downloading
+telegram-download-chat username --stt
+
+# Combine with media and HTML: the player and its transcript sit together
+telegram-download-chat username --stt --media --html
+```
+
+Each transcription is saved to the message's `transcript` field in
+`messages.json`, printed on its own `[stt] ...` line in `messages.txt`, and shown
+under the message in the HTML and PDF exports. Because the field lives in the
+JSON, converting an existing export (`--convert`) renders the transcripts too.
+
+Results are cached in `stt-cache.jsonl` in the application data directory, keyed
+by the audio file's Telegram document id. The same voice message is therefore
+transcribed only once — re-downloading the chat, or meeting the same message
+forwarded into another chat, reuses the cached text without an API call (which
+also means an account that later loses Premium keeps everything already
+transcribed). Point the cache somewhere else with `stt_cache_path` in the config,
+or delete the file to force re-transcription.
+
 ## Graphical User Interface (GUI)
 
 For users who prefer a visual interface, the application includes an optional GUI that provides an intuitive way to download Telegram chats.
@@ -509,6 +543,7 @@ Contains complete message data including metadata like:
 - Media and file attachments
 - Reactions and views
 - `attachment_path` — relative path to the downloaded media file (when `--media` is used)
+- `transcript` — voice message transcription (when `--stt` is used)
 
 ### Text Output (`[chat_name]/messages.txt`)
 A human-readable version of the chat with:
@@ -518,6 +553,7 @@ A human-readable version of the chat with:
 - Reply indicators
 - Optional media type indicators with `--media-placeholders` (e.g. `[photo]`, `[video]`, `[file=report.pdf]`)
 - Optional inline reactions with `--reactions` (e.g. `Nice post [👍5 ❤️2]`; custom/premium emoji show as `⭐`)
+- Optional voice transcriptions with `--stt`, on their own `[stt] ...` line under the message
 
 ### Media Attachments (`[chat_name]/attachments/`)
 When using the `--media` flag, media files are downloaded alongside the message files, organized by media type:

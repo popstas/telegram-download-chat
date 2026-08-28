@@ -377,6 +377,11 @@ class DownloadTab(QWidget):
         self.pdf_chk = QCheckBox("PDF document")
         settings_form.addRow("PDF export:", self.pdf_chk)
 
+        # Speech-to-text (Telegram Premium): transcribe voice messages and
+        # round video notes. Results are cached locally between runs.
+        self.stt_chk = QCheckBox("Transcribe voice messages (Telegram Premium)")
+        settings_form.addRow("Speech-to-text:", self.stt_chk)
+
         # Download comments (channel-only): a checkbox plus a per-post limit
         # combo on the same row. The combo is enabled only when the checkbox is
         # checked. "No limit" carries data ``None``; presets carry their int.
@@ -406,6 +411,7 @@ class DownloadTab(QWidget):
                 self.media_chk,
                 self.html_chk,
                 self.pdf_chk,
+                self.stt_chk,
                 self.comments_chk,
             ],
             self,
@@ -614,6 +620,9 @@ class DownloadTab(QWidget):
             if "pdf" in settings:
                 self.pdf_chk.setChecked(settings["pdf"])
 
+            if "stt" in settings:
+                self.stt_chk.setChecked(bool(settings["stt"]))
+
             if "comments" in settings:
                 self.comments_chk.setChecked(bool(settings["comments"]))
 
@@ -672,6 +681,7 @@ class DownloadTab(QWidget):
                     "media": self.media_chk.isChecked(),
                     "html": self.html_chk.isChecked(),
                     "pdf": self.pdf_chk.isChecked(),
+                    "stt": self.stt_chk.isChecked(),
                     "comments": self.comments_chk.isChecked(),
                     "comments_limit": self.comments_limit_combo.currentData(),
                     "sort": self.sort_combo.currentData() or "asc",
@@ -800,6 +810,9 @@ class DownloadTab(QWidget):
 
         if self.pdf_chk.isChecked():
             cmd_args.append("--pdf")
+
+        if self.stt_chk.isChecked():
+            cmd_args.append("--stt")
 
         if self.comments_chk.isChecked():
             cmd_args.append("--comments")
@@ -976,6 +989,7 @@ class DownloadTab(QWidget):
         settings["media"] = self.media_chk.isChecked()
         settings["html"] = self.html_chk.isChecked()
         settings["pdf"] = self.pdf_chk.isChecked()
+        settings["stt"] = self.stt_chk.isChecked()
         settings["comments"] = self.comments_chk.isChecked()
         settings["comments_limit"] = self.comments_limit_combo.currentData()
         settings["sort"] = self.sort_combo.currentData() or "asc"
@@ -1008,6 +1022,7 @@ class DownloadTab(QWidget):
         self.media_chk.setChecked(bool(settings.get("media", False)))
         self.html_chk.setChecked(bool(settings.get("html", False)))
         self.pdf_chk.setChecked(bool(settings.get("pdf", False)))
+        self.stt_chk.setChecked(bool(settings.get("stt", False)))
         self.comments_chk.setChecked(bool(settings.get("comments", False)))
         self._set_comments_limit(settings.get("comments_limit"))
 

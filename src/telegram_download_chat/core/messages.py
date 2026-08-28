@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from ..paths import get_relative_to_downloads_dir
 from .reactions import format_reactions_text, normalize_reactions
+from .stt import transcript_key
 
 
 class MessagesMixin:
@@ -331,6 +332,11 @@ class MessagesMixin:
                         else:
                             text = placeholder
 
+                transcript = msg.get("transcript")
+                if transcript:
+                    stt_line = f"[stt] {transcript}"
+                    text = f"{text}\n{stt_line}" if text else stt_line
+
                 if reactions:
                     reactions_suffix = format_reactions_text(msg.get("reactions"))
                     if reactions_suffix:
@@ -403,6 +409,7 @@ class MessagesMixin:
         output_path = Path(output_file)
 
         attachments_dir = self.get_attachments_dir(output_path)
+        transcripts = getattr(self, "_transcripts", None) or {}
         serializable_messages = []
         preserved_ids: set = set()  # IDs whose attachment_path was kept from prior run
         for msg in messages:
@@ -422,6 +429,13 @@ class MessagesMixin:
                 # Replace the verbose raw Telethon reactions with a stable
                 # normalized shape (idempotent for already-normalized dicts on
                 # resume). Drop the key entirely when there are no reactions.
+                # Speech-to-text results are keyed by media document id and
+                # stamped here: Telethon's to_dict() drops attributes set on a
+                # raw message, so the transcript could not ride along on it.
+                if transcripts:
+                    doc_id = transcript_key(msg_dict)
+                    if doc_id is not None and doc_id in transcripts:
+                        msg_dict["transcript"] = transcripts[doc_id]
                 normalized_reactions = normalize_reactions(msg_dict.get("reactions"))
                 if normalized_reactions:
                     msg_dict["reactions"] = normalized_reactions

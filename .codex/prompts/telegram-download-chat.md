@@ -46,7 +46,7 @@ The positional `CHAT` argument selects the mode (see `cli/__init__.py`):
 
 ### Step 3 — Build the command from intent
 
-Map the user's request to flags (full reference below). Common building blocks: `-o/--output`, `-l/--limit`, date range (`--max-date/--from`, `--min-date/--until`, `--last-days`), `--user`, `--keywords`, `--subchat`, `--split`, `--media`, `--html`, `--pdf`. Add `--results-json` whenever you need to parse the outcome programmatically.
+Map the user's request to flags (full reference below). Common building blocks: `-o/--output`, `-l/--limit`, date range (`--max-date/--from`, `--min-date/--until`, `--last-days`), `--user`, `--keywords`, `--subchat`, `--split`, `--media`, `--comments`, `--stt`, `--html`, `--pdf`. Add `--results-json` whenever you need to parse the outcome programmatically.
 
 ### Step 4 — Run it
 
@@ -104,6 +104,17 @@ Source of truth: `src/telegram_download_chat/cli/arguments.py`. Run `telegram-do
 - `--no-fast-download` — disable parallel multi-connection media downloads (use single-stream Telethon downloader).
 - `--media-placeholders` — insert media type indicators (e.g. `[photo]`, `[file=name.pdf]`) in TXT output.
 
+### Comments (channels only)
+
+- `--comments` — download post comments from the channel's linked discussion group (a no-op on other entities and on channels without comments). Comments are merged into the same `messages.json`/`.txt`/`.html` and nested under their post.
+- `--comments-limit` — max comments fetched per post (requires `--comments`; omit for unlimited).
+- `--comments-min-reactions` — drop comments whose total reaction count is below N (requires `--comments`; `0` = keep all). Applied after `--comments-limit`, so the limit caps how many are fetched and this trims the low-reaction ones.
+
+### Enrichment
+
+- `--reactions` — append each message's reactions as an inline suffix (e.g. `[👍5 ❤️2]`) in the TXT output.
+- `--stt` — transcribe voice messages and round video notes via Telegram's speech-to-text. **Requires a Telegram Premium account**; without one the pass is skipped with a warning and makes no API calls. Transcripts appear as a `transcript` field in JSON, a `[stt] …` line in TXT, and an italic block in HTML/PDF. Results are cached locally (keyed by the audio's document id), so a re-download — or the same audio in another chat — is never transcribed twice.
+
 ### Export
 
 - `--html` — export chat as a Telegram-style HTML file.
@@ -148,6 +159,10 @@ Each scenario lists a runnable command and the situation it fits. Replace `@chat
   `telegram-download-chat folder:Work`
 - **HTML / PDF export** — "export this chat as a readable HTML page and a PDF":
   `telegram-download-chat @chat --html --pdf`
+- **Channel with comments** — "export this channel including the discussion comments, but only the ones people reacted to":
+  `telegram-download-chat @channel --comments --comments-min-reactions 3 --html`
+- **Voice transcription** — "download this chat and transcribe the voice messages":
+  `telegram-download-chat @chat --stt --media --html`
 - **Proxy + preset** — "use my socks proxy and the 'archive' preset":
   `telegram-download-chat @chat --proxy-url socks5://127.0.0.1:1080 --preset archive`
 

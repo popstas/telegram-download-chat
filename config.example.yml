@@ -28,6 +28,11 @@ settings:
   # gui_chat_hint_tooltip: false  # info icon + hover tooltip (off by default)
   # gui_chat_hint_help: true      # collapsible "How to fill this?" block (on)
 
+  # Speech-to-text (--stt) cache. Transcriptions are keyed by the audio file's
+  # Telegram document id, so nothing is ever transcribed twice. Defaults to
+  # stt-cache.jsonl in the application data directory.
+  # stt_cache_path: ./data/stt-cache.jsonl
+
   # Optional proxy URL for Telegram connections
   # Supported schemes: socks5, socks4, http, https
   # proxy_url: socks5://user:password@proxy-host:1080

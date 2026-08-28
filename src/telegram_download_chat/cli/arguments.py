@@ -44,6 +44,7 @@ class CLIOptions:
     comments_limit: Optional[int] = None
     comments_min_reactions: int = 0
     reactions: bool = False
+    stt: bool = False
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
@@ -235,6 +236,15 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         help=(
             "Append each message's reactions as an inline text suffix "
             "(e.g. [👍5 ❤️2]) in the TXT output"
+        ),
+    )
+    parser.add_argument(
+        "--stt",
+        action="store_true",
+        help=(
+            "Transcribe voice messages and round video notes via Telegram's "
+            "speech-to-text (requires a Premium account). Results are cached "
+            "locally, so re-downloads never transcribe the same audio twice"
         ),
     )
 

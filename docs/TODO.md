@@ -20,6 +20,8 @@
 
 - [x] Make html render comments collapsible. Only for channel comments. Collapsed shows comment count, expanded shows the comment text.
 
+- [x] Add speech-to-text support via the Telegram Premium voice-transcription API (`messages.transcribeAudio`): transcribe voice messages / video notes and store the text in the export (JSON + TXT/HTML render). Behind a `--stt` CLI flag (off by default) with a matching option in the GUI. Handle non-Premium accounts and pending/failed transcriptions gracefully. Verify on chat `popstas`.
+
 ## Reactions follow-ups
 
 - [x] Add optional text reactions: render each message's reactions as an inline text suffix in `messages.txt`, behind a `--reactions` flag (off by default).

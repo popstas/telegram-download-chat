@@ -488,9 +488,9 @@ async def apply_transcriptions(
     except Exception as exc:  # pragma: no cover - best-effort enrichment
         downloader.logger.warning(f"Failed to transcribe voice messages: {exc}")
         return
+    # No summary line here: transcribe_messages already reports what it did,
+    # and a count taken here cannot tell a fresh transcription from a cache hit.
     downloader._transcripts = transcripts
-    if transcripts:
-        downloader.logger.info(f"Transcribed {len(transcripts)} voice message(s)")
 
 
 async def process_chat_download(

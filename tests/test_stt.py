@@ -4,8 +4,8 @@ import logging
 from types import SimpleNamespace
 
 import pytest
-from telethon.errors import FloodWaitError
-from telethon.tl.types import PeerChannel
+from telethon.errors import FloodError, FloodPremiumWaitError, FloodWaitError
+from telethon.tl.types import PeerChannel, PeerChat
 
 from telegram_download_chat.core import stt
 from telegram_download_chat.core.stt import (
@@ -140,12 +140,17 @@ def test_cache_creates_parent_directory(tmp_path):
 class _FakeClient:
     """Fake Telethon client: answers TranscribeAudioRequest from a script."""
 
-    def __init__(self, script):
+    def __init__(self, script, entity_error=None):
         # script: {(peer, msg_id): [result_or_exception, ...]} popped in order
         self.script = script
         self.calls = []
+        self.entity_error = entity_error
+        self.entity_calls = 0
 
     async def get_input_entity(self, peer):
+        self.entity_calls += 1
+        if self.entity_error is not None:
+            raise self.entity_error
         # str(): Telethon peer objects are unhashable, so keep dict keys simple.
         return ("input", str(peer))
 
@@ -184,8 +189,8 @@ def _voice_msg(msg_id, doc_id):
 
 
 @pytest.fixture(autouse=True)
-def _no_backoff_sleep(monkeypatch):
-    monkeypatch.setattr(stt, "PENDING_BACKOFF_SECONDS", (0, 0, 0))
+def _no_poll_sleep(monkeypatch):
+    monkeypatch.setattr(stt, "PENDING_POLL_SECONDS", 0)
 
 
 @pytest.mark.asyncio
@@ -312,9 +317,216 @@ async def test_pending_transcription_is_retried_until_ready(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_transcription_still_pending_after_retries_is_skipped(tmp_path):
+async def test_transcription_still_pending_at_the_deadline_is_given_up(
+    tmp_path, monkeypatch, caplog
+):
+    """Telegram is still working; the export must not stall on it forever."""
+    monkeypatch.setattr(stt, "PENDING_TIMEOUT_SECONDS", 6)
+    monkeypatch.setattr(stt, "PENDING_POLL_SECONDS", 2)
     peer = ("input", "popstas")
-    client = _FakeClient({(peer, 1): [_transcribed("x", pending=True)] * 4})
+    client = _FakeClient({(peer, 1): [_transcribed("", pending=True)] * 20})
+
+    with caplog.at_level(logging.WARNING):
+        result = await stt.transcribe_messages(
+            _make_downloader(client),
+            "popstas",
+            [_voice_msg(1, 101)],
+            cache=TranscriptCache(tmp_path / "c.jsonl"),
+        )
+
+    assert result == {}
+    # One kick-off plus PENDING_TIMEOUT_SECONDS / PENDING_POLL_SECONDS polls.
+    assert len(client.calls) == 4
+    assert "still being transcribed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_fully_cached_run_says_so_instead_of_going_quiet(tmp_path, caplog):
+    cache = TranscriptCache(tmp_path / "c.jsonl")
+    cache.put(101, "cached")
+    client = _FakeClient({})
+
+    with caplog.at_level(logging.INFO):
+        result = await stt.transcribe_messages(
+            _make_downloader(client), "popstas", [_voice_msg(1, 101)], cache=cache
+        )
+
+    assert result == {101: "cached"}
+    assert client.calls == []
+    assert "cache" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_every_request_is_issued_before_any_pending_one_is_polled(tmp_path):
+    """Telegram transcribes in parallel: kick all of them off, then collect."""
+    peer = ("input", "popstas")
+    client = _FakeClient(
+        {
+            (peer, 1): [_transcribed("", pending=True), _transcribed("first")],
+            (peer, 2): [_transcribed("", pending=True), _transcribed("second")],
+        }
+    )
+
+    result = await stt.transcribe_messages(
+        _make_downloader(client),
+        "popstas",
+        [_voice_msg(1, 101), _voice_msg(2, 102)],
+        cache=TranscriptCache(tmp_path / "c.jsonl"),
+    )
+
+    assert result == {101: "first", 102: "second"}
+    # Both kicked off first, and only then polled — not 1,1,2,2.
+    assert client.calls == [(peer, 1), (peer, 2), (peer, 1), (peer, 2)]
+
+
+@pytest.mark.asyncio
+async def test_premium_flood_wait_aborts_the_pass(tmp_path):
+    """FloodPremiumWaitError is a sibling of FloodWaitError, not a subclass."""
+    peer = ("input", "popstas")
+    client = _FakeClient(
+        {
+            (peer, 1): [FloodPremiumWaitError(request=None, capture=8942)],
+            (peer, 2): [_transcribed("never reached")],
+        }
+    )
+
+    result = await stt.transcribe_messages(
+        _make_downloader(client),
+        "popstas",
+        [_voice_msg(1, 101), _voice_msg(2, 102)],
+        cache=TranscriptCache(tmp_path / "c.jsonl"),
+    )
+
+    assert result == {}
+    assert client.calls == [(peer, 1)]
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_is_reported_as_a_readable_duration(tmp_path, caplog):
+    peer = ("input", "popstas")
+    client = _FakeClient({(peer, 1): [FloodWaitError(request=None, capture=8942)]})
+
+    with caplog.at_level(logging.WARNING):
+        await stt.transcribe_messages(
+            _make_downloader(client),
+            "popstas",
+            [_voice_msg(1, 101)],
+            cache=TranscriptCache(tmp_path / "c.jsonl"),
+        )
+
+    assert "2h 29m" in caplog.text
+    assert "8942" not in caplog.text
+
+
+def _bare_flood():
+    """Telegram's burst limit: a FLOOD error carrying no retry time at all."""
+    return FloodError(request=None, message="FLOOD", code=420)
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_count_excludes_permanent_failures(tmp_path, caplog):
+    """A voice message Telegram refuses outright is not "waiting on the limit"."""
+    peer = ("input", "popstas")
+    too_long = RuntimeError("RPCError 400: MSG_VOICE_TOO_LONG")
+    client = _FakeClient(
+        {
+            (peer, 1): [_transcribed("ok")],
+            (peer, 2): [too_long],
+            (peer, 3): [FloodWaitError(request=None, capture=3600)],
+        }
+    )
+    messages = [_voice_msg(1, 101), _voice_msg(2, 102), _voice_msg(3, 103)]
+
+    with caplog.at_level(logging.WARNING):
+        await stt.transcribe_messages(
+            _make_downloader(client),
+            "popstas",
+            messages,
+            cache=TranscriptCache(tmp_path / "c.jsonl"),
+        )
+
+    assert "1 of 3 voice message(s) left untranscribed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_message_is_addressed_by_its_own_peer_id(tmp_path):
+    """The CLI hands over a digit *string*; Telethon reads that as a username.
+
+    Resolving it costs an online lookup that can flood for hours, while the
+    message's own peer_id resolves straight from the session cache.
+    """
+    msg = _voice_msg(1, 101)
+    msg["peer_id"] = {"_": "PeerChat", "chat_id": 5375745951}
+    peer = ("input", str(PeerChat(5375745951)))
+    client = _FakeClient({(peer, 1): [_transcribed("done")]})
+
+    result = await stt.transcribe_messages(
+        _make_downloader(client),
+        "5375745951",
+        [msg],
+        cache=TranscriptCache(tmp_path / "c.jsonl"),
+    )
+
+    assert result == {101: "done"}
+
+
+@pytest.mark.asyncio
+async def test_unresolvable_peer_id_falls_back_to_the_chat_identifier(tmp_path):
+    msg = _voice_msg(1, 101)
+    msg["peer_id"] = {"_": "PeerUser", "user_id": 999}
+    peer = ("input", "popstas")
+    client = _FakeClient({(peer, 1): [_transcribed("done")]})
+
+    async def _get_input_entity(ref):
+        from telethon.tl.types import PeerUser
+
+        if isinstance(ref, PeerUser):
+            raise ValueError("Could not find the input entity")
+        return ("input", str(ref))
+
+    client.get_input_entity = _get_input_entity
+
+    result = await stt.transcribe_messages(
+        _make_downloader(client),
+        "popstas",
+        [msg],
+        cache=TranscriptCache(tmp_path / "c.jsonl"),
+    )
+
+    assert result == {101: "done"}
+
+
+@pytest.mark.asyncio
+async def test_flood_while_resolving_the_chat_ends_the_pass_once(tmp_path, caplog):
+    """Resolving the chat can flood too; that is a rate limit, not 30 failures."""
+    client = _FakeClient({}, entity_error=FloodWaitError(request=None, capture=8335))
+    messages = [_voice_msg(i, 100 + i) for i in range(1, 31)]
+
+    with caplog.at_level(logging.WARNING):
+        result = await stt.transcribe_messages(
+            _make_downloader(client),
+            "popstas",
+            messages,
+            cache=TranscriptCache(tmp_path / "c.jsonl"),
+        )
+
+    assert result == {}
+    assert client.entity_calls == 1
+    assert caplog.text.count("rate-limited") == 1
+    assert "could not be transcribed" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_bare_flood_is_backed_off_and_retried(tmp_path, monkeypatch):
+    """A bare FLOOD is a transient burst limit, not the end of the quota."""
+    slept = []
+
+    async def _fake_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(stt.asyncio, "sleep", _fake_sleep)
+    peer = ("input", "popstas")
+    client = _FakeClient({(peer, 1): [_bare_flood(), _transcribed("done")]})
 
     result = await stt.transcribe_messages(
         _make_downloader(client),
@@ -323,7 +535,115 @@ async def test_transcription_still_pending_after_retries_is_skipped(tmp_path):
         cache=TranscriptCache(tmp_path / "c.jsonl"),
     )
 
+    assert result == {101: "done"}
+    assert stt.FLOOD_RETRY_BACKOFF_SECONDS[0] in slept
+
+
+@pytest.mark.asyncio
+async def test_persistent_bare_flood_ends_the_pass_once(tmp_path, monkeypatch, caplog):
+    """One clear message beats a failure logged per message."""
+
+    async def _fake_sleep(seconds):
+        return None
+
+    monkeypatch.setattr(stt.asyncio, "sleep", _fake_sleep)
+    peer = ("input", "popstas")
+    retries = len(stt.FLOOD_RETRY_BACKOFF_SECONDS)
+    client = _FakeClient(
+        {
+            (peer, 1): [_bare_flood()] * (retries + 1),
+            (peer, 2): [_transcribed("never reached")],
+        }
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await stt.transcribe_messages(
+            _make_downloader(client),
+            "popstas",
+            [_voice_msg(1, 101), _voice_msg(2, 102)],
+            cache=TranscriptCache(tmp_path / "c.jsonl"),
+        )
+
     assert result == {}
+    # Message 2 is never attempted: the limit is account-wide, not per message.
+    assert client.calls == [(peer, 1)] * (retries + 1)
+    assert caplog.text.count("rate-limited") == 1
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_still_collects_transcriptions_already_in_flight(
+    tmp_path, monkeypatch
+):
+    """Audio already handed to Telegram keeps transcribing; go and fetch it."""
+
+    async def _fake_sleep(seconds):
+        return None
+
+    monkeypatch.setattr(stt.asyncio, "sleep", _fake_sleep)
+    peer = ("input", "popstas")
+    client = _FakeClient(
+        {
+            (peer, 1): [_transcribed("", pending=True), _transcribed("first")],
+            (peer, 2): [FloodWaitError(request=None, capture=3600)],
+        }
+    )
+
+    result = await stt.transcribe_messages(
+        _make_downloader(client),
+        "popstas",
+        [_voice_msg(1, 101), _voice_msg(2, 102)],
+        cache=TranscriptCache(tmp_path / "c.jsonl"),
+    )
+
+    assert result == {101: "first"}
+
+
+@pytest.mark.asyncio
+async def test_a_second_flood_in_a_row_ends_the_pass(tmp_path, monkeypatch):
+    """Retries are bounded: a wait that keeps coming back ends the pass."""
+
+    async def _fake_sleep(seconds):
+        return None
+
+    monkeypatch.setattr(stt.asyncio, "sleep", _fake_sleep)
+    peer = ("input", "popstas")
+    retries = len(stt.FLOOD_RETRY_BACKOFF_SECONDS)
+    client = _FakeClient(
+        {
+            (peer, 1): [FloodWaitError(request=None, capture=5)] * (retries + 1),
+            (peer, 2): [_transcribed("never reached")],
+        }
+    )
+
+    result = await stt.transcribe_messages(
+        _make_downloader(client),
+        "popstas",
+        [_voice_msg(1, 101), _voice_msg(2, 102)],
+        cache=TranscriptCache(tmp_path / "c.jsonl"),
+    )
+
+    assert result == {}
+    assert client.calls == [(peer, 1)] * (retries + 1)
+
+
+@pytest.mark.asyncio
+async def test_voice_too_long_is_reported_and_not_retried(tmp_path, caplog):
+    """MSG_VOICE_TOO_LONG is permanent — name it instead of failing silently."""
+    peer = ("input", "popstas")
+    too_long = RuntimeError("RPCError 400: MSG_VOICE_TOO_LONG")
+    client = _FakeClient({(peer, 1): [too_long], (peer, 2): [_transcribed("ok")]})
+
+    with caplog.at_level(logging.WARNING):
+        result = await stt.transcribe_messages(
+            _make_downloader(client),
+            "popstas",
+            [_voice_msg(1, 101), _voice_msg(2, 102)],
+            cache=TranscriptCache(tmp_path / "c.jsonl"),
+        )
+
+    assert result == {102: "ok"}
+    assert client.calls == [(peer, 1), (peer, 2)]
+    assert "longer than Telegram transcribes" in caplog.text
 
 
 @pytest.mark.asyncio

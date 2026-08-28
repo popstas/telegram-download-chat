@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodError
 
 __all__ = [
     "TranscriptCache",
@@ -27,12 +27,51 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-#: Delays between re-checks while Telegram reports a transcription as pending.
-PENDING_BACKOFF_SECONDS = (2.0, 4.0, 6.0)
+#: How long to keep collecting transcriptions Telegram reports as pending.
+#: Real voice messages take ~15-30s, so this must outlast a slow batch.
+PENDING_TIMEOUT_SECONDS = 180.0
+#: Delay between collection rounds while transcriptions are still pending.
+PENDING_POLL_SECONDS = 5.0
 #: Longer rate limits abort the whole pass instead of stalling the export.
 FLOOD_WAIT_MAX_SECONDS = 30.0
+#: Back-off before retrying a rate-limited request. Telegram's burst limit on
+#: transcription arrives as a bare ``FLOOD`` with no retry time of its own, and
+#: it clears within a minute, so retry a bounded number of times before giving
+#: up on the whole pass.
+FLOOD_RETRY_BACKOFF_SECONDS = (5.0, 10.0, 20.0)
 #: How often to log transcription progress.
 PROGRESS_LOG_EVERY = 10
+
+#: Returned by :func:`_attempt` when Telegram is still working on the audio.
+_PENDING = object()
+
+
+class _RateLimited(Exception):
+    """Telegram's transcription rate limit; ends the whole pass."""
+
+    def __init__(self, seconds: float) -> None:
+        super().__init__(seconds)
+        self.seconds = seconds
+
+
+def _format_duration(seconds: float) -> str:
+    """Render a wait as ``2h 29m`` rather than a raw second count."""
+    total = int(seconds)
+    if total < 60:
+        return f"{total}s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s" if secs else f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+
+
+def _failure_reason(error: Exception) -> str:
+    """A short, user-facing reason a message could not be transcribed."""
+    text = f"{getattr(error, 'message', '') or ''} {error}"
+    if "MSG_VOICE_TOO_LONG" in text:
+        return "longer than Telegram transcribes"
+    return getattr(error, "message", None) or type(error).__name__
 
 
 def _media_dict(msg: Any) -> Optional[Dict[str, Any]]:
@@ -208,34 +247,68 @@ async def _resolve_target(
     Channel comments live in the linked discussion group, so they are addressed
     by their native ``discussion_msg_id`` against that group's peer rather than
     the exported channel post id.
+
+    Everything else is addressed by the message's own ``peer_id``, which
+    resolves straight from the session cache. The chat identifier the CLI was
+    given is a *string*, and Telethon reads a digit string as a username or
+    phone number: resolving it costs an online lookup that can rate-limit the
+    account for hours and take the whole pass down with it.
     """
+    ref = _peer_ref(_field(msg, "peer_id"))
     if _field(msg, "comment_of") is not None:
-        ref = _peer_ref(_field(msg, "peer_id"))
         if ref is None:
             return None, None
         msg_id = _field(msg, "discussion_msg_id") or _field(msg, "id")
         return await _input_peer(client, ref, peer_cache), msg_id
+    if ref is not None:
+        try:
+            return await _input_peer(client, ref, peer_cache), _field(msg, "id")
+        except FloodError:
+            raise
+        except Exception as e:
+            # An unknown peer is worth one fallback to the identifier we were
+            # given; a rate limit is not, and is re-raised above.
+            logger.debug("Falling back to the chat identifier for the peer: %s", e)
     return await _input_peer(client, entity, peer_cache), _field(msg, "id")
 
 
-async def _transcribe_one(client: Any, peer: Any, msg_id: Any) -> Optional[str]:
-    """Transcribe one message, polling while Telegram reports ``pending``.
+async def _with_flood_retry(call: Any) -> Any:
+    """Run ``call``, retrying Telegram's rate limits a bounded number of times.
 
-    A pending result normally arrives via ``UpdateTranscribedAudio``; re-issuing
-    the request returns the same (now finished) transcription, which keeps this
-    a plain request/response loop.
+    Catches ``FloodError`` rather than ``FloodWaitError``: the Premium variant
+    is its sibling and not its subclass, and the burst limit arrives as a bare
+    ``FLOOD`` carrying no retry time at all. A wait too long to sit out — or one
+    that outlasts the retries — becomes :class:`_RateLimited`, which ends the
+    pass instead of being re-hit once per message.
+    """
+    backoff = list(FLOOD_RETRY_BACKOFF_SECONDS)
+    while True:
+        try:
+            return await call()
+        except FloodError as e:
+            seconds = getattr(e, "seconds", 0) or 0
+            if seconds > FLOOD_WAIT_MAX_SECONDS or not backoff:
+                raise _RateLimited(seconds) from e
+            delay = backoff.pop(0)
+            await asyncio.sleep(seconds or delay)
+
+
+async def _attempt(client: Any, peer: Any, msg_id: Any) -> Any:
+    """Issue one transcription request.
+
+    Returns the text, ``None`` when Telegram has nothing to offer, or
+    :data:`_PENDING` while it is still working. Raises :class:`_RateLimited`
+    when the account's transcription quota is spent.
     """
     from telethon.tl.functions.messages import TranscribeAudioRequest
 
-    attempts = len(PENDING_BACKOFF_SECONDS) + 1
-    for attempt in range(attempts):
-        result = await client(TranscribeAudioRequest(peer=peer, msg_id=msg_id))
-        text = getattr(result, "text", None)
-        if not getattr(result, "pending", False):
-            return text if isinstance(text, str) and text else None
-        if attempt < len(PENDING_BACKOFF_SECONDS):
-            await asyncio.sleep(PENDING_BACKOFF_SECONDS[attempt])
-    return None
+    result = await _with_flood_retry(
+        lambda: client(TranscribeAudioRequest(peer=peer, msg_id=msg_id))
+    )
+    if getattr(result, "pending", False):
+        return _PENDING
+    text = getattr(result, "text", None)
+    return text if isinstance(text, str) and text else None
 
 
 async def transcribe_messages(
@@ -274,6 +347,11 @@ async def transcribe_messages(
             todo[doc_id] = msg
 
     if not todo:
+        if transcripts:
+            log.info(
+                "%d voice message(s) served from the transcript cache",
+                len(transcripts),
+            )
         return transcripts
 
     await downloader._detect_premium_once()
@@ -288,42 +366,108 @@ async def transcribe_messages(
     client = downloader.client
     peer_cache: Dict[str, Any] = {}
     total = len(todo)
-    log.info("Transcribing %d voice message(s)...", total)
-    done = 0
-    for doc_id, msg in todo.items():
-        try:
-            peer, msg_id = await _resolve_target(client, entity, msg, peer_cache)
-            if peer is None or msg_id is None:
-                continue
-            text = await _transcribe_one(client, peer, msg_id)
-        except FloodWaitError as e:
-            seconds = getattr(e, "seconds", 0) or 0
-            if seconds > FLOOD_WAIT_MAX_SECONDS:
-                log.warning(
-                    "Transcription rate-limited for %ss; skipping the remaining "
-                    "%d voice message(s)",
-                    seconds,
-                    total - done,
-                )
-                break
-            log.debug("Transcription rate-limited, waiting %ss", seconds)
-            await asyncio.sleep(seconds)
-            try:
-                text = await _transcribe_one(client, peer, msg_id)
-            except Exception as retry_error:
-                log.debug(
-                    "Transcription failed for message %s: %s", msg_id, retry_error
-                )
-                continue
-        except Exception as e:
-            log.debug("Transcription failed for message %s: %s", _field(msg, "id"), e)
-            continue
+    if transcripts:
+        log.info(
+            "Transcribing %d voice message(s) (%d served from the cache)...",
+            total,
+            len(transcripts),
+        )
+    else:
+        log.info("Transcribing %d voice message(s)...", total)
 
+    pending: Dict[int, Any] = {}
+    failures: Dict[str, int] = {}
+    rate_limited: Optional[float] = None
+    done = 0
+
+    def _store(doc_id: int, text: str, msg_id: Any) -> None:
+        nonlocal done
         done += 1
-        if text:
-            transcripts[doc_id] = text
-            cache.put(doc_id, text, chat=entity, msg_id=msg_id)
+        transcripts[doc_id] = text
+        cache.put(doc_id, text, chat=entity, msg_id=msg_id)
         if done % PROGRESS_LOG_EVERY == 0:
             log.info("Transcribed %d/%d voice message(s)", done, total)
+
+    def _record_failure(msg_id: Any, error: Exception) -> None:
+        reason = _failure_reason(error)
+        failures[reason] = failures.get(reason, 0) + 1
+        log.debug("Transcription failed for message %s: %s", msg_id, error)
+
+    # Phase 1 — issue one request per message. Telegram transcribes them in
+    # parallel, so the earliest are usually ready by the time the last request
+    # goes out; waiting on each in turn would time out on all of them.
+    try:
+        for doc_id, msg in todo.items():
+            msg_id: Any = _field(msg, "id")
+            try:
+                peer, msg_id = await _with_flood_retry(
+                    lambda: _resolve_target(client, entity, msg, peer_cache)
+                )
+                if peer is None or msg_id is None:
+                    continue
+                outcome = await _attempt(client, peer, msg_id)
+            except _RateLimited:
+                raise
+            except Exception as e:
+                _record_failure(msg_id, e)
+                continue
+            if outcome is _PENDING:
+                pending[doc_id] = (peer, msg_id)
+            elif outcome:
+                _store(doc_id, outcome, msg_id)
+    except _RateLimited as limit:
+        # The limit is account-wide, so stop asking for more — but audio
+        # already handed to Telegram keeps transcribing, so still collect it.
+        rate_limited = limit.seconds
+
+    # Phase 2 — collect whatever was still being transcribed.
+    rounds = max(1, int(PENDING_TIMEOUT_SECONDS // max(PENDING_POLL_SECONDS, 1e-9)))
+    try:
+        for _ in range(rounds):
+            if not pending:
+                break
+            await asyncio.sleep(PENDING_POLL_SECONDS)
+            for doc_id in list(pending):
+                peer, msg_id = pending[doc_id]
+                try:
+                    outcome = await _attempt(client, peer, msg_id)
+                except _RateLimited:
+                    raise
+                except Exception as e:
+                    del pending[doc_id]
+                    _record_failure(msg_id, e)
+                    continue
+                if outcome is _PENDING:
+                    continue
+                del pending[doc_id]
+                if outcome:
+                    _store(doc_id, outcome, msg_id)
+    except _RateLimited as limit:
+        if rate_limited is None:
+            rate_limited = limit.seconds
+
+    if rate_limited is not None:
+        log.warning(
+            "Transcription rate-limited by Telegram (%s); %d of %d voice "
+            "message(s) left untranscribed. Re-run later — audio already "
+            "transcribed is served from the local cache.",
+            (
+                f"retry in {_format_duration(rate_limited)}"
+                if rate_limited
+                else "no retry time given"
+            ),
+            total - done - sum(failures.values()),
+            total,
+        )
+    elif pending:
+        log.warning(
+            "%d voice message(s) were still being transcribed when the pass "
+            "gave up after %s; re-run to pick them up.",
+            len(pending),
+            _format_duration(PENDING_TIMEOUT_SECONDS),
+        )
+    for reason, count in sorted(failures.items()):
+        log.warning("%d voice message(s) could not be transcribed: %s", count, reason)
+    log.info("Transcribed %d/%d voice message(s)", done, total)
 
     return transcripts

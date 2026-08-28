@@ -1987,7 +1987,11 @@ def _render_pdf_reportlab(
                         ]
                     )
 
-                tbl = Table(data, colWidths=col_widths)
+                # splitInRow: a bubble is a single-row table, and ReportLab
+                # cannot break a row taller than the frame. Long content (a
+                # transcribed voice message runs to thousands of characters)
+                # would abort the whole export, so let the row split instead.
+                tbl = Table(data, colWidths=col_widths, splitInRow=1)
                 tbl.setStyle(ts)
                 story.append(tbl)
                 story.append(Spacer(1, 1.5 * mm))

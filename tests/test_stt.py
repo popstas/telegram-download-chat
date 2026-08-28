@@ -634,3 +634,32 @@ def test_pdf_renders_the_transcript(tmp_path, monkeypatch):
     )
 
     assert any("привет из голосового" in text for text in recorded)
+
+
+def test_pdf_survives_a_transcript_longer_than_a_page(tmp_path):
+    """A long voice message must not blow up the PDF export.
+
+    Bubbles are rendered as single-row tables, and ReportLab cannot break a row
+    that is taller than the frame — a several-thousand-character transcript is.
+    """
+    pytest.importorskip("reportlab")
+
+    from telegram_download_chat.core.render import RenderMixin
+
+    out = tmp_path / "out.pdf"
+    RenderMixin().render_pdf(
+        [
+            {
+                "id": 1,
+                "date": "2026-01-01T10:00:00+00:00",
+                "from_id": {"user_id": 42},
+                "user_display_name": "Alice",
+                "message": "",
+                "transcript": "слово " * 2000,
+            }
+        ],
+        out,
+        chat_title="t",
+    )
+
+    assert out.exists() and out.read_bytes().startswith(b"%PDF")

@@ -1,11 +1,9 @@
 """Attachment paths stored in the export must stay relative to ``attachments/``.
 
-Telethon's downloader turns a ``Path`` destination into an absolute string and
-returns that, so relativizing it against a *relative* ``attachments_dir`` (what
-a relative ``save_path`` in the config produces) used to raise ``ValueError``
-and fall back to storing the absolute path. ``render.py`` then dropped those
-paths as traversal attempts and the media vanished from the HTML export --
-leaving a caption-less photo as an empty bubble.
+Telethon returns the absolute path it wrote to, so relativizing against a
+relative ``attachments_dir`` used to fail and store that absolute path, which
+``render.py`` then dropped as a traversal attempt -- the media disappeared from
+the export with no error anywhere.
 """
 
 import json

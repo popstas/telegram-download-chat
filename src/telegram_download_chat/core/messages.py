@@ -449,11 +449,7 @@ class MessagesMixin:
                     if isinstance(msg, dict) and msg.get("attachment_path"):
                         existing = attachments_dir / msg["attachment_path"]
                         if existing.exists():
-                            # Re-relativize on the way through: exports written
-                            # before the path fix below stored absolute paths,
-                            # which render.py drops as traversal attempts. A
-                            # resume run heals them; already-relative paths are
-                            # returned unchanged.
+                            # Heals absolute paths stored by older versions.
                             msg_dict["attachment_path"] = relative_attachment_path(
                                 existing, attachments_dir
                             )

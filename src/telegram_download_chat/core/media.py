@@ -248,6 +248,27 @@ class MediaStats:
         return "\n".join(lines)
 
 
+def relative_attachment_path(path: Path, attachments_dir: Path) -> str:
+    """Return ``path`` relative to ``attachments_dir`` with forward slashes.
+
+    Both sides are resolved before comparing. Telethon's downloader turns a
+    ``Path`` destination into an *absolute* string and returns that
+    (``_get_proper_filename``), so when ``attachments_dir`` is relative — which
+    is what a relative ``save_path`` in the config produces — it is never a
+    prefix of the downloaded path and the stored ``attachment_path`` ends up
+    absolute. ``render.py`` rejects absolute attachment paths as traversal
+    attempts, so the media silently disappears from the HTML export.
+
+    Falls back to the plain string form when the file genuinely lies outside
+    ``attachments_dir``.
+    """
+    try:
+        relative = Path(path).resolve().relative_to(Path(attachments_dir).resolve())
+    except (OSError, ValueError):
+        return str(path).replace("\\", "/")
+    return str(relative).replace("\\", "/")
+
+
 class MediaMixin:
     """Mixin class for downloading media from Telegram messages."""
 
@@ -766,12 +787,9 @@ class MediaMixin:
                         or ""
                     )
                     if path and msg_id:
-                        try:
-                            results[msg_id] = str(
-                                path.relative_to(attachments_dir)
-                            ).replace("\\", "/")
-                        except ValueError:
-                            results[msg_id] = str(path)
+                        results[msg_id] = relative_attachment_path(
+                            path, attachments_dir
+                        )
                     completed += 1
                     # Structured per-file progress event (current/total + the
                     # downloaded file's relative path, when the download succeeded).

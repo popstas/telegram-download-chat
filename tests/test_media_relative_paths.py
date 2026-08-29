@@ -62,7 +62,8 @@ class TestRelativeAttachmentPath:
         attachments = tmp_path / "chat" / "attachments"
         outside = tmp_path / "elsewhere" / "pic.jpg"
 
-        assert relative_attachment_path(outside, attachments) == str(outside)
+        # The fallback still normalizes separators, hence as_posix() and not str().
+        assert relative_attachment_path(outside, attachments) == outside.as_posix()
 
 
 # ---------------------------------------------------------------------------

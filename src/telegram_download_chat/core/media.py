@@ -248,6 +248,20 @@ class MediaStats:
         return "\n".join(lines)
 
 
+def relative_attachment_path(path: Path, attachments_dir: Path) -> str:
+    """Return ``path`` relative to ``attachments_dir``, with forward slashes.
+
+    Both sides are resolved first, so an absolute ``path`` and a relative
+    ``attachments_dir`` still relativize. Returns ``path`` unchanged when it
+    lies outside ``attachments_dir``.
+    """
+    try:
+        relative = Path(path).resolve().relative_to(Path(attachments_dir).resolve())
+    except (OSError, ValueError):
+        return str(path).replace("\\", "/")
+    return str(relative).replace("\\", "/")
+
+
 class MediaMixin:
     """Mixin class for downloading media from Telegram messages."""
 
@@ -766,12 +780,9 @@ class MediaMixin:
                         or ""
                     )
                     if path and msg_id:
-                        try:
-                            results[msg_id] = str(
-                                path.relative_to(attachments_dir)
-                            ).replace("\\", "/")
-                        except ValueError:
-                            results[msg_id] = str(path)
+                        results[msg_id] = relative_attachment_path(
+                            path, attachments_dir
+                        )
                     completed += 1
                     # Structured per-file progress event (current/total + the
                     # downloaded file's relative path, when the download succeeded).

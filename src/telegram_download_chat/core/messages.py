@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..paths import get_relative_to_downloads_dir
+from .media import relative_attachment_path
 from .reactions import format_reactions_text, normalize_reactions
 from .stt import transcript_key
 
@@ -448,7 +449,10 @@ class MessagesMixin:
                     if isinstance(msg, dict) and msg.get("attachment_path"):
                         existing = attachments_dir / msg["attachment_path"]
                         if existing.exists():
-                            msg_dict["attachment_path"] = msg["attachment_path"]
+                            # Heals absolute paths stored by older versions.
+                            msg_dict["attachment_path"] = relative_attachment_path(
+                                existing, attachments_dir
+                            )
                             # Only post ids feed the post-media reconciliation.
                             # A comment keeps its native discussion id, which can
                             # numerically collide with a post id; namespacing it

@@ -19,8 +19,8 @@ settings:
   # Maximum number of retries for failed requests
   max_retries: 5
   
-  # Log file path (empty for console only)
-  log_file: ./data/telegram_downloader.log
+  # Log file path, relative to the app dir or absolute (empty for console only)
+  log_file: app.log
   # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
   log_level: INFO
 

@@ -96,8 +96,13 @@ class ConfigMixin:
         )
 
         if log_file:
-            log_path = Path(log_file)
+            # Relative paths are documented as relative to the app dir; resolving
+            # them against the cwd dropped the log wherever the terminal was.
+            log_path = Path(log_file).expanduser()
+            if not log_path.is_absolute():
+                log_path = get_app_dir() / log_path
             log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_file = log_path
 
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.WARNING)

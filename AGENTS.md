@@ -124,6 +124,8 @@ python main.py  # Launches GUI by default
 - Uses Telethon sessions for persistent login
 - GUI handles phone/code/password flow
 - CLI opens browser for authentication
+- `TelegramAuth.initialize` wraps the client's `send_code_request` (`_trace_send_code_request`), so both Telethon's interactive `start()` (CLI) and the GUI flow log the masked phone, the `SentCode` delivery type (app / SMS / Firebase / email setup …), `next_type`, timeout and DC — at DEBUG only (`--debug`), so a "code never arrives" report can be diagnosed from the log.
+- `log_file` in config resolves relative paths against the app dir (not the cwd); default is `<app dir>/app.log`.
 
 ### Filtering & Splitting
 - `--subchat`: Extract message threads/replies

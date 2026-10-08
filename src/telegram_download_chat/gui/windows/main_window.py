@@ -196,6 +196,9 @@ class MainWindow(QMainWindow):
         # Connect settings tab signals
         self.settings_tab.api_credentials_saved.connect(self._on_api_credentials_saved)
         self.settings_tab.auth_state_changed.connect(self._on_auth_state_changed)
+        # The tab validates the session while it is being built, i.e. before the
+        # line above could hear about it, so take the state it already has.
+        self._logged_in = getattr(self.settings_tab, "is_logged_in", None)
 
         # Connect log viewer signals
         self.log_viewer.log_copied.connect(
@@ -415,14 +418,26 @@ class MainWindow(QMainWindow):
             self.worker_thread.stop()
             self.status_bar.showMessage("Stopping conversion...")
 
-    def _on_conversion_finished(self, files: list, was_stopped: bool):
+    def _on_conversion_finished(
+        self, files: list, was_stopped: bool, exit_code: int = 0
+    ):
         """Handle conversion completion.
 
         Args:
             files: List of converted files
             was_stopped: Whether the conversion was stopped by the user
+            exit_code: Exit code of the CLI subprocess (non-zero means failure)
         """
         try:
+            if exit_code and not was_stopped:
+                self.status_bar.showMessage("Conversion failed")
+                QMessageBox.critical(
+                    self,
+                    "Conversion Failed",
+                    "The conversion failed. Please check the log for details.",
+                )
+                return
+
             if was_stopped:
                 self.status_bar.showMessage("Conversion stopped by user")
                 QMessageBox.information(

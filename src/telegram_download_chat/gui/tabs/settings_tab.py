@@ -49,6 +49,9 @@ class SettingsTab(QWidget):
     # Signals for code request completion
     code_request_done = Signal(str)
     code_request_error = Signal(str)
+    # QR login runs on a worker thread and reports back through these.
+    qr_code_issued = Signal(str)  # tg://login URL to draw
+    qr_login_done = Signal(bool, str)  # succeeded, error message
 
     # Signal emitted when an update check finishes (request id + result dict
     # from update_checker.check_for_update). The id lets a stale, slower check
@@ -262,6 +265,15 @@ class SettingsTab(QWidget):
         self.login_btn.setEnabled(False)
         login_form.addRow(self.login_btn)
 
+        # QR login: works when Telegram does not deliver a code to this client
+        self.qr_login_btn = QPushButton("Log in with QR code")
+        self.qr_login_btn.setToolTip(
+            "Scan a code with a Telegram app you are already logged into. "
+            "Use this when the code never arrives.\n"
+            "For accounts with two-step verification, fill the Password field first."
+        )
+        login_form.addRow(self.qr_login_btn)
+
         # Add login form to session layout
         session_layout.addWidget(self.login_group)
 
@@ -352,10 +364,12 @@ class SettingsTab(QWidget):
         self.code_edit.textChanged.connect(self._update_login_button_state)
         self.get_code_btn.clicked.connect(self._request_code)
         self.login_btn.clicked.connect(self.session_manager.login)
+        self.qr_login_btn.clicked.connect(self.session_manager.login_qr)
 
         # Async results from background threads
         self.code_request_done.connect(self._on_code_request_done)
         self.code_request_error.connect(self._on_code_error)
+        self.qr_login_done.connect(self._on_qr_login_done)
 
         # Update check result (from a background thread)
         self.update_check_done.connect(self._on_update_check_done)
@@ -643,6 +657,10 @@ class SettingsTab(QWidget):
                     await downloader.close()
                 finally:
                     self.downloader = None
+
+    def _on_qr_login_done(self, succeeded: bool, message: str):
+        """Finish a QR login on the UI thread (widgets are not thread-safe)."""
+        self.session_manager.finish_qr_login(succeeded, message)
 
     def _request_code(self):
         """Request a login code from Telegram."""
@@ -958,8 +976,11 @@ class SettingsTab(QWidget):
             show_login: If True, force show the login UI
         """
         # Tell the rest of the window, so a download is not started without a
-        # session: the startup validation path never emitted this before.
-        self.auth_state_changed.emit(bool(logged_in) and not show_login)
+        # session: the startup validation path never emitted this before. The
+        # state is also stored, because the first emit happens while the tab is
+        # being constructed, before MainWindow connects to the signal.
+        self.is_logged_in = bool(logged_in) and not show_login
+        self.auth_state_changed.emit(self.is_logged_in)
 
         # Force show login UI if requested
         if show_login:
@@ -971,6 +992,7 @@ class SettingsTab(QWidget):
             self.code_edit.setEnabled(True)
             self.password_edit.setEnabled(True)
             self.get_code_btn.setEnabled(True)
+            self.qr_login_btn.setEnabled(True)
             self.login_btn.setEnabled(False)  # Will be enabled when code is entered
 
             # Clear any sensitive data

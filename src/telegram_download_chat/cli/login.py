@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from typing import List, Optional
@@ -58,11 +59,35 @@ def _describe(user) -> str:
     )
 
 
+def _ansi_supported() -> bool:
+    """Whether the console renders ANSI colors rather than printing them raw."""
+    if not sys.stdout.isatty():
+        return False
+    if os.name != "nt":
+        return True
+    # Legacy conhost needs virtual terminal processing turned on first.
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        return bool(
+            kernel32.SetConsoleMode(
+                handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            )
+        )
+    except Exception:
+        return False
+
+
 def _print_qr(url: str) -> None:
     """Draw the QR code, with the URL as a fallback for terminals that mangle it."""
-    plain = sys.stdout.isatty() is not True
     print()
-    print(render_qr_ascii(url) if plain else render_qr_ansi(url))
+    print(render_qr_ansi(url) if _ansi_supported() else render_qr_ascii(url))
     print()
     print("Scan it in Telegram: Settings -> Devices -> Link Desktop Device")
     print(f"Or open this link on a logged-in device: {url}")

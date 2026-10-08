@@ -126,3 +126,30 @@ async def test_code_login_prefills_phone_from_config():
         await run_login(qr=False)
 
     assert downloader.client.start.await_args.kwargs["phone"] == "+41791234567"
+
+
+def test_qr_is_drawn_plain_when_ansi_is_not_supported(capsys):
+    from telegram_download_chat.cli import login as login_mod
+
+    with patch.object(login_mod, "_ansi_supported", return_value=False):
+        login_mod._print_qr("tg://login?token=abc")
+
+    out = capsys.readouterr().out
+    assert "\x1b[" not in out
+    assert "█" in out and "tg://login?token=abc" in out
+
+
+def test_qr_uses_ansi_when_supported(capsys):
+    from telegram_download_chat.cli import login as login_mod
+
+    with patch.object(login_mod, "_ansi_supported", return_value=True):
+        login_mod._print_qr("tg://login?token=abc")
+
+    assert "\x1b[30;107m" in capsys.readouterr().out
+
+
+def test_ansi_not_claimed_without_a_terminal():
+    from telegram_download_chat.cli import login as login_mod
+
+    with patch("sys.stdout.isatty", return_value=False):
+        assert login_mod._ansi_supported() is False

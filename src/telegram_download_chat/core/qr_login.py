@@ -119,7 +119,7 @@ async def qr_login(
         QrLoginTimeout: The code was not scanned in time.
         SessionPasswordNeededError: 2FA is on and no ``password`` was given.
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     qr = await client.qr_login()
 

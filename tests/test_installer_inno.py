@@ -72,4 +72,3 @@ def test_release_workflow_builds_and_publishes_installer():
     # The setup.exe (versioned) and the in-app update zip are released assets.
     assert "telegram-download-chat-v" in text and "-setup.exe" in text
     assert "app-" in text and ".zip" in text
-

@@ -1,11 +1,14 @@
 import asyncio
 import logging
+import threading
 from pathlib import Path
+from typing import Optional
 
 from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
 
 from ...core import TelegramAuth, TelegramChatDownloader
 from ...core.auth_utils import TelegramAuthError
+from ...core.qr_login import qr_login
 from ...paths import get_app_dir
 
 
@@ -23,6 +26,130 @@ class SessionManager:
         self.tab.get_code_btn.setEnabled(enabled)
         self.tab.login_btn.setEnabled(enabled)
         self.tab.logout_btn.setEnabled(enabled)
+        qr_btn = getattr(self.tab, "qr_login_btn", None)
+        if qr_btn is not None:
+            qr_btn.setEnabled(enabled)
+
+    # QR login ----------------------------------------------------------
+    async def _do_qr_login_async(
+        self, telegram_auth, password: Optional[str] = None, on_code=None
+    ) -> dict:
+        """Log in by QR code, off the UI thread.
+
+        Touches no widgets: Qt objects may only be used from the thread that
+        owns them, so everything UI-side happens in :meth:`login_qr` and
+        :meth:`finish_qr_login`. ``on_code`` receives each issued
+        ``tg://login`` URL and must marshal it to the UI thread itself (a Qt
+        signal does that).
+        """
+        await telegram_auth.initialize()
+
+        try:
+            user = await qr_login(
+                telegram_auth.client,
+                on_code=on_code or (lambda url: None),
+                password=(lambda: password) if password else None,
+            )
+
+            telegram_auth._is_authenticated = True
+            me = await telegram_auth.client.get_me()
+            return {
+                "username": getattr(me, "username", None)
+                or getattr(user, "username", None),
+                "phone": getattr(me, "phone", None) or getattr(user, "phone", None),
+            }
+        finally:
+            # Release the session file; a download runs in another process.
+            await telegram_auth.client.disconnect()
+
+    def login_qr(self) -> None:
+        """Show the QR dialog and run the login on a background thread."""
+        from ..widgets.qr_dialog import QrLoginDialog
+
+        tab = self.tab
+        # Everything that reads or writes widgets happens here, on the UI
+        # thread, and is handed to the worker as plain values.
+        tab._update_telegram_auth()
+        telegram_auth = tab.telegram_auth
+        if telegram_auth is None:
+            QMessageBox.critical(
+                tab, "Error", "Please save your API ID and API Hash first."
+            )
+            return
+        password = tab.password_edit.text().strip() or None
+
+        dialog = QrLoginDialog(tab)
+        self._qr_dialog = dialog
+        self._qr_result = None
+        tab.qr_code_issued.connect(dialog.set_code)
+        self._set_ui_enabled(False)
+
+        self._run_qr_worker(telegram_auth, password, dialog)
+        dialog.exec()
+
+    def _run_qr_worker(self, telegram_auth, password, dialog) -> None:
+        """Run the QR login off the UI thread, cancellable from the dialog."""
+        tab = self.tab
+        # The loop and task are created before the thread starts, so Cancel can
+        # always reach the task instead of leaving it to time out while it
+        # holds the session file open.
+        self._qr_loop = loop = asyncio.new_event_loop()
+        self._qr_task = task = loop.create_task(
+            self._do_qr_login_async(
+                telegram_auth, password=password, on_code=tab.qr_code_issued.emit
+            )
+        )
+        dialog.rejected.connect(lambda: loop.call_soon_threadsafe(task.cancel))
+
+        def run_async():
+            try:
+                self._qr_result = loop.run_until_complete(task)
+                tab.qr_login_done.emit(True, "")
+            except asyncio.CancelledError:
+                tab.qr_login_done.emit(False, "")
+            except Exception as e:  # reported on the UI thread
+                logging.error(f"QR login failed: {e}", exc_info=True)
+                tab.qr_login_done.emit(False, str(e))
+            finally:
+                loop.close()
+                self._qr_loop = None
+                self._qr_task = None
+
+        self._qr_thread = threading.Thread(target=run_async, daemon=True)
+        self._qr_thread.start()
+
+    def finish_qr_login(self, succeeded: bool, message: str) -> None:
+        """Apply the outcome of a QR login. UI thread only."""
+        tab = self.tab
+        dialog = getattr(self, "_qr_dialog", None)
+        if dialog is not None:
+            try:
+                tab.qr_code_issued.disconnect(dialog.set_code)
+            except (RuntimeError, TypeError):
+                pass
+            dialog.accept() if succeeded else dialog.reject()
+            self._qr_dialog = None
+
+        self._set_ui_enabled(True)
+
+        if not succeeded:
+            if message:
+                QMessageBox.critical(tab, "QR Login Failed", message)
+            return
+
+        result = self._qr_result or {}
+        phone = result.get("phone")
+        if phone:
+            tab.config.set("settings.phone", str(phone))
+            tab.config.save()
+        tab.password_edit.clear()
+        # _set_logged_in announces the new state to the rest of the window.
+        tab._set_logged_in(True, skip_validation=True)
+        QMessageBox.information(
+            tab,
+            "Login Successful",
+            f"Logged in as {result.get('username') or phone or 'Telegram user'}",
+        )
 
     # Login --------------------------------------------------------------
     async def _do_login_async(self) -> None:

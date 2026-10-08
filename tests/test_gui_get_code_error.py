@@ -7,9 +7,9 @@ finally block when `self.downloader` was never assigned.
 
 import asyncio
 import os
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 

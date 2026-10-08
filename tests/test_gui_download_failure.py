@@ -181,10 +181,17 @@ def test_auth_state_signal_updates_the_gate(qapp):
     assert window._logged_in is False
 
 
+def test_window_inherits_the_startup_session_state(qapp):
+    """The tab validates while it is built, before the signal is connected."""
+    window = _window()
+
+    assert window._logged_in == window.settings_tab.is_logged_in
+
+
 def test_download_proceeds_while_the_session_state_is_unknown(qapp):
     """Startup validation may not have finished; don't block on a guess."""
     window = _window()
-    assert window._logged_in is None
+    window._logged_in = None
 
     message_box, scheduled = _try_start_download(window)
 

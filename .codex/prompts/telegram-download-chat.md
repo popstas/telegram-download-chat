@@ -32,13 +32,15 @@ Confirm `api_id` and `api_hash` are present **without exposing their values**. `
 
 These come from https://my.telegram.org — NEVER invent them. If missing, tell the user to add them to the config file (its location is shown by `--show-config`).
 
-The first live download triggers an interactive Telegram login (phone number, then the login code, optionally a 2FA password). This MUST run in a real, attachable terminal — use a foreground `! <cmd>` invocation so the user can type the code. Only `--show-config` and `--help` run fully offline; **convert mode (`.json` input) also opens a Telegram connection** (it requires `api_id`/`api_hash`, and with no saved session it can start the same interactive login), so treat convert as needing credentials and a real terminal too.
+Logging in is its own command: `telegram-download-chat login` (code from Telegram) or `telegram-download-chat login --qr` (scan a QR code from an app that is already logged in). Run it as a foreground `! <cmd>` in a real, attachable terminal so the user can type the code, the phone or a 2FA password — never in the background.
+
+A download with no saved session offers the same login **only when it runs in a real terminal**; with no terminal it never prompts, it logs `No Telegram session. Run telegram-download-chat login …` and exits 1. So a backgrounded or piped run fails fast with a message instead of hanging on a prompt nobody can answer. Only `--show-config` and `--help` run fully offline; **convert mode (`.json` input) also opens a Telegram connection** (it requires `api_id`/`api_hash` and a saved session, though it never offers to log in), so treat convert as needing credentials and an existing session.
 
 ### Step 2 — Detect the mode from the target
 
 The positional `CHAT` argument selects the mode (see `cli/__init__.py`):
 
-- ends with `.json` → **convert** an existing export to TXT/HTML/PDF. The CLI still opens a Telegram connection for convert (it needs `api_id`/`api_hash`, and with no saved session can start an interactive login), so it is not offline/unattended — only `--show-config`/`--help` run with no connection.
+- ends with `.json` → **convert** an existing export to TXT/HTML/PDF. The CLI still opens a Telegram connection for convert (it needs `api_id`/`api_hash` and a saved session), so it is not offline — only `--show-config`/`--help` run with no connection. Convert never offers to log in: with no session it fails with the `login` instruction.
 - starts with `folder:` (e.g. `folder:Work`) → **download every chat** in that Telegram folder (live).
 - username (`@name` or `name`), phone number, numeric id, or channel id (`-100…`) → **live download** of that chat.
 - comma-separated list of any of the above → processed one by one.
@@ -51,8 +53,8 @@ Map the user's request to flags (full reference below). Common building blocks: 
 ### Step 4 — Run it
 
 - `--show-config` and `--help`: run in the foreground normally (no connection).
-- Convert mode (`.json` input) and short capped downloads (e.g. small `-l`): run in the foreground normally **only when credentials and a saved session already exist** — both still open a Telegram connection. With no saved session, convert can start the same interactive login, so run it via the attachable-terminal path below.
-- **Any run that may need interactive login** (first live download, or convert/live with no saved session): run **only** as a foreground `! <cmd>` in a real, attachable terminal so the user can type the phone number, login code, and optional 2FA password. **Never background these** — a background process can't receive login input and will hang.
+- Convert mode (`.json` input) and short capped downloads (e.g. small `-l`): run in the foreground normally **only when credentials and a saved session already exist** — both still open a Telegram connection.
+- **With no saved session**: run `telegram-download-chat login` (or `login --qr`) as a foreground `! <cmd>` in a real, attachable terminal first, so the user can type the phone, the code and an optional 2FA password. A live download started in such a terminal offers the same login itself; anywhere else it exits 1 with the instruction rather than hanging. **Never background a run that may need to log in.**
 - Large/long-running downloads **where a saved session already exists** (no login prompt possible): run as a foreground `! <cmd>` to watch progress, or in the background. Confirm scope first (see Constraints).
 
 ### Step 5 — Report results
@@ -170,6 +172,6 @@ Each scenario lists a runnable command and the situation it fits. Replace `@chat
 
 - **Confirm before large/long downloads.** If the user gives no `-l/--limit` and no date range on a live chat, the download is unbounded. Confirm scope (or suggest a `--last-days` / `-l` cap) before starting.
 - **Never invent `api_id` / `api_hash`.** They come only from https://my.telegram.org. If `--show-config` shows them missing, ask the user to add them — do not guess.
-- **Live login needs a real terminal.** The first live download prompts for phone number, login code, and optional 2FA password. Run it as a foreground `! <cmd>` so the user can type the code; never assume it can run fully unattended.
+- **Logging in needs a real terminal.** `login` / `login --qr` ask for the phone, the code and an optional 2FA password, and a live download offers the same when it runs in a terminal. Run those as a foreground `! <cmd>`; never assume a login can run unattended. Exit codes are reliable from both `telegram-download-chat` and `python -m telegram_download_chat`, so a failure is detectable without scraping the log.
 - **Respect a user-set `--proxy-url` / proxy config.** Don't strip or override the proxy the user configured.
 - **Don't modify project source code.** This skill only invokes the CLI and reports output paths. For GUI / MCP / web usage, defer — they are out of scope here.

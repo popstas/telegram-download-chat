@@ -212,3 +212,24 @@ def test_login_qr_refuses_without_api_credentials(qapp):
 
     message_box.critical.assert_called_once()
     assert not hasattr(tab.session_manager, "_qr_thread")
+
+
+@pytest.mark.asyncio
+async def test_2fa_without_a_typed_password_says_what_to_do(qapp):
+    """The worker thread cannot prompt, so the message must point at the field."""
+    from telethon.errors import SessionPasswordNeededError
+
+    tab = _tab()
+    auth = _auth_mock()
+
+    async def fake_qr_login(client, **kwargs):
+        raise SessionPasswordNeededError(request=None)
+
+    with patch(
+        "telegram_download_chat.gui.auth.session_manager.qr_login", new=fake_qr_login
+    ):
+        with pytest.raises(RuntimeError) as excinfo:
+            await tab.session_manager._do_qr_login_async(auth)
+
+    assert "Password" in str(excinfo.value)
+    auth.client.disconnect.assert_awaited()

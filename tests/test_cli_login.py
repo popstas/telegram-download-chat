@@ -153,3 +153,89 @@ def test_ansi_not_claimed_without_a_terminal():
 
     with patch("sys.stdout.isatty", return_value=False):
         assert login_mod._ansi_supported() is False
+
+
+def test_password_prompt_without_a_terminal_explains_itself():
+    """No tty means no password prompt: getpass would echo it or raise EOFError."""
+    from telegram_download_chat.cli import login as login_mod
+
+    with patch("sys.stdin") as stdin:
+        stdin.isatty.return_value = False
+        with pytest.raises(login_mod.NoTerminalError) as excinfo:
+            login_mod._prompt_password()
+
+    message = str(excinfo.value)
+    assert "terminal" in message and "GUI" in message
+
+
+def test_phone_prompt_without_a_terminal_explains_itself():
+    from telegram_download_chat.cli import login as login_mod
+
+    with patch("sys.stdin", None):
+        with pytest.raises(login_mod.NoTerminalError):
+            login_mod._prompt_phone()
+
+
+@pytest.mark.asyncio
+async def test_failure_without_a_message_still_names_the_error(capsys):
+    """EOFError and friends stringify to "", which printed a bare "Login failed:"."""
+    downloader = _downloader(authorized=False)
+
+    async def fake_qr_login(client, **kwargs):
+        raise EOFError()
+
+    with patch(
+        "telegram_download_chat.cli.login.TelegramChatDownloader",
+        return_value=downloader,
+    ):
+        with patch("telegram_download_chat.cli.login.qr_login", new=fake_qr_login):
+            assert await run_login(qr=True) == 1
+
+    assert "EOFError" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_no_terminal_error_is_reported_without_a_traceback_prefix(capsys):
+    from telegram_download_chat.cli import login as login_mod
+
+    downloader = _downloader(authorized=False)
+
+    async def fake_qr_login(client, *, on_code, password=None, **kwargs):
+        password()
+
+    with patch(
+        "telegram_download_chat.cli.login.TelegramChatDownloader",
+        return_value=downloader,
+    ):
+        with patch("telegram_download_chat.cli.login.qr_login", new=fake_qr_login):
+            with patch("sys.stdin", None):
+                assert await run_login(qr=True) == 1
+
+    err = capsys.readouterr().err
+    assert "Login failed" not in err  # it is guidance, not a crash
+    assert "terminal" in err
+
+
+def test_code_prompt_without_a_terminal_explains_itself():
+    """Telethon's own `start()` would prompt for the code with a bare input()."""
+    from telegram_download_chat.cli import login as login_mod
+
+    with patch("sys.stdin", None):
+        with pytest.raises(login_mod.NoTerminalError):
+            login_mod._prompt_code()
+
+
+@pytest.mark.asyncio
+async def test_code_login_owns_the_code_prompt():
+    downloader = _downloader(authorized=False)
+
+    with patch(
+        "telegram_download_chat.cli.login.TelegramChatDownloader",
+        return_value=downloader,
+    ):
+        await run_login(qr=False)
+
+    from telegram_download_chat.cli import login as login_mod
+
+    kwargs = downloader.client.start.await_args.kwargs
+    assert kwargs["code_callback"] is login_mod._prompt_code

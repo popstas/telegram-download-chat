@@ -59,6 +59,54 @@ def _describe(user) -> str:
     )
 
 
+class NoTerminalError(RuntimeError):
+    """A prompt is needed but there is no terminal to read the answer from."""
+
+
+_GUI_HINT = "or log in on the Settings tab of the GUI"
+
+
+def _prompt_phone() -> str:
+    """Ask for the phone number, refusing to do so without a terminal."""
+    if sys.stdin is None or not sys.stdin.isatty():
+        raise NoTerminalError(
+            "Cannot ask for the phone number: this command is not running in a "
+            f"terminal. Run it in a real terminal, {_GUI_HINT}."
+        )
+    return input("Please enter your phone: ")
+
+
+def _prompt_code() -> str:
+    """Ask for the login code.
+
+    Telethon's ``start()`` prompts for it with a plain ``input()`` when no
+    ``code_callback`` is given, which dies with ``EOFError`` *after* the code
+    request has already been sent.
+    """
+    if sys.stdin is None or not sys.stdin.isatty():
+        raise NoTerminalError(
+            "Cannot ask for the login code: this command is not running in a "
+            f"terminal. Run it in a real terminal, {_GUI_HINT}."
+        )
+    return input("Please enter the code you received: ")
+
+
+def _prompt_password() -> str:
+    """Ask for the 2FA password.
+
+    Without a terminal ``getpass`` either echoes the password or dies with a
+    bare ``EOFError`` (seen when the QR scan was accepted and 2FA kicked in),
+    so say what to do instead of leaking or crashing.
+    """
+    if sys.stdin is None or not sys.stdin.isatty():
+        raise NoTerminalError(
+            "Two-step verification is enabled, but there is no terminal to read "
+            "the password from. Run this command in a real terminal, "
+            f"{_GUI_HINT} (type the password into the Password field first)."
+        )
+    return getpass.getpass("Two-step verification password: ")
+
+
 def _ansi_supported() -> bool:
     """Whether the console renders ANSI colors rather than printing them raw."""
     if not sys.stdout.isatty():
@@ -118,25 +166,27 @@ async def run_login(
             user = await qr_login(
                 downloader.client,
                 on_code=_print_qr,
-                password=lambda: getpass.getpass("Two-step verification password: "),
+                password=_prompt_password,
             )
         else:
             phone = downloader.config.get("settings", {}).get("phone")
             await downloader.client.start(
-                phone=phone or (lambda: input("Please enter your phone: ")),
-                password=lambda: getpass.getpass("Two-step verification password: "),
+                phone=phone or _prompt_phone,
+                code_callback=_prompt_code,
+                password=_prompt_password,
             )
             user = await downloader.client.get_me()
 
         print(f"Logged in as {_describe(user)}")
         return 0
 
-    except QrLoginTimeout as e:
+    except (QrLoginTimeout, NoTerminalError) as e:
         print(str(e), file=sys.stderr)
         return 1
     except Exception as e:
         downloader.logger.debug("Login failed", exc_info=True)
-        print(f"Login failed: {e}", file=sys.stderr)
+        # EOFError and friends stringify to "", which left a bare "Login failed:".
+        print(f"Login failed: {str(e) or type(e).__name__}", file=sys.stderr)
         return 1
     finally:
         await downloader.close()

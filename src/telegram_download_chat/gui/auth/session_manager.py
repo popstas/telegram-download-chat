@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
+from telethon.errors import SessionPasswordNeededError
 
 from ...core import TelegramAuth, TelegramChatDownloader
 from ...core.auth_utils import TelegramAuthError
@@ -45,11 +46,18 @@ class SessionManager:
         await telegram_auth.initialize()
 
         try:
-            user = await qr_login(
-                telegram_auth.client,
-                on_code=on_code or (lambda url: None),
-                password=(lambda: password) if password else None,
-            )
+            try:
+                user = await qr_login(
+                    telegram_auth.client,
+                    on_code=on_code or (lambda url: None),
+                    password=(lambda: password) if password else None,
+                )
+            except SessionPasswordNeededError as e:
+                # This thread cannot prompt, so point at the field to fill in.
+                raise RuntimeError(
+                    "Two-step verification is enabled. Enter your password in "
+                    "the Password field and scan the QR code again."
+                ) from e
 
             telegram_auth._is_authenticated = True
             me = await telegram_auth.client.get_me()

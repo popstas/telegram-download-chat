@@ -114,3 +114,84 @@ def test_ansi_render_pins_colors_so_the_terminal_theme_cannot_invert_it():
     assert len(colored) == len(plain)
     assert all(line.startswith("\x1b[30;107m") for line in colored)
     assert all(line.endswith("\x1b[0m") for line in colored)
+
+
+@pytest.mark.asyncio
+async def test_wrong_password_is_asked_again():
+    """Telethon's own code login retries the password; the QR path must too."""
+    from telethon.errors import PasswordHashInvalidError
+
+    from telegram_download_chat.core.qr_login import qr_login as login
+
+    user = MagicMock(username="popstas")
+    qr = _qr()
+    qr.wait = AsyncMock(side_effect=SessionPasswordNeededError(request=None))
+    client = _client(qr)
+    client.sign_in = AsyncMock(
+        side_effect=[PasswordHashInvalidError(request=None), user]
+    )
+    typed = iter(["wrong", "right"])
+    complaints = []
+
+    result = await login(
+        client,
+        on_code=lambda url: None,
+        password=lambda: next(typed),
+        password_attempts=3,
+        on_password_error=complaints.append,
+    )
+
+    assert result is user
+    assert client.sign_in.await_count == 2
+    assert len(complaints) == 1 and "password" in complaints[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_exhausted_password_attempts_raise_a_readable_error():
+    from telethon.errors import PasswordHashInvalidError
+
+    from telegram_download_chat.core.qr_login import QrLoginError
+    from telegram_download_chat.core.qr_login import qr_login as login
+
+    qr = _qr()
+    qr.wait = AsyncMock(side_effect=SessionPasswordNeededError(request=None))
+    client = _client(qr)
+    client.sign_in = AsyncMock(side_effect=PasswordHashInvalidError(request=None))
+
+    with pytest.raises(QrLoginError) as excinfo:
+        await login(
+            client,
+            on_code=lambda url: None,
+            password=lambda: "wrong",
+            password_attempts=2,
+        )
+
+    assert client.sign_in.await_count == 2
+    message = str(excinfo.value)
+    assert "password" in message.lower()
+    assert "hash" not in message.lower()  # not Telethon's raw wording
+
+
+@pytest.mark.asyncio
+async def test_a_single_attempt_is_the_default_for_a_stored_password():
+    """The GUI hands over one fixed value, so re-asking would just repeat it."""
+    from telethon.errors import PasswordHashInvalidError
+
+    from telegram_download_chat.core.qr_login import QrLoginError
+    from telegram_download_chat.core.qr_login import qr_login as login
+
+    qr = _qr()
+    qr.wait = AsyncMock(side_effect=SessionPasswordNeededError(request=None))
+    client = _client(qr)
+    client.sign_in = AsyncMock(side_effect=PasswordHashInvalidError(request=None))
+
+    with pytest.raises(QrLoginError):
+        await login(client, on_code=lambda url: None, password=lambda: "wrong")
+
+    assert client.sign_in.await_count == 1
+
+
+def test_timeout_is_a_qr_login_error():
+    from telegram_download_chat.core.qr_login import QrLoginError
+
+    assert issubclass(QrLoginTimeout, QrLoginError)

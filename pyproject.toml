@@ -28,6 +28,7 @@ classifiers = [
 dependencies = [
     "telethon>=1.43.0",
     "PyYAML>=6.0.0",
+    "qrcode>=7.4",
     "setuptools<81.0.0"
 ]
 

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
+from telegram_download_chat.core.auth_utils import NoSessionError
 
 try:  # GUI is optional
     from telegram_download_chat.gui.main import main as gui_main
@@ -216,6 +217,10 @@ async def async_main() -> int:
             else 1
         )
 
+    except NoSessionError:
+        # connect() already logged how to log in; a stack trace on top of it
+        # only hides the instruction (issue #91).
+        return 1
     except Exception as e:  # pragma: no cover - just logging
         downloader.logger.exception(f"An error occurred: {e}")
         return 1

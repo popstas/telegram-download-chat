@@ -957,6 +957,10 @@ class SettingsTab(QWidget):
             skip_validation: If True, skip session validation
             show_login: If True, force show the login UI
         """
+        # Tell the rest of the window, so a download is not started without a
+        # session: the startup validation path never emitted this before.
+        self.auth_state_changed.emit(bool(logged_in) and not show_login)
+
         # Force show login UI if requested
         if show_login:
             self.login_group.setVisible(True)

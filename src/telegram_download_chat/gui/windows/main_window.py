@@ -46,6 +46,11 @@ class MainWindow(QMainWindow):
         self.config = ConfigManager()
         self.worker_thread = None
         self._files_before_download = set()  # Track files before download starts
+        # Session state, kept in step with the Settings tab, so a download is
+        # never started without a login (the CLI subprocess cannot ask for one).
+        # None means "not known yet": the download then goes ahead and a real
+        # failure is reported honestly, rather than being blocked on a guess.
+        self._logged_in = None
         self._setup_ui()
         self._connect_signals()
         self._load_settings()
@@ -280,6 +285,17 @@ class MainWindow(QMainWindow):
             cmd_args: Command line arguments for the download
             output_dir: Output directory for downloaded files
         """
+        if self._logged_in is False:
+            QMessageBox.warning(
+                self,
+                "Not logged in",
+                "You are not logged in to Telegram.\n\n"
+                "Log in on the Settings tab, or run "
+                "`telegram-download-chat login --qr` in a terminal.",
+            )
+            self.tab_widget.setCurrentWidget(self.settings_tab)
+            return
+
         # Update UI immediately to show we're starting
         self.download_tab.start_btn.setEnabled(False)
         self.download_tab.stop_btn.setEnabled(True)
@@ -486,12 +502,15 @@ class MainWindow(QMainWindow):
         else:
             self.status_bar.showMessage(f"Fetched {fetched} messages")
 
-    def _on_worker_finished(self, files: List[str], was_stopped: bool):
+    def _on_worker_finished(
+        self, files: List[str], was_stopped: bool, exit_code: int = 0
+    ):
         """Handle worker thread completion.
 
         Args:
             files: List of downloaded files
             was_stopped: Whether the download was stopped by the user
+            exit_code: Exit code of the CLI subprocess (non-zero means failure)
         """
         # Update UI and reset progress
         self.download_tab._set_download_in_progress(False)
@@ -522,6 +541,16 @@ class MainWindow(QMainWindow):
                     f"Messages saved successfully! Found {len(files)} {file_word}.",
                     5000,
                 )
+        elif exit_code:
+            # Reporting success on a failed run is how "lost sys.stdin" reached
+            # a user as a bare traceback with "Download completed" beside it.
+            self.status_bar.showMessage("Download failed", 5000)
+            self.log_viewer.append(f"\nDownload failed (exit code {exit_code})")
+            QMessageBox.critical(
+                self,
+                "Download Failed",
+                "The download failed. Please check the log for details.",
+            )
         else:
             self.status_bar.showMessage("Download completed", 5000)
             self.log_viewer.append("\nDownload completed")
@@ -549,6 +578,8 @@ class MainWindow(QMainWindow):
         Args:
             is_authenticated: Whether the user is authenticated
         """
+        self._logged_in = bool(is_authenticated)
+
         # Update status bar
         status = "Authenticated" if is_authenticated else "Logged out"
         self.status_bar.showMessage(f"Telegram: {status}", 3000)

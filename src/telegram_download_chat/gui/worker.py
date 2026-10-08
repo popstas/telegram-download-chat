@@ -23,7 +23,7 @@ class WorkerThread(QThread):
     message_progress = Signal(int, str)  # fetched count, last message date (ISO)
     media_summary = Signal(dict)  # post-media-download summary counters
     comments_progress = Signal(int, int, int)  # posts_done, posts_total, comments
-    finished = Signal(list, bool)  # files, was_stopped_by_user
+    finished = Signal(list, bool, int)  # files, was_stopped_by_user, exit code
 
     def __init__(self, cmd_args, output_dir):
         """Initialize the worker thread.
@@ -205,6 +205,16 @@ class WorkerThread(QThread):
 
         self.progress.emit(current, self.current_max)
 
+    def _exit_code(self) -> int:
+        """The subprocess exit code, or 0 when it never started."""
+        process = getattr(self, "process", None)
+        if process is None:
+            return 0
+        code = process.poll()
+        if code is None:
+            code = getattr(process, "returncode", 0)
+        return int(code or 0)
+
     def run(self):
         """Run the worker thread."""
         files = []
@@ -227,6 +237,11 @@ class WorkerThread(QThread):
 
             self.process = subprocess.Popen(
                 cmd,
+                # The GUI may run without a console (pythonw/CREATE_NO_WINDOW),
+                # where an inherited stdin makes any prompt in the child fail
+                # with "lost sys.stdin". The CLI never prompts now; this makes
+                # sure it cannot wait on input either.
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -322,5 +337,6 @@ class WorkerThread(QThread):
                 except Exception:
                     pass
 
-            # Emit finished signal with collected files
-            self.finished.emit(files, self._stopped_by_user)
+            # Emit finished signal with collected files and the child's exit
+            # code, so the window can tell a failure from a success.
+            self.finished.emit(files, self._stopped_by_user, self._exit_code())

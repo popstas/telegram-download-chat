@@ -13,6 +13,8 @@ async def test_missing_session_is_reported_without_a_traceback():
     downloader = MagicMock()
     downloader.logger = MagicMock()
     downloader.config = {"settings": {}}
+    # A session was there when the download started; connect() finds it gone.
+    downloader.prepare_client = AsyncMock(return_value=True)
     downloader.set_stop_file = MagicMock()
     downloader.close = AsyncMock()
     downloader.cleanup_stop_file = MagicMock()

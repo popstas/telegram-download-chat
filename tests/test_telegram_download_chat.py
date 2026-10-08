@@ -43,6 +43,8 @@ def mock_downloader():
         mock_instance = mock_cls.return_value
         mock_instance.config = {}
         mock_instance.logger = MagicMock()
+        # The CLI checks for a session before downloading (see ensure_session).
+        mock_instance.prepare_client = AsyncMock(return_value=True)
         yield mock_instance
 
 

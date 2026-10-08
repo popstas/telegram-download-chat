@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from telegram_download_chat.core import TelegramChatDownloader
+from telegram_download_chat.core.auth_utils import NO_SESSION_MESSAGE
 from telegram_download_chat.core.qr_login import (
     DEFAULT_PASSWORD_ATTEMPTS,
     QrLoginError,
@@ -143,6 +144,90 @@ def _print_qr(url: str) -> None:
     print("Waiting for the code to be scanned...", flush=True)
 
 
+def _can_prompt() -> bool:
+    """Whether there is a terminal to ask the user anything."""
+    return sys.stdin is not None and sys.stdin.isatty()
+
+
+async def _log_in(downloader, *, qr: bool):
+    """Run the interactive login on an unauthorized client. Returns the user."""
+    if qr:
+        return await qr_login(
+            downloader.client,
+            on_code=_print_qr,
+            password=_prompt_password,
+            password_attempts=DEFAULT_PASSWORD_ATTEMPTS,
+            on_password_error=lambda msg: print(msg, file=sys.stderr),
+        )
+
+    phone = downloader.config.get("settings", {}).get("phone")
+    await downloader.client.start(
+        phone=phone or _prompt_phone,
+        code_callback=_prompt_code,
+        password=_prompt_password,
+    )
+    return await downloader.client.get_me()
+
+
+def _report_login_error(downloader, error: BaseException) -> None:
+    """Print one readable line; the traceback belongs in the debug log."""
+    if isinstance(error, (EOFError, KeyboardInterrupt)):
+        print("\nLogin cancelled.", file=sys.stderr)
+        return
+    if isinstance(error, (QrLoginError, NoTerminalError)):
+        print(str(error), file=sys.stderr)
+        return
+    downloader.logger.debug("Login failed", exc_info=True)
+    # EOFError and friends stringify to "", which left a bare "Login failed:".
+    print(f"Login failed: {str(error) or type(error).__name__}", file=sys.stderr)
+
+
+def _ask_how_to_log_in() -> Optional[bool]:
+    """Ask whether to log in now. Returns the ``qr`` flag, or None to refuse."""
+    try:
+        answer = input("No Telegram session. Log in now? [Y]es / [q]r / [n]o: ")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+    answer = answer.strip().lower()
+    if answer in ("q", "qr"):
+        return True
+    if answer in ("", "y", "yes"):
+        return False
+    return None
+
+
+async def ensure_session(downloader) -> bool:
+    """Make sure the downloader has a session, offering to log in on a terminal.
+
+    Returns whether a download may proceed. Without a terminal this only
+    reports what to do: the GUI runs downloads with ``stdin=DEVNULL`` and the
+    console-less Windows build has no stdin at all, where a prompt dies with
+    "lost sys.stdin" (issue #91). The client is left connected and authorized,
+    so the download's own ``connect()`` short-circuits on it.
+    """
+    if await downloader.prepare_client():
+        return True
+
+    if not _can_prompt():
+        downloader.logger.error(NO_SESSION_MESSAGE)
+        return False
+
+    qr = _ask_how_to_log_in()
+    if qr is None:
+        downloader.logger.error(NO_SESSION_MESSAGE)
+        return False
+
+    try:
+        user = await _log_in(downloader, qr=qr)
+    except (Exception, KeyboardInterrupt) as e:
+        _report_login_error(downloader, e)
+        return False
+
+    print(f"Logged in as {_describe(user)}")
+    return True
+
+
 async def run_login(
     *,
     qr: bool = False,
@@ -163,33 +248,12 @@ async def run_login(
             print(f"Already logged in as {_describe(me)}")
             return 0
 
-        if qr:
-            user = await qr_login(
-                downloader.client,
-                on_code=_print_qr,
-                password=_prompt_password,
-                password_attempts=DEFAULT_PASSWORD_ATTEMPTS,
-                on_password_error=lambda msg: print(msg, file=sys.stderr),
-            )
-        else:
-            phone = downloader.config.get("settings", {}).get("phone")
-            await downloader.client.start(
-                phone=phone or _prompt_phone,
-                code_callback=_prompt_code,
-                password=_prompt_password,
-            )
-            user = await downloader.client.get_me()
-
+        user = await _log_in(downloader, qr=qr)
         print(f"Logged in as {_describe(user)}")
         return 0
 
-    except (QrLoginError, NoTerminalError) as e:
-        print(str(e), file=sys.stderr)
-        return 1
-    except Exception as e:
-        downloader.logger.debug("Login failed", exc_info=True)
-        # EOFError and friends stringify to "", which left a bare "Login failed:".
-        print(f"Login failed: {str(e) or type(e).__name__}", file=sys.stderr)
+    except (Exception, KeyboardInterrupt) as e:
+        _report_login_error(downloader, e)
         return 1
     finally:
         await downloader.close()

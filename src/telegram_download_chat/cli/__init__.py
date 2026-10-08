@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from telegram_download_chat.core import DownloaderContext, TelegramChatDownloader
-from telegram_download_chat.core.auth_utils import NoSessionError
+from telegram_download_chat.core.auth_utils import ConfigurationError, NoSessionError
 
 try:  # GUI is optional
     from telegram_download_chat.gui.main import main as gui_main
@@ -33,6 +33,7 @@ from .commands import (
     filter_messages_by_subchat,
     split_messages_by_date,
 )
+from .login import ensure_session
 
 _downloader_ctx: DownloaderContext | None = None
 
@@ -168,6 +169,12 @@ async def async_main() -> int:
             downloader.logger.error("Chat identifier is required")
             return 1
 
+        # A terminal may log in here; the GUI's stdin-less subprocess may not.
+        # Reading a `.json` export back is offline, so it never asks.
+        if any(not chat_id.endswith(".json") for chat_id in chats):
+            if not await ensure_session(downloader):
+                return 1
+
         stop_file = Path(tempfile.gettempdir()) / "telegram_download_stop.tmp"
         if inspect.iscoroutinefunction(downloader.set_stop_file):
             await downloader.set_stop_file(str(stop_file))
@@ -217,6 +224,11 @@ async def async_main() -> int:
             else 1
         )
 
+    except ConfigurationError:
+        # prepare_client() already logged the message, which names
+        # my.telegram.org and the config file; a traceback over it only buries
+        # the instruction.
+        return 1
     except NoSessionError:
         # connect() already logged how to log in; a stack trace on top of it
         # only hides the instruction (issue #91).

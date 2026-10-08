@@ -17,6 +17,7 @@ def _downloader(authorized: bool):
     downloader = MagicMock()
     downloader.logger = MagicMock()
     downloader.prepare_client = AsyncMock(return_value=authorized)
+    downloader.close = AsyncMock()
     downloader.config = {"settings": {}}
     downloader.client = MagicMock()
     downloader.client.start = AsyncMock()
@@ -63,6 +64,8 @@ async def test_declining_the_offer_keeps_the_instruction():
 
     downloader.client.start.assert_not_called()
     assert "login" in downloader.logger.error.call_args[0][0]
+    # The client opened by the session check must not hold the session file.
+    downloader.close.assert_awaited()
 
 
 @pytest.mark.asyncio

@@ -209,20 +209,26 @@ async def ensure_session(downloader) -> bool:
     if await downloader.prepare_client():
         return True
 
-    if not _can_prompt():
-        downloader.logger.error(NO_SESSION_MESSAGE)
+    async def refuse(message: Optional[str] = NO_SESSION_MESSAGE) -> bool:
+        if message:
+            downloader.logger.error(message)
+        # The client prepare_client() opened never reaches the download's own
+        # context manager, so release the session file here.
+        await downloader.close()
         return False
+
+    if not _can_prompt():
+        return await refuse()
 
     qr = _ask_how_to_log_in()
     if qr is None:
-        downloader.logger.error(NO_SESSION_MESSAGE)
-        return False
+        return await refuse()
 
     try:
         user = await _log_in(downloader, qr=qr)
     except (Exception, KeyboardInterrupt) as e:
         _report_login_error(downloader, e)
-        return False
+        return await refuse(None)
 
     print(f"Logged in as {_describe(user)}")
     return True

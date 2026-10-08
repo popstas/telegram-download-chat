@@ -106,6 +106,11 @@ class AuthMixin:
         from telethon.errors import ApiIdInvalidError, PhoneNumberInvalidError
 
         if self.client and await self.client.is_user_authorized():
+            # `ensure_session` may have opened the session already, and
+            # `_fetch_self_info` below this branch would then never run: own
+            # messages are marked by `_self_id` and "me" resolves through it.
+            if getattr(self, "_self_id", None) is None:
+                await self._fetch_self_info()
             return
 
         is_authorized = await self.prepare_client()

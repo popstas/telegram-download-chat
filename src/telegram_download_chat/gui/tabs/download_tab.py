@@ -830,39 +830,6 @@ class DownloadTab(QWidget):
         """Stop the download process."""
         self.download_stopped.emit()
 
-    def on_download_finished(self, success: bool, was_stopped: bool = False):
-        """Handle download completion.
-
-        Args:
-            success: Whether the download completed successfully
-            was_stopped: Whether the download was stopped by the user
-        """
-        # Save settings first
-        self._save_settings()
-
-        # Update UI
-        self._set_download_in_progress(False)
-
-        if was_stopped:
-            # User stopped the download
-            QMessageBox.information(
-                self,
-                "Download Stopped",
-                "The download was stopped by the user. Partial results have been saved.",
-            )
-        elif success:
-            # Download completed successfully
-            QMessageBox.information(
-                self, "Download Complete", "The download has completed successfully!"
-            )
-        else:
-            # Download failed
-            QMessageBox.critical(
-                self,
-                "Download Failed",
-                "The download failed. Please check the log for details.",
-            )
-
     def update_progress(self, current: int, total: int):
         """Update the progress bar with download progress.
 

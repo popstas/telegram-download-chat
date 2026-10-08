@@ -4,14 +4,11 @@ import inspect
 class DownloaderContext:
     """Async context manager for :class:`TelegramChatDownloader`."""
 
-    def __init__(
-        self, downloader: "TelegramChatDownloader", *, cli: bool = False
-    ) -> None:
+    def __init__(self, downloader: "TelegramChatDownloader") -> None:
         self.downloader = downloader
-        self.cli = cli
 
     async def __aenter__(self) -> "TelegramChatDownloader":
-        await self.downloader.connect(cli=self.cli)
+        await self.downloader.connect()
         return self.downloader
 
     async def __aexit__(self, exc_type, exc, tb) -> None:

@@ -86,6 +86,21 @@ class TelegramAuthError(Exception):
     pass
 
 
+NO_SESSION_MESSAGE = (
+    "No Telegram session. Run `telegram-download-chat login` "
+    "(or `telegram-download-chat login --qr`), "
+    "or log in on the Settings tab of the GUI."
+)
+
+
+class NoSessionError(RuntimeError):
+    """Raised when an operation needs a session and no login is possible.
+
+    Downloads never prompt: the GUI runs them as a subprocess without stdin,
+    where Telethon's interactive ``start()`` dies with "lost sys.stdin".
+    """
+
+
 class TelegramAuth:
     """Handles Telegram authentication and session management."""
 

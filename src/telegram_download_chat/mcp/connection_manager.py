@@ -235,7 +235,7 @@ class TelegramConnectionManager:
 
         try:
             self._downloader = TelegramChatDownloader()
-            self._context = DownloaderContext(self._downloader, cli=False)
+            self._context = DownloaderContext(self._downloader)
             await self._context.__aenter__()
 
             self._connected = True

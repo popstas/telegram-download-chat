@@ -7,33 +7,22 @@ from telethon.errors import ChatIdInvalidError
 from telethon.tl.types import Channel, Chat, User
 
 from ..paths import get_app_dir
-from .auth_utils import TelegramAuth
+from .auth_utils import NO_SESSION_MESSAGE, NoSessionError, TelegramAuth
 
 
 class AuthMixin:
-    async def connect(
-        self,
-        phone: str = None,
-        code: str = None,
-        password: str = None,
-        *,
-        cli: bool = False,
-    ):
-        """Connect to Telegram using the configured API credentials."""
-        from telethon.errors import ApiIdInvalidError, PhoneNumberInvalidError
+    async def prepare_client(self) -> bool:
+        """Build the Telegram client from config and report session state.
 
-        if self.client and await self.client.is_user_authorized():
-            return
+        Returns whether the stored session is already authorized. Unlike
+        :meth:`connect` this never fails on a missing session, so the ``login``
+        command can use the client to authenticate.
+        """
+        from telethon.errors import ApiIdInvalidError
 
         settings = self.config.get("settings", {})
         api_id = settings.get("api_id")
         api_hash = settings.get("api_hash")
-        if phone is None:
-            phone = settings.get("phone")
-
-        session_file = str(get_app_dir() / "session.session")
-        request_delay = settings.get("request_delay", 1)
-        request_retries = settings.get("max_retries", 5)
 
         if not api_id or not api_hash:
             error_msg = (
@@ -42,32 +31,77 @@ class AuthMixin:
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
+        session_file = str(get_app_dir() / "session.session")
         self.logger.debug(f"Connecting to Telegram with API ID: {api_id}")
         self.logger.debug(f"Session file: {session_file}")
-
-        proxy_url = settings.get("proxy_url") or None
 
         try:
             self.telegram_auth = TelegramAuth(
                 api_id=int(api_id),
                 api_hash=api_hash,
                 session_path=Path(session_file),
-                proxy_url=proxy_url,
+                proxy_url=settings.get("proxy_url") or None,
             )
 
             await self.telegram_auth.initialize()
             self.client = self.telegram_auth.client
             is_authorized = self.telegram_auth.is_authenticated()
-            self.logger.debug(
-                f"Connection status: is_authorized={is_authorized}, phone={phone}"
-            )
+            self.logger.debug(f"Connection status: is_authorized={is_authorized}")
+            return is_authorized
 
-            if cli and not is_authorized:
-                self.logger.info("No session found, starting interactive login")
-                await self.client.start()
-                self.telegram_auth._is_authenticated = True
-                is_authorized = True
+        except ApiIdInvalidError as e:
+            error_msg = "Invalid API ID or API Hash. Please check your credentials."
+            self.logger.error(error_msg)
+            raise ValueError(error_msg) from e
+        except ValueError as e:
+            # A session file written by a newer Telethon (e.g. schema v8 with the
+            # tmp_auth_key column) cannot be read by an older installed Telethon,
+            # which unpacks `select * from sessions` into the wrong number of
+            # targets and raises "too many values to unpack". Turn the cryptic
+            # error into an actionable one instead of a generic connect failure.
+            if "too many values to unpack" in str(e):
+                error_msg = (
+                    "Your Telegram session was created by a newer version of "
+                    "Telethon than the one installed. Upgrade it with: "
+                    "pip install -U 'telethon>=1.43.0'"
+                )
+                self.logger.error(error_msg)
+                if getattr(self, "client", None):
+                    await self.client.disconnect()
+                raise RuntimeError(error_msg) from e
+            raise
+        except Exception as e:
+            error_msg = f"Failed to connect to Telegram: {str(e)}"
+            self.logger.error(error_msg)
+            if getattr(self, "client", None):
+                await self.client.disconnect()
+            raise RuntimeError(error_msg) from e
 
+    async def connect(
+        self,
+        phone: str = None,
+        code: str = None,
+        password: str = None,
+    ):
+        """Connect to Telegram using the configured API credentials.
+
+        A missing session raises :class:`NoSessionError`: logging in is
+        interactive and belongs to the ``login`` command or the GUI, not to a
+        download that may run without a terminal. ``phone`` must be passed
+        explicitly to request a code — a phone left in the config never does.
+        """
+        from telethon.errors import ApiIdInvalidError, PhoneNumberInvalidError
+
+        if self.client and await self.client.is_user_authorized():
+            return
+
+        is_authorized = await self.prepare_client()
+
+        if not is_authorized and not phone:
+            self.logger.error(NO_SESSION_MESSAGE)
+            raise NoSessionError(NO_SESSION_MESSAGE)
+
+        try:
             if phone and not code and not is_authorized:
                 self.phone_code_hash = await self.telegram_auth.request_code(phone)
                 return
@@ -95,23 +129,6 @@ class AuthMixin:
             )
             self.logger.error(error_msg)
             raise ValueError(error_msg) from e
-        except ValueError as e:
-            # A session file written by a newer Telethon (e.g. schema v8 with the
-            # tmp_auth_key column) cannot be read by an older installed Telethon,
-            # which unpacks `select * from sessions` into the wrong number of
-            # targets and raises "too many values to unpack". Turn the cryptic
-            # error into an actionable one instead of a generic connect failure.
-            if "too many values to unpack" in str(e):
-                error_msg = (
-                    "Your Telegram session was created by a newer version of "
-                    "Telethon than the one installed. Upgrade it with: "
-                    "pip install -U 'telethon>=1.43.0'"
-                )
-                self.logger.error(error_msg)
-                if hasattr(self, "client") and self.client:
-                    await self.client.disconnect()
-                raise RuntimeError(error_msg) from e
-            raise
         except Exception as e:
             error_msg = f"Failed to connect to Telegram: {str(e)}"
             self.logger.error(error_msg)

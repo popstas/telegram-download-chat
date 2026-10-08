@@ -16,7 +16,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Awaitable, Callable, List, Optional, Union
 
-from telethon.errors import SessionPasswordNeededError
+from telethon.errors import PasswordHashInvalidError, SessionPasswordNeededError
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,18 @@ QR_INSTALL_HINT = (
 )
 
 
-class QrLoginTimeout(TimeoutError):
+# Matches Telethon's own `start()`, which re-asks for the password twice more.
+DEFAULT_PASSWORD_ATTEMPTS = 3
+INVALID_PASSWORD_MESSAGE = (
+    "Incorrect two-step verification password. Please try logging in again."
+)
+
+
+class QrLoginError(RuntimeError):
+    """A QR login could not be completed, with a message meant for the user."""
+
+
+class QrLoginTimeout(QrLoginError, TimeoutError):
     """The QR code was never scanned within the allotted time."""
 
 
@@ -101,6 +112,8 @@ async def qr_login(
     on_code: Callable[[str], None],
     password: Optional[Callable[[], Union[str, Awaitable[str]]]] = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    password_attempts: int = 1,
+    on_password_error: Optional[Callable[[str], None]] = None,
 ):
     """Log in by QR code, refreshing the code until it is scanned.
 
@@ -111,12 +124,19 @@ async def qr_login(
         password: Returns the 2FA password; required only for accounts that
             have one. May be async.
         timeout: Overall budget, in seconds, for the user to scan the code.
+        password_attempts: How many times ``password`` is called on a wrong
+            password. One by default, which suits a caller that hands over a
+            value it cannot re-read (the GUI's Password field); a caller that
+            can prompt again passes ``DEFAULT_PASSWORD_ATTEMPTS``.
+        on_password_error: Called with a message between password attempts, so
+            the caller can tell the user before asking again.
 
     Returns:
         The logged-in Telethon ``User``.
 
     Raises:
         QrLoginTimeout: The code was not scanned in time.
+        QrLoginError: The password was wrong every time it was asked for.
         SessionPasswordNeededError: 2FA is on and no ``password`` was given.
     """
     loop = asyncio.get_running_loop()
@@ -146,4 +166,20 @@ async def qr_login(
             if password is None:
                 raise
             logger.debug("QR scan accepted, 2FA password required")
+            return await _sign_in_with_password(
+                client, password, password_attempts, on_password_error
+            )
+
+
+async def _sign_in_with_password(client, password, attempts, on_error) -> object:
+    """Sign in with the 2FA password, re-asking for it on a wrong one."""
+    for remaining in range(max(attempts, 1) - 1, -1, -1):
+        try:
             return await client.sign_in(password=await _resolve(password()))
+        except PasswordHashInvalidError:
+            logger.debug("2FA password rejected")
+            if not remaining:
+                raise QrLoginError(INVALID_PASSWORD_MESSAGE) from None
+            if on_error is not None:
+                on_error(f"Invalid password. Please try again ({remaining} left).")
+    raise AssertionError("unreachable")  # pragma: no cover

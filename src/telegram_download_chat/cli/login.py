@@ -18,7 +18,8 @@ from typing import List, Optional
 
 from telegram_download_chat.core import TelegramChatDownloader
 from telegram_download_chat.core.qr_login import (
-    QrLoginTimeout,
+    DEFAULT_PASSWORD_ATTEMPTS,
+    QrLoginError,
     qr_login,
     render_qr_ansi,
     render_qr_ascii,
@@ -167,6 +168,8 @@ async def run_login(
                 downloader.client,
                 on_code=_print_qr,
                 password=_prompt_password,
+                password_attempts=DEFAULT_PASSWORD_ATTEMPTS,
+                on_password_error=lambda msg: print(msg, file=sys.stderr),
             )
         else:
             phone = downloader.config.get("settings", {}).get("phone")
@@ -180,7 +183,7 @@ async def run_login(
         print(f"Logged in as {_describe(user)}")
         return 0
 
-    except (QrLoginTimeout, NoTerminalError) as e:
+    except (QrLoginError, NoTerminalError) as e:
         print(str(e), file=sys.stderr)
         return 1
     except Exception as e:

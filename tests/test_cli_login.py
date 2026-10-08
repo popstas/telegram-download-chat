@@ -239,3 +239,45 @@ async def test_code_login_owns_the_code_prompt():
 
     kwargs = downloader.client.start.await_args.kwargs
     assert kwargs["code_callback"] is login_mod._prompt_code
+
+
+@pytest.mark.asyncio
+async def test_qr_login_re_asks_for_a_wrong_password(capsys):
+    """A mistyped 2FA password must not end the login with a traceback."""
+    downloader = _downloader(authorized=False)
+    captured = {}
+
+    async def fake_qr_login(client, *, on_code, password=None, **kwargs):
+        captured.update(kwargs)
+        kwargs["on_password_error"]("Invalid password. Please try again (2 left).")
+        return MagicMock(username="popstas")
+
+    with patch(
+        "telegram_download_chat.cli.login.TelegramChatDownloader",
+        return_value=downloader,
+    ):
+        with patch("telegram_download_chat.cli.login.qr_login", new=fake_qr_login):
+            assert await run_login(qr=True) == 0
+
+    assert captured["password_attempts"] == 3
+    assert "Invalid password" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_qr_login_error_is_printed_without_a_traceback(capsys):
+    from telegram_download_chat.core.qr_login import QrLoginError
+
+    downloader = _downloader(authorized=False)
+
+    async def fake_qr_login(client, **kwargs):
+        raise QrLoginError("Incorrect two-step verification password.")
+
+    with patch(
+        "telegram_download_chat.cli.login.TelegramChatDownloader",
+        return_value=downloader,
+    ):
+        with patch("telegram_download_chat.cli.login.qr_login", new=fake_qr_login):
+            assert await run_login(qr=True) == 1
+
+    err = capsys.readouterr().err
+    assert err.strip() == "Incorrect two-step verification password."

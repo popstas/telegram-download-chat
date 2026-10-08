@@ -141,7 +141,17 @@ async def qr_login(
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
-    qr = await client.qr_login()
+    try:
+        qr = await client.qr_login()
+    except SessionPasswordNeededError:
+        # A previous attempt's scan was accepted and the session is still
+        # waiting for the 2FA password, so no new token is issued.
+        if password is None:
+            raise
+        logger.debug("QR scan already accepted, 2FA password required")
+        return await _sign_in_with_password(
+            client, password, password_attempts, on_password_error
+        )
 
     while True:
         remaining = deadline - loop.time()

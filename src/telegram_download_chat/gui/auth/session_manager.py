@@ -56,7 +56,7 @@ class SessionManager:
                 # This thread cannot prompt, so point at the field to fill in.
                 raise RuntimeError(
                     "Two-step verification is enabled. Enter your password in "
-                    "the Password field and scan the QR code again."
+                    "the Password field and click Log in with QR code again."
                 ) from e
 
             telegram_auth._is_authenticated = True

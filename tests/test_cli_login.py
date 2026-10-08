@@ -178,11 +178,11 @@ def test_phone_prompt_without_a_terminal_explains_itself():
 
 @pytest.mark.asyncio
 async def test_failure_without_a_message_still_names_the_error(capsys):
-    """EOFError and friends stringify to "", which printed a bare "Login failed:"."""
+    """Some exceptions stringify to "", which printed a bare "Login failed:"."""
     downloader = _downloader(authorized=False)
 
     async def fake_qr_login(client, **kwargs):
-        raise EOFError()
+        raise ConnectionResetError()
 
     with patch(
         "telegram_download_chat.cli.login.TelegramChatDownloader",
@@ -191,7 +191,7 @@ async def test_failure_without_a_message_still_names_the_error(capsys):
         with patch("telegram_download_chat.cli.login.qr_login", new=fake_qr_login):
             assert await run_login(qr=True) == 1
 
-    assert "EOFError" in capsys.readouterr().err
+    assert "ConnectionResetError" in capsys.readouterr().err
 
 
 @pytest.mark.asyncio
@@ -281,3 +281,17 @@ async def test_qr_login_error_is_printed_without_a_traceback(capsys):
 
     err = capsys.readouterr().err
     assert err.strip() == "Incorrect two-step verification password."
+
+
+@pytest.mark.asyncio
+async def test_ctrl_c_at_a_prompt_is_a_cancellation_not_a_failure(capsys):
+    downloader = _downloader(authorized=False)
+    downloader.client.start = AsyncMock(side_effect=KeyboardInterrupt)
+
+    with patch(
+        "telegram_download_chat.cli.login.TelegramChatDownloader",
+        return_value=downloader,
+    ):
+        assert await run_login(qr=False) == 1
+
+    assert "cancelled" in capsys.readouterr().err.lower()

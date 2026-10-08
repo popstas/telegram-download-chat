@@ -93,6 +93,23 @@ NO_SESSION_MESSAGE = (
 )
 
 
+CREDENTIALS_MESSAGE = (
+    "Telegram API credentials are missing or invalid. Get api_id and api_hash "
+    "at https://my.telegram.org/apps and put them in the config file "
+    "(`telegram-download-chat --show-config` prints its path), or fill them in "
+    "on the Settings tab of the GUI."
+)
+
+
+class ConfigurationError(ValueError):
+    """The configured credentials cannot be used, with a message that says why.
+
+    A ``ValueError`` for compatibility with callers that already expect one
+    from a bad config, but a distinct type so the CLI can report it as a single
+    line instead of a traceback.
+    """
+
+
 class NoSessionError(RuntimeError):
     """Raised when an operation needs a session and no login is possible.
 

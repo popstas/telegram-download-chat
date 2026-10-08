@@ -35,8 +35,11 @@ A powerful command-line, GUI and web interface utility to download and analyze T
 
 ### Login
 
-Log in once before the first download. Downloads never ask for credentials
-themselves, so they can run unattended and from the GUI.
+Log in once before the first download. In a terminal, a download without a
+session offers to log you in right there; everywhere else — the GUI, a cron job,
+the console-less Windows build — it never prompts and tells you to run `login`
+instead, so an unattended run fails with a message rather than waiting forever
+for an answer nobody can type.
 
 ```bash
 # Log in with a code from Telegram

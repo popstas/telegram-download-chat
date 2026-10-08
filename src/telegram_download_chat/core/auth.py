@@ -7,7 +7,13 @@ from telethon.errors import ChatIdInvalidError
 from telethon.tl.types import Channel, Chat, User
 
 from ..paths import get_app_dir
-from .auth_utils import NO_SESSION_MESSAGE, NoSessionError, TelegramAuth
+from .auth_utils import (
+    CREDENTIALS_MESSAGE,
+    NO_SESSION_MESSAGE,
+    ConfigurationError,
+    NoSessionError,
+    TelegramAuth,
+)
 
 
 class AuthMixin:
@@ -24,12 +30,19 @@ class AuthMixin:
         api_id = settings.get("api_id")
         api_hash = settings.get("api_hash")
 
-        if not api_id or not api_hash:
-            error_msg = (
-                "API ID or API Hash not found in config. Please check your config file."
-            )
-            self.logger.error(error_msg)
-            raise ValueError(error_msg)
+        # A first run writes `YOUR_API_ID` placeholders into the config, so an
+        # unedited config must say what to do rather than fail on int().
+        placeholders = {str(api_id), str(api_hash)} & {"YOUR_API_ID", "YOUR_API_HASH"}
+        if not api_id or not api_hash or placeholders:
+            self.logger.error(CREDENTIALS_MESSAGE)
+            raise ConfigurationError(CREDENTIALS_MESSAGE)
+
+        try:
+            api_id = int(str(api_id).strip())
+        except (TypeError, ValueError) as e:
+            message = f"{CREDENTIALS_MESSAGE} api_id must be a number, got {api_id!r}."
+            self.logger.error(message)
+            raise ConfigurationError(message) from e
 
         session_file = str(get_app_dir() / "session.session")
         self.logger.debug(f"Connecting to Telegram with API ID: {api_id}")
@@ -37,7 +50,7 @@ class AuthMixin:
 
         try:
             self.telegram_auth = TelegramAuth(
-                api_id=int(api_id),
+                api_id=api_id,
                 api_hash=api_hash,
                 session_path=Path(session_file),
                 proxy_url=settings.get("proxy_url") or None,

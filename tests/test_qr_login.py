@@ -80,6 +80,23 @@ async def test_two_factor_password_is_requested_and_used():
 
 
 @pytest.mark.asyncio
+async def test_retry_after_scan_goes_straight_to_the_password():
+    # The previous attempt's scan was accepted, so the session is waiting
+    # for 2FA and Telegram refuses to issue a new token.
+    user = MagicMock()
+    client = MagicMock()
+    client.qr_login = AsyncMock(side_effect=SessionPasswordNeededError(request=None))
+    client.sign_in = AsyncMock(return_value=user)
+    shown = []
+
+    result = await qr_login(client, on_code=shown.append, password=lambda: "hunter2")
+
+    assert result is user
+    assert shown == []
+    client.sign_in.assert_awaited_once_with(password="hunter2")
+
+
+@pytest.mark.asyncio
 async def test_two_factor_without_a_password_callback_raises():
     qr = _qr()
     qr.wait = AsyncMock(side_effect=SessionPasswordNeededError(request=None))

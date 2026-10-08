@@ -33,7 +33,28 @@ A powerful command-line, GUI and web interface utility to download and analyze T
 
 ## Usage
 
-For the first run, you will need to log in to your Telegram account. A browser window will open for authentication.
+### Login
+
+Log in once before the first download. Downloads never ask for credentials
+themselves, so they can run unattended and from the GUI.
+
+```bash
+# Log in with a code from Telegram
+telegram-download-chat login
+
+# Log in by scanning a QR code with an app you are already logged into
+telegram-download-chat login --qr
+```
+
+The login code is delivered by Telegram, and for third-party clients it usually
+arrives **in the Telegram app, in the chat named "Telegram"** rather than by
+SMS. If no code arrives at all, use `login --qr`: the code is confirmed from a
+device where you are already logged in, so it does not depend on SMS. Add
+`--debug` to see how Telegram chose to deliver the code.
+
+In the GUI, the same two options live on the Settings tab: fill in the phone and
+code, or press "Log in with QR code". For accounts with two-step verification,
+fill the Password field before scanning.
 
 ### Basic Commands
 

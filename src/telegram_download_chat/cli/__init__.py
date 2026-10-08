@@ -252,6 +252,19 @@ def main() -> int:
     """Synchronous entry point for the CLI."""
     configure_console_utf8()
     setup_signal_handlers()
+    if len(sys.argv) >= 2 and sys.argv[1] == "login":
+        from .login import parse_login_args, run_login
+
+        opts = parse_login_args(sys.argv[2:])
+        return asyncio.run(
+            run_login(
+                qr=opts.qr,
+                config=opts.config,
+                debug=opts.debug,
+                proxy_url=opts.proxy_url,
+            )
+        )
+
     if (len(sys.argv) >= 2 and sys.argv[1] == "gui") or len(sys.argv) == 1:
         if gui_main is not None:
             try:

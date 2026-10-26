@@ -747,7 +747,9 @@ class SettingsTab(QWidget):
         try:
             # Update UI first to show success state
             success_msg = (
-                f"Verification code sent to {phone}. Please check your messages."
+                f"Verification code sent to {phone}. It usually arrives in the "
+                '"Telegram" chat of an app where you are logged in.\n\n'
+                'If it does not arrive, use "Log in with QR code" instead.'
             )
             if hasattr(self, "log_view"):
                 self.log_view.append(success_msg)

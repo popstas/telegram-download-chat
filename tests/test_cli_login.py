@@ -225,6 +225,18 @@ def test_code_prompt_without_a_terminal_explains_itself():
             login_mod._prompt_code()
 
 
+def test_code_prompt_points_to_qr_login(capsys):
+    """Telegram may report a code as sent and never deliver it (issue #91)."""
+    from telegram_download_chat.cli import login as login_mod
+
+    tty = MagicMock()
+    tty.isatty.return_value = True
+    with patch("sys.stdin", tty), patch("builtins.input", return_value="12345"):
+        assert login_mod._prompt_code() == "12345"
+
+    assert "login --qr" in capsys.readouterr().out
+
+
 @pytest.mark.asyncio
 async def test_code_login_owns_the_code_prompt():
     downloader = _downloader(authorized=False)

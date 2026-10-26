@@ -55,6 +55,12 @@ SMS. If no code arrives at all, use `login --qr`: the code is confirmed from a
 device where you are already logged in, so it does not depend on SMS. Add
 `--debug` to see how Telegram chose to deliver the code.
 
+Since September 2026 Telegram sometimes reports the code as sent to the app
+(`--debug` shows `SentCodeTypeApp` with `next_type=None`) and then never
+delivers it, on any device ([#91](https://github.com/popstas/telegram-download-chat/issues/91)).
+The app cannot change how Telegram delivers codes, so QR login is the
+way in for such accounts.
+
 In the GUI, the same two options live on the Settings tab: fill in the phone and
 code, or press "Log in with QR code". For accounts with two-step verification,
 fill the Password field before scanning.

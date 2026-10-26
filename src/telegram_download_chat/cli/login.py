@@ -90,6 +90,12 @@ def _prompt_code() -> str:
             "Cannot ask for the login code: this command is not running in a "
             f"terminal. Run it in a real terminal, {_GUI_HINT}."
         )
+    # Telegram may report the code as sent and never deliver it (issue #91).
+    print(
+        'The code usually arrives in the "Telegram" chat of an app where you '
+        "are logged in.\nIf it does not arrive, press Ctrl+C and run: "
+        "telegram-download-chat login --qr"
+    )
     return input("Please enter the code you received: ")
 
 

@@ -163,33 +163,52 @@ def split_messages_by_date(messages: List[Any], split_by: str) -> Dict[str, List
     return split_messages
 
 
-def filter_messages_by_subchat(
-    messages: List[Dict[str, Any]], subchat_id: str
-) -> List[Dict[str, Any]]:
-    """Filter messages by reply_to_msg_id or reply_to_top_id."""
+def parse_subchat_id(subchat_id: str) -> int:
+    """Return the thread root id from a ``--subchat`` value (id or t.me/c URL)."""
     if subchat_id.startswith("https://t.me/c/"):
         parts = subchat_id.strip("/").split("/")
         if len(parts) >= 3:
             try:
-                target_id = int(parts[-1])
+                return int(parts[-1])
             except ValueError as exc:
                 raise ValueError(f"Invalid message ID in URL: {subchat_id}") from exc
-        else:
-            raise ValueError(f"Invalid Telegram chat URL format: {subchat_id}")
+        raise ValueError(f"Invalid Telegram chat URL format: {subchat_id}")
+    try:
+        return int(subchat_id)
+    except ValueError as exc:
+        raise ValueError(f"Invalid message ID format: {subchat_id}") from exc
+
+
+def _reply_header(msg: Any) -> Dict[str, Any]:
+    """Return a message's reply header as a dict (dict or Telethon message)."""
+    if isinstance(msg, dict):
+        reply_to = msg.get("reply_to")
     else:
-        try:
-            target_id = int(subchat_id)
-        except ValueError as exc:
-            raise ValueError(f"Invalid message ID format: {subchat_id}") from exc
+        reply_to = getattr(msg, "reply_to", None)
+        if reply_to is not None and hasattr(reply_to, "to_dict"):
+            reply_to = reply_to.to_dict()
+    return reply_to if isinstance(reply_to, dict) else {}
+
+
+def filter_messages_by_subchat(messages: List[Any], subchat_id: str) -> List[Any]:
+    """Keep a thread: its root message plus replies by reply_to_msg_id/top_id.
+
+    Accepts JSON dicts and Telethon messages alike, since a live download mixes
+    resumed partial-file dicts with freshly fetched messages.
+    """
+    target = str(parse_subchat_id(subchat_id))
 
     filtered = []
     for msg in messages:
-        reply_to = msg.get("reply_to")
-        if not reply_to:
+        msg_id = msg.get("id") if isinstance(msg, dict) else getattr(msg, "id", None)
+        if str(msg_id) == target:
+            filtered.append(msg)
             continue
-        if str(reply_to.get("reply_to_msg_id")) == str(target_id) or str(
-            reply_to.get("reply_to_top_id")
-        ) == str(target_id):
+        reply_to = _reply_header(msg)
+        if (
+            str(reply_to.get("reply_to_msg_id")) == target
+            or str(reply_to.get("reply_to_top_id")) == target
+        ):
             filtered.append(msg)
     return filtered
 
@@ -603,6 +622,20 @@ async def process_chat_download(
             )
         else:
             download_kwargs["since_id"] = since_id
+
+    if args.subchat:
+        # A supergroup thread (forum topic or reply thread) can be fetched
+        # server-side instead of walking the whole chat. Not for broadcast
+        # channels: their replies live in the linked discussion group, another
+        # peer and id space. Other chats keep the full scan + filter below.
+        thread_entity = await downloader.get_entity(chat_identifier)
+        if isinstance(thread_entity, Channel) and getattr(
+            thread_entity, "megagroup", False
+        ):
+            download_kwargs["reply_to"] = parse_subchat_id(args.subchat)
+            downloader.logger.info(
+                f"Downloading only thread {download_kwargs['reply_to']}"
+            )
 
     messages = await downloader.download_chat(**download_kwargs)
     downloader.logger.debug(f"Downloaded {len(messages)} messages")
@@ -1205,6 +1238,7 @@ __all__ = [
     "_dedup_messages",
     "split_messages_by_date",
     "filter_messages_by_subchat",
+    "parse_subchat_id",
     "analyze_keywords",
     "save_messages_with_status",
     "save_txt_with_status",

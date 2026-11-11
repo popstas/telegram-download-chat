@@ -139,7 +139,7 @@ python main.py  # Launches GUI by default
 - `log_file` in config resolves relative paths against the app dir (not the cwd); default is `<app dir>/app.log`.
 
 ### Filtering & Splitting
-- `--subchat`: Extract message threads/replies
+- `--subchat`: Extract one thread (reply thread or forum topic) by root id or `t.me/c/<chat>/<id>` URL; the root message is kept too. Works on a JSON export and on a live download with `-o`. Live, a supergroup thread is fetched server-side (`download_chat(reply_to=…)` → `messages.getReplies`, plus the root by id if the listing omits it) instead of walking the whole chat; broadcast channels and other chats keep the full scan. `filter_messages_by_subchat` still runs afterwards and accepts both dicts and Telethon messages, because a resumed partial mixes the two.
 - `--split`: Split output by month/year
 - `--user`: Filter by specific sender
 - `--max-date`: Messages on or before this date

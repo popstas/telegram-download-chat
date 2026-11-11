@@ -89,7 +89,7 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
     parser.add_argument(
         "--subchat",
         type=str,
-        help="Filter messages for txt by subchat id or URL (only for JSON to TXT conversion)",
+        help="Keep only one thread (reply thread or forum topic) by its root message id or t.me/c URL; a live download needs -o",
     )
     parser.add_argument(
         "--subchat-name",

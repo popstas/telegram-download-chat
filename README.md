@@ -105,8 +105,8 @@ telegram-download-chat group_username --user 123456
 # Filter messages containing given keywords (comma-separated, case-insensitive)
 telegram-download-chat username --keywords "hello,bye"
 
-# Download messages from a specific thread/reply chain
-telegram-download-chat group_username --subchat 12345
+# Download only one thread/reply chain or forum topic (live download needs -o)
+telegram-download-chat group_username --subchat 12345 -o thread.json
 
 # Specify custom output file
 telegram-download-chat username -o custom_output.json
@@ -188,7 +188,7 @@ options:
   --min-date DATE       Only download messages on or after this date (format: YYYY-MM-DD). Aliases: --until
   --max-date DATE       Only download messages on or before this date (format: YYYY-MM-DD). Aliases: --from
   --last-days DAYS      Number of days back from --max-date (or today) to download
-  --subchat SUBCHAT     Filter messages by thread/reply chain (message ID or URL)
+  --subchat SUBCHAT     Keep one thread or forum topic (message ID or URL)
   --subchat-name NAME   Custom name for subchat directory
   --user USER           Filter messages by sender ID
   -c, --config CONFIG   Path to config file
@@ -465,14 +465,14 @@ telegram-download-chat username --min-date 2026-01-01 --keywords "после,hel
 ```
 
 ### Subchat Extraction
-Extract conversations from specific threads or reply chains:
+Extract a reply thread or a forum topic, together with its first message:
 
 ```bash
-# Extract messages from a specific thread
-telegram-download-chat group_username --subchat 12345 --subchat-name "Important Discussion"
+# From an existing export
+telegram-download-chat ./group/messages.json --subchat 12345 --subchat-name "Important Discussion"
 
-# Or use a direct message URL
-telegram-download-chat group_username --subchat "https://t.me/c/123456789/12345"
+# Live: in a supergroup or forum only the thread itself is downloaded, not the whole chat
+telegram-download-chat group_username --subchat "https://t.me/c/123456789/12345" -o topic.json
 ```
 
 ### Voice Transcription (Speech-to-Text)

@@ -623,6 +623,20 @@ async def process_chat_download(
         else:
             download_kwargs["since_id"] = since_id
 
+    if args.subchat:
+        # A supergroup thread (forum topic or reply thread) can be fetched
+        # server-side instead of walking the whole chat. Not for broadcast
+        # channels: their replies live in the linked discussion group, another
+        # peer and id space. Other chats keep the full scan + filter below.
+        thread_entity = await downloader.get_entity(chat_identifier)
+        if isinstance(thread_entity, Channel) and getattr(
+            thread_entity, "megagroup", False
+        ):
+            download_kwargs["reply_to"] = parse_subchat_id(args.subchat)
+            downloader.logger.info(
+                f"Downloading only thread {download_kwargs['reply_to']}"
+            )
+
     messages = await downloader.download_chat(**download_kwargs)
     downloader.logger.debug(f"Downloaded {len(messages)} messages")
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from telethon.errors import FloodWaitError
-from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.tl.functions.messages import GetHistoryRequest, GetRepliesRequest
 
 from ..partial import PartialDownloadManager
 from .progress import emit_progress
@@ -30,7 +30,14 @@ class DownloadMixin:
         until_date: Optional[str] = None,
         from_date: Optional[str] = None,
         since_id: Optional[int] = None,
+        reply_to: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
+        """Page a chat's history backwards.
+
+        ``reply_to`` fetches only one thread (a forum topic or a reply thread)
+        via ``messages.getReplies``, plus its root message, which the replies
+        listing does not include.
+        """
         if not self.client:
             await self.connect()
 
@@ -98,19 +105,22 @@ class DownloadMixin:
                     self.logger.info("Stop requested, breaking download loop...")
                 break
 
+            page_kwargs = dict(
+                peer=entity,
+                offset_id=offset_id,
+                offset_date=offset_date,
+                add_offset=0,
+                limit=request_limit,
+                max_id=0,
+                min_id=since_id or 0,
+                hash=0,
+            )
             try:
-                history = await self.client(
-                    GetHistoryRequest(
-                        peer=entity,
-                        offset_id=offset_id,
-                        offset_date=offset_date,
-                        add_offset=0,
-                        limit=request_limit,
-                        max_id=0,
-                        min_id=since_id or 0,
-                        hash=0,
-                    )
-                )
+                if reply_to is not None:
+                    request = GetRepliesRequest(msg_id=reply_to, **page_kwargs)
+                else:
+                    request = GetHistoryRequest(**page_kwargs)
+                history = await self.client(request)
             except FloodWaitError as e:
                 wait = e.seconds + 1
                 if not silent:
@@ -221,6 +231,18 @@ class DownloadMixin:
             if total_limit > 0 and total_fetched >= total_limit:
                 break
 
+        if (
+            reply_to is not None
+            and reply_to not in existing_ids
+            and not self._stop_requested
+        ):
+            root = await self.client.get_messages(entity, ids=reply_to)
+            if root is not None and self._in_date_window(
+                getattr(root, "date", None), until_parsed, from_parsed
+            ):
+                existing_ids.add(reply_to)
+                all_messages.append(root)
+
         if output_file and save_partial and all_messages:
             self._save_partial_messages(all_messages, output_path)
 
@@ -228,6 +250,23 @@ class DownloadMixin:
             all_messages = all_messages[:total_limit]
 
         return all_messages
+
+    @staticmethod
+    def _in_date_window(
+        msg_date: Optional[datetime],
+        until_parsed: Optional[datetime],
+        from_parsed: Optional[datetime],
+    ) -> bool:
+        """Whether a date falls inside the --min-date/--max-date window."""
+        if msg_date is None:
+            return True
+        if msg_date.tzinfo is None:
+            msg_date = msg_date.replace(tzinfo=timezone.utc)
+        if until_parsed and msg_date.date() < until_parsed.date():
+            return False
+        if from_parsed and msg_date.date() > from_parsed.date():
+            return False
+        return True
 
     def get_temp_file_path(self, output_file: Path) -> Path:
         return self.partial_manager.get_temp_file_path(output_file)

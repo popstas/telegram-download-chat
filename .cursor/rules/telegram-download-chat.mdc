@@ -92,7 +92,7 @@ Source of truth: `src/telegram_download_chat/cli/arguments.py`. Run `telegram-do
 
 - `--user` — sender identifier (`12345` or `user12345`). **Caveat:** it only actually *filters* when converting a Telegram Desktop **archive** export (a JSON dict containing `about`/`chats`). For a normal message-list JSON it does NOT filter — it only tags the output filename (`..._user_<id>.txt`). Live downloads ignore it entirely. To restrict a normal export to one sender, filter the JSON yourself.
 - `--keywords` — comma-separated keywords to search in messages.
-- `--subchat` — filter to a subchat/reply thread by message id or URL. Works on JSON→TXT conversion, and on live downloads when combined with `-o/--output` (without `-o`, an existing `.json` input is required).
+- `--subchat` — keep one reply thread or forum topic (its first message included) by message id or `t.me/c/<chat>/<id>` URL. Works on JSON→TXT conversion, and on live downloads when combined with `-o/--output` (without `-o`, an existing `.json` input is required). Live, in a supergroup/forum only that thread is fetched, not the whole chat; if a `<output>.part.jsonl` from an earlier whole-chat run sits next to `-o`, delete it or pass `--overwrite`, or newer thread messages are missed.
 - `--subchat-name` — name for the subchat directory (default: `subchat_<subchat_id>`).
 
 ### Sort

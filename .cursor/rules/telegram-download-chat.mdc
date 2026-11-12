@@ -47,7 +47,7 @@ The positional `CHAT` argument selects the mode (see `cli/__init__.py`):
 
 ### Step 3 — Build the command from intent
 
-Map the user's request to flags (full reference below). Common building blocks: `-o/--output`, `-l/--limit`, date range (`--max-date/--from`, `--min-date/--until`, `--last-days`), `--user`, `--keywords`, `--subchat`, `--split`, `--media`, `--comments`, `--stt`, `--html`, `--pdf`. Add `--results-json` whenever you need to parse the outcome programmatically.
+Map the user's request to flags (full reference below). Common building blocks: `-o/--output`, `-l/--limit`, date range (`--max-date/--from`, `--min-date/--until`, `--last-days`), `--user`, `--keywords`, `--subchat`, `--unread`, `--split`, `--media`, `--comments`, `--stt`, `--html`, `--pdf`. Add `--results-json` whenever you need to parse the outcome programmatically.
 
 ### Step 4 — Run it
 
@@ -84,6 +84,7 @@ Source of truth: `src/telegram_download_chat/cli/arguments.py`. Run `telegram-do
 
 - `-l`, `--limit` — maximum number of messages to download (default: `0` = no limit).
 - `--since-id` — start downloading after the specified message ID.
+- `--unread` — only the messages after the account's read position in the chat (nothing is marked as read; the output is replaced, not appended to; without `-o` it goes to `<chat>/messages_unread.json`, so the full `messages.json` export is left alone). A chat you are not a member of fails with an error. Incompatible with `--since-id` and with a `.json` input. `--results-json` adds `unread_count`, `read_inbox_max_id` and `unread_downloaded` (incoming messages saved; own messages after the read position are kept as context but not counted). With nothing unread it downloads nothing and exits 0. Forums: `--subchat <topic>` uses that topic's read position; without it, every topic with unread messages is included, each from its own position (`unread_topics` in the results). `--limit N` keeps the N newest unread.
 - `--max-date`, `--from` — only messages on or before this date (`YYYY-MM-DD`). Also the base date for `--last-days`.
 - `--min-date`, `--until` — only messages on or after this date (`YYYY-MM-DD`).
 - `--last-days` — number of days back from `--max-date` (or today) to download.

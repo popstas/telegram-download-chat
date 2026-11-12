@@ -29,6 +29,7 @@ A powerful command-line, GUI and web interface utility to download and analyze T
 - Filter messages by specific users
 - Filter saved messages by keywords
 - Filter messages by sub-conversations from message threads
+- Download only the unread messages of a chat (`--unread`)
 
 
 ## Usage
@@ -164,6 +165,9 @@ telegram-download-chat username --preset short
 
 # Resume download starting after a specific message ID
 telegram-download-chat username --since-id 5000
+
+# Only what you have not read yet, with media (nothing is marked as read)
+telegram-download-chat @username --unread --media -o unread.json --results-json
 ```
 
 ### Command Line Options
@@ -185,6 +189,8 @@ options:
   -o, --output OUTPUT    Output file path (default: chat_<chat_id>.json)
   -l, --limit LIMIT     Maximum number of messages to download (default: 0 - no limit)
   --since-id SINCE_ID  Start downloading after this message ID
+  --unread              Only messages after your read position (forum: per topic);
+                        nothing is marked as read; incompatible with --since-id
   --min-date DATE       Only download messages on or after this date (format: YYYY-MM-DD). Aliases: --until
   --max-date DATE       Only download messages on or before this date (format: YYYY-MM-DD). Aliases: --from
   --last-days DAYS      Number of days back from --max-date (or today) to download
@@ -463,6 +469,21 @@ Use `--keywords` to save only messages that contain at least one of the given wo
 # Save only messages containing "после" or "hello"
 telegram-download-chat username --min-date 2026-01-01 --keywords "после,hello"
 ```
+
+### Unread Messages
+`--unread` downloads only what the logged-in account has not read yet. The cursor is the chat's read position (`read_inbox_max_id` of the dialog), not the output file:
+
+```bash
+telegram-download-chat @username --unread --media -o unread.json --results-json
+```
+
+- Nothing is marked as read: the chat stays unread in Telegram after the run.
+- Without `-o`, the output goes to `<chat>/messages_unread.json`, so the chat's full export in `messages.json` is never overwritten. The output is replaced with the unread messages rather than appended to. `--since-id` cannot be combined with it, and neither can a `.json` export as input.
+- Your own messages sent after the read position are kept as context, but they are not unread. `--results-json` reports `unread_count` and `read_inbox_max_id` as Telegram gives them, plus `unread_downloaded`, the number of incoming messages actually saved.
+- With no unread messages, nothing is downloaded and the existing output is left untouched. The run still exits with 0 and reports `"messages": 0, "unread_count": 0`.
+- `--limit N` keeps the N newest unread messages. The other filters, `--media`, `--html`/`--pdf` and `--split` work as usual.
+- Forums keep a read position per topic, and the counters of the forum as a whole do not match them. With `--subchat <topic>`, that topic's own read position is used. Without `--subchat`, every topic that has unread messages is included: the download starts at the oldest such position, and each message is kept only if it is newer than its own topic's position. `unread_topics` in `--results-json` lists those topics. A long-unread topic therefore makes the whole forum download from that point on. A reply thread has no read position of its own: outside a forum the chat's position is used, inside one the per-topic positions are.
+- The chat must be one you are a member of. For a channel you have not joined, the run fails with an error rather than reporting zero unread.
 
 ### Subchat Extraction
 Extract a reply thread or a forum topic, together with its first message:

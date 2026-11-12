@@ -18,6 +18,7 @@ class CLIOptions:
     output: Optional[str] = None
     limit: int = 0
     since_id: Optional[int] = None
+    unread: bool = False
     config: Optional[str] = None
     debug: bool = False
     show_config: bool = False
@@ -73,6 +74,15 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         "--since-id",
         type=int,
         help="Start downloading after the specified message ID",
+    )
+    parser.add_argument(
+        "--unread",
+        action="store_true",
+        help=(
+            "Download only the messages after your read position in the chat "
+            "(forum: per topic). Nothing is marked as read. Replaces the output "
+            "instead of appending to it; incompatible with --since-id"
+        ),
     )
     parser.add_argument(
         "-c",
@@ -249,6 +259,9 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
     )
 
     args = parser.parse_args(argv)
+    error = unread_conflict(args)
+    if error:
+        parser.error(error)
 
     chat_list: List[str] = []
     if args.chat:
@@ -260,4 +273,23 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
     return CLIOptions(**args_dict)
 
 
-__all__ = ["CLIOptions", "parse_args"]
+def unread_conflict(args: object) -> Optional[str]:
+    """Why ``--unread`` cannot run with these options, or ``None``.
+
+    Checked again after a preset is applied, since a preset may set
+    ``since_id`` on top of a parsed ``--unread``.
+    """
+    if not getattr(args, "unread", False):
+        return None
+    if getattr(args, "since_id", None) is not None:
+        return (
+            "--unread takes its cursor from the chat; do not combine it with --since-id"
+        )
+    chats = list(getattr(args, "chats", None) or [])
+    chats += str(getattr(args, "chat", "") or "").split(",")
+    if any(c.strip().endswith(".json") for c in chats):
+        return "--unread needs a live chat, not a JSON export"
+    return None
+
+
+__all__ = ["CLIOptions", "parse_args", "unread_conflict"]

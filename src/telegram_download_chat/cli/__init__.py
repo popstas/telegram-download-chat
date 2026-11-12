@@ -27,7 +27,7 @@ from telegram_download_chat.paths import (
 )
 
 from . import commands
-from .arguments import CLIOptions, parse_args
+from .arguments import CLIOptions, parse_args, unread_conflict
 from .commands import (
     analyze_keywords,
     filter_messages_by_subchat,
@@ -129,6 +129,10 @@ async def async_main() -> int:
         from telegram_download_chat.core.presets import apply_preset
 
         apply_preset(preset_config, args)
+    error = unread_conflict(args)
+    if error:
+        downloader.logger.error(error)
+        return 1
     if args.proxy_url:
         downloader.config.setdefault("settings", {})["proxy_url"] = args.proxy_url
     downloader._no_fast_download = bool(args.no_fast_download)
